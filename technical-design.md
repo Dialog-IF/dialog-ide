@@ -613,11 +613,7 @@ The format follows the established dialog-tool skein file specification:
 
 #### Format Structure
 ```
-Skein File Version: 1.0
-Project: myproject
-Generated: 2026-08-01T12:00:00Z
 seed: 1234567890
-
 ---- 
 id: 0
 command: START

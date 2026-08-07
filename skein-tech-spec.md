@@ -19,6 +19,12 @@ The skein represents the interactive user interface itself, while the Skein engi
 }
 ```
 
+### Skein Header
+The skein file header contains metadata about the session, including:
+- **engine**: The interpreter engine used for this session ("dgdebug", "frotz", or "frotz-release")
+- **seed**: Random seed value used for game state initialization
+- The engine key should be stored in the header and defaults to "dgdebug" if omitted
+
 ### Knot Structure
 ```json
 {
