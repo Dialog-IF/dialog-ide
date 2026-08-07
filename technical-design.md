@@ -540,6 +540,67 @@ Web interpreter packaging workflow:
 - Packaging of projects for web deployment
 - Export workflow enhancement
 
+#### Web Bundle Contents
+The web bundle includes:
+- HTML title page with project information
+- Game file (.z8, .zblorb, or .aa) 
+- HTML/JavaScript player page generated via aambundle command
+- All necessary resources for standalone web execution
+
+### 5. ANSI Escape Sequence Handling
+The IDE properly handles ANSI escape sequences in game output:
+
+#### Terminal Output Processing
+- Support for ANSI color and formatting codes in terminal output
+- Proper handling of cursor positioning and screen clearing
+- Integration with the skein's ANSI formatting support
+
+#### Input Detection
+The engines use the first two characters to identify expected input:
+- First character: indicates type of input expected (e.g., '>', '?', etc.)
+- Second character: additional context for input type (e.g., key press, line input)
+- IDE interprets these to determine when to send input and what type of input to provide
+
+### 6. Test Runner Integration
+The IDE includes a test runner that executes unit tests:
+
+#### Test Execution
+- Automated execution of unit tests defined in the project
+- Integration with testing framework (likely based on Dialog's test conventions)
+- Results display showing pass/fail status and error details
+- Ability to run individual tests or entire test suites
+- Integration with IDE's debugging capabilities for test failure investigation
+
+### 7. Dialog-Skein Implementation Details
+
+#### Engine Communication Protocol
+The IDE implements the full dialog-skein protocol for communication with engines:
+
+##### Input/Output Processing
+- Proper handling of engine prompts and input expectations
+- Recognition of first two characters to identify input type:
+  - '>' for line input (standard user command)
+  - '?' for single-key input (confirmation, choice)
+  - Other special characters for different input modes
+- Correctly parsing output streams to separate game text from control sequences
+
+##### ANSI Support
+- Full ANSI escape sequence support for color and formatting
+- Proper terminal emulation for games that rely on colored text
+- Integration with IDE's theme system for consistent appearance
+
+##### State Management
+- Tracking of engine state through the conversation
+- Synchronization between IDE's internal state and engine's actual state
+- Handling of engine restarts and replays
+
+#### Resource Management in Web Bundles
+Web bundles created by aambundle include:
+- All necessary game assets (images, sounds, etc.) 
+- Properly configured HTML/JavaScript player that handles the game flow
+- Embedded configuration files for proper game execution
+- Responsive design elements for various screen sizes
+
 ## File Format Specifications
 
 ### 1. Skein File Format (Text-based)
