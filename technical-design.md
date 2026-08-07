@@ -174,11 +174,16 @@ The SkeinTree supports a finite set of operations that each return a new SkeinTr
    - Deletes a knot and reparents its children to the parent knot
    - Returns a new SkeinTree with the knot spliced out
 
-7. **setLabel(id: number, label: string | null)**: 
+7. **insertParent(id: number, command: string, response: ResponseWithInputType)**: 
+   - Inserts a new parent knot above an existing knot
+   - The existing knot becomes a child of the newly inserted parent
+   - Returns a new SkeinTree with the modified structure
+
+8. **setLabel(id: number, label: string | null)**: 
    - Sets or clears the label for a knot
    - Returns a new SkeinTree with the updated label
 
-8. **setLockStatus(id: number, locked: boolean)**: 
+9. **setLockStatus(id: number, locked: boolean)**: 
    - Sets or clears the lock status for a knot
    - Returns a new SkeinTree with the updated lock status
 

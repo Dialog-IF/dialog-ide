@@ -1,4 +1,6 @@
 .nrepl-port
 .cpcache
 .clojure-mcp
+.clj-kondo
+.lsp
 
