@@ -1,0 +1,9 @@
+{
+  "name": "The Orb",
+  "target": "zblorb",
+  "sources": {
+    "main": ["src"],
+    "debug": ["lib/dialog/debug"],
+    "library": ["lib/dialog"]
+  }
+}

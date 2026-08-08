@@ -336,31 +336,42 @@ The undo/redo system implements a snapshot-based approach for skein tree modific
 Manages project files and their ordering requirements:
 
 #### Source Organization
-Each source file is tracked with its category explicitly by the IDE, as stored in the dialog.json configuration file. The IDE does not enforce a particular directory structure - developers can organize files as they see fit.
+Sources are declared by category in a `dialog.json` project file at the project root - behaviorally equivalent to dialog-tool's `dialog.edn` (same source-expansion semantics), but JSON instead of EDN so the IDE can parse it without an EDN dependency. Verified against dialog-tool's `project_file.clj` and its real `test-fixtures/` projects.
 
 ```typescript
-interface SourceFile {
-  path: string;
-  category: 'main' | 'debug' | 'library' | 'test';
+interface ProjectSources {
+  main: string[];
+  test?: string[];
+  debug?: string[];
+  library?: string[];
 }
 
-interface Project {
+interface DialogProject {
   name: string;
-  version: string;
-  sourceFiles: SourceFile[];
-  build: {
-    targets: string[];
-    options: {
-      zblorb: string[]; // command line arguments as array
-      aa: string[];
-    };
-  };
+  target: string[]; // normalized to an array; a bare string or an absent key both default to ["zblorb"]
+  binDir?: string;   // if set, engine binaries are resolved from here instead of PATH
+  sources: ProjectSources;
+  rootDir: string;
+}
+```
+Example `dialog.json`:
+```json
+{
+  "name": "The Orb",
+  "target": "zblorb",
+  "sources": {
+    "main": ["src"],
+    "debug": ["lib/dialog/debug"],
+    "library": ["lib/dialog"]
+  }
 }
 ```
 
+Each entry in a `sources` category is either a directory (expanded to its `*.dg` files, sorted, non-recursive) or a specific file path, resolved relative to the project root. `expandSources(project, options)` flattens `main`/`test`/`debug`/`library` into the ordered file list dgdebug/dialogc expect: pre-patch, main, test (if requested), debug (if requested), library - `library` is always included regardless of `debug`/`test`. A file name may embed a target suffix (`effects.zblorb.dg`); when a target is requested, only non-suffixed files and files matching that exact suffix are kept. A source entry that doesn't exist on disk is skipped with a warning rather than failing the whole expansion.
+
 #### File Operations
 - **Creation/Deletion**: Support for adding/removing source files
-- **Order Management**: Enforcing proper compilation order (project → debug → library)
+- **Order Management**: Enforcing proper compilation order (main → debug → library), handled by `expandSources`
 - **File Watching**: Real-time change detection for build triggers
 - **Category Tracking**: Explicit tracking of file categories in dialog.json configuration
 

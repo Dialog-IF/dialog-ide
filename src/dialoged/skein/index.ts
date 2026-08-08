@@ -9,3 +9,4 @@ export * from './service';
 export * from './dynamic';
 export * from './persistence';
 export * from './io';
+export * from './project';
