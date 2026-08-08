@@ -4,7 +4,8 @@
  */
 
 import { SkeinProcess, EngineType } from './process';
-import { SkeinTree } from './tree';
+import { SkeinTree, WireKnot, ResponseWithInputType } from './tree';
+import { DynamicProcessor, DynamicKnot } from './dynamic';
 
 /**
  * Session configuration
@@ -35,11 +36,13 @@ export class SkeinSession {
   private tree: SkeinTree;
   private process: SkeinProcess | null = null;
   private isRunning: boolean = false;
+  private dynamicProcessor: DynamicProcessor;
 
   constructor(config: SessionConfig) {
     this.id = this.generateId();
     this.config = config;
-    this.tree = new SkeinTree(config.engine, config.seed);
+    this.tree = SkeinTree.newTree(config.engine, config.seed);
+    this.dynamicProcessor = new DynamicProcessor();
   }
 
   /**
@@ -106,20 +109,14 @@ export class SkeinSession {
       // Read response (simplified implementation)
       const response = await this.process.readResponse();
 
-      // Add to tree structure
-      this.tree.addChild({
-        command,
-        response: response.response,
-        promptType: response.promptType,
-        dynamic: response.dynamic,
-        label: null,
-        unblessed: false,
-        source: {
-          file: 'unknown',
-          line: 0
-        },
-        parentId: '0'
+      // Add to tree structure using proper methods
+      // This is a simplified version - in practice, we'd need more sophisticated handling
+      const newTree = this.tree.addChild(0, command, {
+        text: response.response,
+        inputType: response.promptType
       });
+
+      this.tree = newTree;
 
       console.log(`Command "${command}" executed successfully`);
     } catch (error) {

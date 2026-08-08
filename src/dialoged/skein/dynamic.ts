@@ -3,7 +3,16 @@
  * Parses @dynamic output to track state changes during execution.
  */
 
-import { DynamicKnot } from './tree';
+/**
+ * Dynamic knot structure for tracking interpreter state
+ */
+export interface DynamicKnot {
+  globals: Record<string, any>;
+  objects: Record<string, {
+    flags: Record<string, boolean>;
+    properties: Record<string, any>;
+  }>;
+}
 
 /**
  * Dynamic output processor
@@ -66,57 +75,111 @@ export class DynamicProcessor {
     const changes: any[] = [];
 
     // Compare global state
-    for (const [key, value] of Object.entries(newState.globals)) {
-      if (oldState.globals[key] !== value) {
+    Object.keys(oldState.globals).forEach((key) => {
+      if (!(key in newState.globals) || newState.globals[key] !== oldState.globals[key]) {
         changes.push({
           type: 'global',
           name: key,
           field: null,
           oldValue: oldState.globals[key],
-          newValue: value
+          newValue: newState.globals[key]
         });
       }
-    }
+    });
+
+    // Check for new globals
+    Object.keys(newState.globals).forEach((key) => {
+      if (!(key in oldState.globals)) {
+        changes.push({
+          type: 'global',
+          name: key,
+          field: null,
+          oldValue: undefined,
+          newValue: newState.globals[key]
+        });
+      }
+    });
 
     // Compare object states
-    for (const [objectName, objState] of Object.entries(newState.objects)) {
-      if (!oldState.objects[objectName]) {
-        // New object
+    Object.keys(oldState.objects).forEach((objectName) => {
+      if (!(objectName in newState.objects)) {
+        // Object was deleted
         changes.push({
           type: 'object',
           name: objectName,
           field: null,
-          oldValue: undefined,
-          newValue: objState
+          oldValue: oldState.objects[objectName],
+          newValue: undefined
         });
       } else {
+        const newObjState = newState.objects[objectName];
+
         // Compare flags
-        for (const [flag, value] of Object.entries(objState.flags)) {
-          if (oldState.objects[objectName].flags[flag] !== value) {
+        Object.keys(oldState.objects[objectName].flags).forEach((flag) => {
+          if (!(flag in newObjState.flags) || newObjState.flags[flag] !== oldState.objects[objectName].flags[flag]) {
             changes.push({
               type: 'object',
               name: objectName,
               field: flag,
               oldValue: oldState.objects[objectName].flags[flag],
-              newValue: value
+              newValue: newObjState.flags[flag]
             });
           }
-        }
+        });
+
+        // Check for new flags
+        Object.keys(newObjState.flags).forEach((flag) => {
+          if (!(flag in oldState.objects[objectName].flags)) {
+            changes.push({
+              type: 'object',
+              name: objectName,
+              field: flag,
+              oldValue: undefined,
+              newValue: newObjState.flags[flag]
+            });
+          }
+        });
 
         // Compare properties
-        for (const [prop, value] of Object.entries(objState.properties)) {
-          if (oldState.objects[objectName].properties[prop] !== value) {
+        Object.keys(oldState.objects[objectName].properties).forEach((prop) => {
+          if (!(prop in newObjState.properties) || newObjState.properties[prop] !== oldState.objects[objectName].properties[prop]) {
             changes.push({
               type: 'object',
               name: objectName,
               field: prop,
               oldValue: oldState.objects[objectName].properties[prop],
-              newValue: value
+              newValue: newObjState.properties[prop]
             });
           }
-        }
+        });
+
+        // Check for new properties
+        Object.keys(newObjState.properties).forEach((prop) => {
+          if (!(prop in oldState.objects[objectName].properties)) {
+            changes.push({
+              type: 'object',
+              name: objectName,
+              field: prop,
+              oldValue: undefined,
+              newValue: newObjState.properties[prop]
+            });
+          }
+        });
       }
-    }
+    });
+
+    // Check for new objects
+    Object.keys(newState.objects).forEach((objectName) => {
+      if (!(objectName in oldState.objects)) {
+        changes.push({
+          type: 'object',
+          name: objectName,
+          field: null,
+          oldValue: undefined,
+          newValue: newState.objects[objectName]
+        });
+      }
+    });
 
     return changes;
   }

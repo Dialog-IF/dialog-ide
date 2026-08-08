@@ -3,9 +3,9 @@
  * Handles saving and loading session state to/from files.
  */
 
-import { SkeinTree } from './tree';
-import fs from 'fs/promises';
-import path from 'path';
+import { SkeinTree, WireKnot } from './tree';
+import * as fs from 'fs/promises';
+import * as path from 'path';
 
 /**
  * Session file format
@@ -18,10 +18,7 @@ export interface SessionFile {
     created: string;
     modified: string;
   };
-  knots: Record<string, any>;
-  children: Record<string, string[]>;
-  selected: Record<string, string>;
-  status: Record<string, 'executed' | 'pending' | 'error'>;
+  knots: Record<string, WireKnot>;
 }
 
 /**
@@ -45,26 +42,13 @@ export class PersistenceManager {
       // Convert tree to file format
       const sessionFile: SessionFile = {
         meta: tree.getMetadata(),
-        knots: {},
-        children: tree['children'],  // Accessing private property - in real code this would be a getter
-        selected: tree['selected'],
-        status: tree['status']
+        knots: {}
       };
 
       // Add knots to file format
       const allKnots = tree.getAllKnots();
       for (const knot of allKnots) {
-        sessionFile.knots[knot.id] = {
-          id: knot.id,
-          parentId: knot.parentId,
-          command: knot.command,
-          label: knot.label,
-          response: knot.response,
-          unblessed: knot.unblessed,
-          promptType: knot.promptType,
-          dynamic: knot.dynamic,
-          source: knot.source
-        };
+        sessionFile.knots[knot.id] = knot;
       }
 
       // Write to file

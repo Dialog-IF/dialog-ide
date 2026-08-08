@@ -28,7 +28,7 @@ export interface ProcessConfig {
 export interface ProcessResponse {
   command: string;
   response: string;
-  promptType: 'line' | 'keystroke';
+  promptType: 'line' | 'key';
   dynamic?: any;
 }
 

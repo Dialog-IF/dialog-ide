@@ -17,18 +17,17 @@
   ],
   "author": "Howard Lewis Ship",
   "license": "MIT",
-  "dependencies": {
-    "electron": "^31.0.0"
-  },
   "devDependencies": {
     "@types/node": "^20.0.0",
+    "electron": "^43.3.0",
     "typescript": "^5.0.0"
   },
   "files": [
     "src/**/*",
-    "README.md",
-    "DETAILED_TECHNICAL_SPEC.md",
-    "IMPLEMENTATION_PLAN.md",
-    "IMPLEMENTATION_GAP_ANALYSIS.md"
-  ]
+    "README.md"
+  ],
+  "dependencies": {
+    "electron-squirrel-startup": "^1.0.1",
+    "immutable": "^5.1.9"
+  }
 }
