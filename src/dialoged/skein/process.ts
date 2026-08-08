@@ -7,6 +7,7 @@
 import { spawn, ChildProcess } from 'child_process';
 import { EventEmitter } from 'events';
 import { IoDetector } from './io';
+import { resolveCommandPath } from './project';
 
 /**
  * Engine types supported by the Skein engine
@@ -14,12 +15,16 @@ import { IoDetector } from './io';
 export type EngineType = 'dgdebug' | 'frotz' | 'frotz-release';
 
 /**
- * Process configuration for interpreter launch
+ * Process configuration for interpreter launch.
+ * dgdebug takes source files directly (see project.ts's expandSources), not a compiled game -
+ * frotz/frotz-release take a path to an already-compiled .zblorb.
  */
 export interface ProcessConfig {
   engine: EngineType;
   seed: number;
-  gamePath: string;
+  sourceFiles?: string[];
+  gamePath?: string;
+  binDir?: string;
   debugFlags?: string[];
 }
 
@@ -166,12 +171,15 @@ export class SkeinProcess extends EventEmitter {
    * Build the command line for starting the interpreter
    */
   private buildCommand(): { command: string, args: string[] } {
-    const { engine, seed, gamePath, debugFlags = [] } = this.config;
+    const { engine, seed, gamePath, sourceFiles, binDir, debugFlags = [] } = this.config;
 
     switch (engine) {
-      case 'dgdebug':
+      case 'dgdebug': {
+        if (!sourceFiles || sourceFiles.length === 0) {
+          throw new Error('dgdebug requires sourceFiles (see project.ts\'s expandSources)');
+        }
         return {
-          command: 'dgdebug',
+          command: resolveCommandPath(binDir, 'dgdebug'),
           args: [
             '--numbered',
             '--seed', seed.toString(),
@@ -180,13 +188,19 @@ export class SkeinProcess extends EventEmitter {
             '--transcripting',
             '--tag-lines',
             '--formatting', 'ansi',
-            gamePath
+            ...debugFlags,
+            ...sourceFiles
           ]
         };
+      }
 
       case 'frotz':
+      case 'frotz-release': {
+        if (!gamePath) {
+          throw new Error(`${engine} requires gamePath`);
+        }
         return {
-          command: 'dfrotz',
+          command: resolveCommandPath(binDir, 'dfrotz'),
           args: [
             '-q', '-m', '-r', 'lt', '-f', 'normal',
             '-s', seed.toString(),
@@ -194,17 +208,7 @@ export class SkeinProcess extends EventEmitter {
             gamePath
           ]
         };
-
-      case 'frotz-release':
-        return {
-          command: 'dfrotz',
-          args: [
-            '-q', '-m', '-r', 'lt', '-f', 'normal',
-            '-s', seed.toString(),
-            '-w', '-1',
-            gamePath
-          ]
-        };
+      }
 
       default:
         throw new Error(`Unsupported engine type: ${engine}`);

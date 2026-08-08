@@ -37,7 +37,11 @@ function taggedBuffer(contentLines: string[], promptLine: string): string {
   return [...tagged, promptLine].join('\n');
 }
 
-const DGDEBUG_CONFIG: ProcessConfig = { engine: 'dgdebug', seed: 1, gamePath: '/tmp/game.zblorb' };
+const DGDEBUG_CONFIG: ProcessConfig = {
+  engine: 'dgdebug',
+  seed: 1,
+  sourceFiles: ['/tmp/proj/src/meta.dg', '/tmp/proj/src/orb.dg']
+};
 
 describe('SkeinProcess', () => {
   let fakeChild: ReturnType<typeof createFakeChildProcess>;
@@ -49,7 +53,7 @@ describe('SkeinProcess', () => {
   });
 
   describe('start', () => {
-    it('spawns dgdebug with the documented flags', async () => {
+    it('spawns dgdebug with the documented flags and the given source files as positional args', async () => {
       const proc = new SkeinProcess(DGDEBUG_CONFIG);
       await proc.start();
 
@@ -63,11 +67,35 @@ describe('SkeinProcess', () => {
           '--transcripting',
           '--tag-lines',
           '--formatting', 'ansi',
-          '/tmp/game.zblorb'
+          '/tmp/proj/src/meta.dg',
+          '/tmp/proj/src/orb.dg'
         ],
         expect.objectContaining({ stdio: ['pipe', 'pipe', 'pipe'] })
       );
       expect(proc.isProcessRunning()).toBe(true);
+    });
+
+    it('inserts debugFlags between the standard flags and the source files', async () => {
+      const proc = new SkeinProcess({ ...DGDEBUG_CONFIG, debugFlags: ['--trace'] });
+      await proc.start();
+
+      expect(mockSpawn).toHaveBeenCalledWith(
+        'dgdebug',
+        expect.arrayContaining(['--trace', '/tmp/proj/src/meta.dg']),
+        expect.anything()
+      );
+    });
+
+    it('resolves the dgdebug binary from binDir when given', async () => {
+      const proc = new SkeinProcess({ ...DGDEBUG_CONFIG, binDir: '/opt/dialog/bin' });
+      await proc.start();
+
+      expect(mockSpawn).toHaveBeenCalledWith('/opt/dialog/bin/dgdebug', expect.anything(), expect.anything());
+    });
+
+    it('throws if dgdebug is started without sourceFiles', async () => {
+      const proc = new SkeinProcess({ engine: 'dgdebug', seed: 1 });
+      await expect(proc.start()).rejects.toThrow('dgdebug requires sourceFiles');
     });
 
     it('spawns dfrotz with the documented flags for both frotz and frotz-release', async () => {
@@ -79,6 +107,11 @@ describe('SkeinProcess', () => {
         ['-q', '-m', '-r', 'lt', '-f', 'normal', '-s', '42', '-w', '-1', '/tmp/g.zblorb'],
         expect.anything()
       );
+    });
+
+    it('throws if frotz is started without gamePath', async () => {
+      const proc = new SkeinProcess({ engine: 'frotz', seed: 1 });
+      await expect(proc.start()).rejects.toThrow('frotz requires gamePath');
     });
   });
 
