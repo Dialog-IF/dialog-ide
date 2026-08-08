@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Dialog IDE</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+        }
+        .hello-world {
+            text-align: center;
+            padding: 40px;
+            background-color: #e8f4f8;
+            border-radius: 8px;
+            margin: 20px 0;
+        }
+        .features {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin-top: 30px;
+        }
+        .feature-card {
+            background-color: #f8f9fa;
+            padding: 20px;
+            border-radius: 8px;
+            border-left: 4px solid #007bff;
+        }
+        .feature-card h3 {
+            margin-top: 0;
+            color: #333;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Dialog IDE - Skein Engine</h1>
+
+        <div class="hello-world">
+            <h2>Hello World!</h2>
+            <p>Welcome to the Dialog Interactive Fiction Development IDE.</p>
+            <p>This application demonstrates the basic Electron structure for the Skein engine implementation.</p>
+        </div>
+
+        <div class="features">
+            <div class="feature-card">
+                <h3>Skein Engine</h3>
+                <p>Manages interactive command sessions with branching narrative capabilities.</p>
+            </div>
+            <div class="feature-card">
+                <h3>Process Management</h3>
+                <p>Handles launching and managing dgdebug and dfrotz processes.</p>
+            </div>
+            <div class="feature-card">
+                <h3>Session Tracking</h3>
+                <p>Maintains session state and command execution history.</p>
+            </div>
+            <div class="feature-card">
+                <h3>Web Service Interface</h3>
+                <p>Provides HTTP endpoints for UI communication using Datastar library.</p>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

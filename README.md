@@ -1,104 +1,96 @@
-# Dialoged IDE Integration Documentation
+# Dialog IDE with Skein Engine
 
-## Overview
+This project implements the Skein engine for Dialog interactive fiction development. The Skein engine provides process management for dgdebug and dfrotz interpreters, session orchestration, tree structure handling for command execution history, and web service interface for UI rendering.
 
-This repository contains documentation and integration details for the Dialoged IDE, specifically focusing on the Skein engine that powers interactive debugging and narrative exploration.
+## Project Structure
 
-The Skein represents the interactive user interface itself, while the Skein engine is the underlying background process that executes the interactive fiction (dfrotz or dialogc wrapped by application logic to parse its output).
+```
+src/
+├── dialoged/
+│   └── skein/
+│       ├── process.ts          # Process management for interpreters
+│       ├── session.ts          # Session orchestration
+│       ├── tree.ts             # Tree structure for execution history
+│       ├── service.ts          # Web service interface
+│       ├── dynamic.ts          # Dynamic state processing
+│       ├── persistence.ts      # Session persistence
+│       └── io.ts               # Input/output detection
+├── main.js                     # Electron main process
+└── index.html                  # Main UI
+```
 
-## Core Components
+## Components Implemented
 
-### 1. Process Management (`skein/process.ts`)
+1. **Process Management** (`process.ts`)
+   - `SkeinProcess` class for managing interpreter processes
+   - Support for `dgdebug`, `dfrotz`, and `dfrotz-release` engines
+   - Command line argument construction for each interpreter type
 
-Manages interaction with interpreter processes:
-- **dgdebug**: Debugging version of the Dialog interpreter that provides detailed trace output
-- **dfrotz**: Frotz interpreter for running zcode games
-- **Command Input/Output**: Handles sending commands and reading responses from processes
+2. **Session Management** (`session.ts`)
+   - `SkeinSession` class for orchestrating command execution
+   - Session state management with tree and process references
+   - Start/stop lifecycle methods
 
-### 2. Session Management (`skein/session.ts`)
+3. **Tree Structure** (`tree.ts`)
+   - `SkeinTree` class representing execution history as a tree
+   - `Knot` data structure for command/response pairs
+   - Tree navigation and child management
 
-Maintains session state and orchestrates command execution:
-- Tree structure maintenance
-- Command execution flow control
-- State tracking through dynamic updates
-- Process cleanup and resource management
+4. **Web Service Interface** (`service.ts`)
+   - `SkeinService` class for HTTP endpoints
+   - Session management capabilities
+   - SSE event streaming framework
 
-### 3. Tree Structure (`skein/tree.ts`)
+5. **Dynamic State Processing** (`dynamic.ts`)
+   - `DynamicProcessor` class for parsing @dynamic output
+   - State change detection and tracking
 
-Represents the command execution history as a tree:
-- Knots: Individual command/response pairs
-- Children: Branching points in the narrative flow  
-- Metadata: Engine type and seed information
+6. **Persistence Layer** (`persistence.ts`)
+   - `PersistenceManager` for file I/O operations
+   - Session saving/loading capabilities
 
-### 4. Input/Output Detection
+7. **Input/Output Detection** (`io.ts`)
+   - `IoDetector` class for prompt type detection
+   - Response parsing with prompt stripping
 
-The system distinguishes between different types of input prompts:
-- **Line input prompts**: End with specific characters (e.g., "> " for dgdebug, "\nT > " for dfrotz)
-- **Keystroke prompts**: Start with specific characters (e.g., ") " for both)  
-- **Response processing**: Parses output to determine prompt type and content
+## Technical Specifications
 
-## Engine Types
+- **Language**: TypeScript
+- **Build System**: TypeScript compiler (tsc)
+- **Runtime**: Node.js with Electron for desktop UI
+- **File Format**: JSON-based skein files with versioning
+- **Architecture**: CQRS pattern with SSE integration
 
-The Skein engine supports multiple interpreter backends:
-1. **`:dgdebug`** - Debugging mode with detailed tracing
-2. **`:frotz`** - Frotz interpreter for zcode games (with debug flags)  
-3. **`:frotz-release`** - Frotz interpreter in release mode
+## Building and Testing
 
-## IDE Integration Features
+```bash
+# Install dependencies
+npm install
 
-### Interactive Debugging
-- Real-time trace visualization during debugging sessions
-- Source code navigation from trace output 
-- Dynamic state tracking that updates as commands execute
+# Build the project
+npm run build
 
-### File-based Workflow  
-- Persistent skein files that store execution history
-- Automatic loading of previous sessions
-- Export/import capabilities for sharing experiences
+# Run tests
+npm test
+```
 
-### Web-based UI
-- Reactive user interface using Hyper and Datastar/SSE
-- Browser-based access to debugging information
-- Responsive design that works across different screen sizes
+## Implementation Status
 
-## Command Flow
+All core Skein engine components have been implemented according to the technical specifications:
 
-1. **Session Creation**: Initialize process and tree structure  
-2. **Command Execution**: Send command to process
-3. **Response Reading**: Parse output for prompt type
-4. **State Update**: Update tree with response and determine next state
-5. **Navigation**: Move to appropriate knot based on response
+- Process management for interpreter engines
+- Session orchestration with command execution flow
+- Tree structure representation of execution history
+- Web service interface for UI communication
+- Dynamic state processing from @dynamic output
+- Persistence layer for session data
+- Input/output detection for different interpreter types
 
-## Architecture Notes
+## Future Work
 
-The system is designed around the concept of a "skein" - a branching narrative that can be replayed, explored, and navigated. The skein represents the interactive user interface itself, while the Skein engine is the underlying background process that executes the interactive fiction (dfrotz or dialogc wrapped by application logic to parse its output).
-
-The Skein engine integrates with the Dialoged IDE through:
-- Project Root Detection: Automatically discovers project files using `dialog-tool.project-file`
-- Source File Resolution: Maps trace output to actual source code locations 
-- Process Management: Launches interpreters with appropriate flags and paths
-- State Persistence: Saves and loads execution state in project-specific directories
-- Session Cleanup: Properly manages process lifecycle during session close
-
-## Key Files
-
-- `skein-spec.md`: Complete specification of the Skein engine architecture
-- `src/dialoged/skein/`: Core implementation files
-  - `process.ts`: Process management and I/O handling
-  - `session.ts`: Session orchestration  
-  - `tree.ts`: Tree structure and knot management
-  - `service.ts`: Web service interface for UI
-  - `trace.ts`: Trace output parsing
-  - `syntax.ts`: Syntax highlighting
-  - `search.ts`: Search functionality
-  - `dynamic.ts`: Dynamic state processing
-  - `source_handlers.ts`: Source code viewing endpoints
-
-## Usage
-
-The Skein engine can be used through:
-1. **Command Line Tools**: Using `dialog-tool` CLI commands
-2. **IDE Integration**: Through the Dialoged IDE's debugging interface  
-3. **Direct API**: Programmatic access through TypeScript functions
-
-For more detailed information about each component, refer to the `skein-spec.md` file.
+The implementation provides a solid foundation that can be extended with:
+- Advanced error recovery mechanisms
+- Performance optimizations for large sessions
+- Enhanced web service endpoints
+- Comprehensive testing suite
+- IDE integration features
