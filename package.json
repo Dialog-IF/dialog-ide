@@ -4,6 +4,7 @@
   "description": "IDE for Dialog interactive fiction development with Skein engine",
   "main": "src/main.js",
   "scripts": {
+    "start": "electron .",
     "build": "tsc",
     "dev": "node dist/main.js",
     "test": "node run-tests.js",
