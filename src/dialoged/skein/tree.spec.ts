@@ -50,11 +50,12 @@ describe('SkeinTree.addChild', () => {
     expect(() => tree.addChild(999, 'look', { text: 'a', inputType: 'line' })).toThrow();
   });
 
-  // Known gap: technical-design.md's SkeinTree Operations spec says "the new child becomes
-  // the selected child of its parent," but addChild never sets KnotState.selectedChild - and
-  // there's currently no public accessor for selectedChild to even assert against. test.todo
-  // rather than test.failing: there's no observable behavior yet to mark as expected-to-fail.
-  test.todo('makes the new child its parent\'s selected child (needs a public selectedChild accessor first)');
+  it("makes the new child its parent's selected child", () => {
+    const tree = SkeinTree.newTree('dgdebug', 1)
+      .addChild(0, 'look', { text: 'a', inputType: 'line' })
+      .addChild(0, 'inventory', { text: 'b', inputType: 'line' });
+    expect(tree.getDerivedKnot(0)?.selectedChild).toBe(2);
+  });
 });
 
 describe('SkeinTree.updateKnotCommandAndResponse', () => {
@@ -101,15 +102,48 @@ describe('SkeinTree.blessKnot', () => {
     expect(() => tree.blessKnot(999)).toThrow();
   });
 
-  // Known bug: blessKnot unconditionally does `response: knot.unblessedResponse`. Blessing an
-  // already-valid knot that has no pending unblessedResponse nulls out its existing response
-  // instead of being a no-op.
-  test.failing('is a no-op when there is no pending unblessedResponse to bless', () => {
+  it('is a no-op when there is no pending unblessedResponse to bless', () => {
     const tree = SkeinTree.newTree('dgdebug', 1)
       .addChild(0, 'look', { text: 'You see nothing.\n', inputType: 'line' })
       .blessKnot(1)
       .blessKnot(1); // bless again with nothing pending
     expect(tree.getKnot(1)!.response).toEqual({ text: 'You see nothing.\n', inputType: 'line' });
+  });
+});
+
+describe('SkeinTree.blessTranscript', () => {
+  it('blesses every non-valid knot from root to the given knot', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1)
+      .addChild(0, 'look', { text: 'a', inputType: 'line' })       // id 1
+      .addChild(1, 'take orb', { text: 'b', inputType: 'line' })   // id 2
+      .blessTranscript(2);
+    expect(tree.getDerivedKnot(1)?.state).toBe('valid');
+    expect(tree.getDerivedKnot(2)?.state).toBe('valid');
+  });
+
+  it('leaves already-valid knots on the path untouched', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1)
+      .addChild(0, 'look', { text: 'a', inputType: 'line' })     // id 1
+      .blessKnot(1)
+      .addChild(1, 'take orb', { text: 'b', inputType: 'line' }) // id 2, still new
+      .blessTranscript(2);
+    // id 1 was already valid before blessTranscript; its response should be unchanged
+    expect(tree.getKnot(1)!.response).toEqual({ text: 'a', inputType: 'line' });
+    expect(tree.getDerivedKnot(2)?.state).toBe('valid');
+  });
+
+  it('does not touch knots off the target path', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1)
+      .addChild(0, 'look', { text: 'a', inputType: 'line' })       // id 1
+      .addChild(0, 'inventory', { text: 'b', inputType: 'line' })  // id 2, sibling branch
+      .blessTranscript(1);
+    expect(tree.getDerivedKnot(1)?.state).toBe('valid');
+    expect(tree.getDerivedKnot(2)?.state).toBe('new');
+  });
+
+  it('throws when the knot does not exist', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1);
+    expect(() => tree.blessTranscript(999)).toThrow();
   });
 });
 
@@ -121,22 +155,44 @@ describe('SkeinTree.deleteKnot', () => {
     expect(tree.getKnot(1)).toBeNull();
   });
 
-  // Known gap: the spec (and deleteKnot's own docstring) call for recursive descendant
-  // deletion; the current implementation only removes the one targeted knot.
-  test.failing('deletes descendants recursively', () => {
+  it('deletes descendants recursively', () => {
     const tree = SkeinTree.newTree('dgdebug', 1)
-      .addChild(0, 'look', { text: 'a', inputType: 'line' })      // id 1
-      .addChild(1, 'take orb', { text: 'b', inputType: 'line' }); // id 2, child of 1
+      .addChild(0, 'look', { text: 'a', inputType: 'line' })       // id 1
+      .addChild(1, 'take orb', { text: 'b', inputType: 'line' })   // id 2, child of 1
+      .addChild(2, 'x orb', { text: 'c', inputType: 'line' });     // id 3, grandchild of 1
     const deleted = tree.deleteKnot(1);
+    expect(deleted.getKnot(1)).toBeNull();
     expect(deleted.getKnot(2)).toBeNull();
+    expect(deleted.getKnot(3)).toBeNull();
   });
 
-  // Known gap: the parent's `children` list still references the deleted id afterward.
-  test.failing("removes the deleted knot from its parent's children list", () => {
+  it("removes the deleted knot from its parent's children list", () => {
     const tree = SkeinTree.newTree('dgdebug', 1)
       .addChild(0, 'look', { text: 'a', inputType: 'line' })
       .deleteKnot(1);
     expect(tree.getDerivedKnot(0)?.children).not.toContain(1);
+  });
+
+  it('reassigns selectedChild to a remaining sibling when the selected child is deleted', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1)
+      .addChild(0, 'look', { text: 'a', inputType: 'line' })      // id 1, selected
+      .addChild(0, 'inventory', { text: 'b', inputType: 'line' }) // id 2, becomes selected
+      .deleteKnot(2);
+    expect(tree.getDerivedKnot(0)?.selectedChild).toBe(1);
+  });
+
+  it('leaves siblings of the deleted knot untouched', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1)
+      .addChild(0, 'look', { text: 'a', inputType: 'line' })      // id 1
+      .addChild(0, 'inventory', { text: 'b', inputType: 'line' }) // id 2
+      .deleteKnot(1);
+    expect(tree.getKnot(2)).not.toBeNull();
+    expect(tree.getDerivedKnot(0)?.children).toEqual([2]);
+  });
+
+  it('throws when the knot does not exist', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1);
+    expect(() => tree.deleteKnot(999)).toThrow();
   });
 });
 
@@ -148,25 +204,82 @@ describe('SkeinTree.spliceKnot', () => {
     expect(tree.getKnot(1)).toBeNull();
   });
 
-  // Known gap: spliceKnot's contract is "reparent children to the spliced knot's parent";
-  // the current implementation just deletes the knot and orphans its children.
-  test.failing("reparents the spliced knot's children to its parent", () => {
+  it("reparents the spliced knot's children to its parent", () => {
     const tree = SkeinTree.newTree('dgdebug', 1)
       .addChild(0, 'look', { text: 'a', inputType: 'line' })      // id 1
       .addChild(1, 'take orb', { text: 'b', inputType: 'line' }); // id 2, child of 1
     const spliced = tree.spliceKnot(1);
     expect(spliced.getKnot(2)?.parentId).toBe(0);
+    expect(spliced.getDerivedKnot(0)?.children).toEqual([2]);
+  });
+
+  it("splices multiple children into the grandparent's children in place of the spliced knot", () => {
+    const tree = SkeinTree.newTree('dgdebug', 1)
+      .addChild(0, 'look', { text: 'a', inputType: 'line' })         // id 1
+      .addChild(0, 'inventory', { text: 'b', inputType: 'line' })    // id 2, sibling of 1
+      .addChild(1, 'take orb', { text: 'c', inputType: 'line' })     // id 3, child of 1
+      .addChild(1, 'x orb', { text: 'd', inputType: 'line' });       // id 4, child of 1
+    const spliced = tree.spliceKnot(1);
+    // id 1's two children (3, 4) take its place between root's remaining child (2)
+    expect(spliced.getDerivedKnot(0)?.children).toEqual([3, 4, 2]);
+    expect(spliced.getKnot(3)?.parentId).toBe(0);
+    expect(spliced.getKnot(4)?.parentId).toBe(0);
+  });
+
+  it('reassigns selectedChild to the first reparented child when the spliced knot was selected', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1)
+      .addChild(0, 'look', { text: 'a', inputType: 'line' })      // id 1, selected
+      .addChild(1, 'take orb', { text: 'b', inputType: 'line' }); // id 2, child of 1
+    const spliced = tree.spliceKnot(1);
+    expect(spliced.getDerivedKnot(0)?.selectedChild).toBe(2);
+  });
+
+  it('throws when the knot does not exist', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1);
+    expect(() => tree.spliceKnot(999)).toThrow();
   });
 });
 
 describe('SkeinTree.insertParent', () => {
-  // Known gap: insertParent is currently a complete no-op stub - it returns the tree
-  // unchanged rather than inserting anything.
-  test.failing('creates a new parent knot above the target', () => {
+  it('creates a new parent knot above the target, taking its old parentId', () => {
     const tree = SkeinTree.newTree('dgdebug', 1)
       .addChild(0, 'look', { text: 'a', inputType: 'line' }); // id 1
     const withParent = tree.insertParent(1, 'wait', { text: 'Time passes.', inputType: 'line' });
     expect(withParent.getAllKnots()).toHaveLength(3);
+    const newParent = withParent.getKnot(2)!;
+    expect(newParent.command).toBe('wait');
+    expect(newParent.unblessedResponse).toEqual({ text: 'Time passes.', inputType: 'line' });
+    expect(newParent.parentId).toBe(0);
+  });
+
+  it('makes the target knot a child of the new parent', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1)
+      .addChild(0, 'look', { text: 'a', inputType: 'line' }); // id 1
+    const withParent = tree.insertParent(1, 'wait', { text: 'Time passes.', inputType: 'line' });
+    expect(withParent.getKnot(1)?.parentId).toBe(2);
+    expect(withParent.getDerivedKnot(2)?.children).toEqual([1]);
+    expect(withParent.getDerivedKnot(2)?.selectedChild).toBe(1);
+  });
+
+  it("replaces the target with the new parent in the grandparent's children", () => {
+    const tree = SkeinTree.newTree('dgdebug', 1)
+      .addChild(0, 'look', { text: 'a', inputType: 'line' })      // id 1, selected
+      .addChild(0, 'inventory', { text: 'b', inputType: 'line' }); // id 2, selected (last added)
+    const withParent = tree.insertParent(1, 'wait', { text: 'Time passes.', inputType: 'line' });
+    // id 3 is the new parent, replacing id 1's slot among root's children
+    expect(withParent.getDerivedKnot(0)?.children).toEqual([3, 2]);
+  });
+
+  it("reassigns the grandparent's selectedChild to the new parent when the target was selected", () => {
+    const tree = SkeinTree.newTree('dgdebug', 1)
+      .addChild(0, 'look', { text: 'a', inputType: 'line' }); // id 1, selected (only child)
+    const withParent = tree.insertParent(1, 'wait', { text: 'Time passes.', inputType: 'line' });
+    expect(withParent.getDerivedKnot(0)?.selectedChild).toBe(2);
+  });
+
+  it('throws when the target knot does not exist', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1);
+    expect(() => tree.insertParent(999, 'wait', { text: 'a', inputType: 'line' })).toThrow();
   });
 });
 

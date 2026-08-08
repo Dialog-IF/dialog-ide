@@ -109,6 +109,7 @@ interface DerivedKnot {
   state: 'new' | 'valid' | 'error';
   parentId: number | null;
   children: number[];
+  selectedChild: number | null;
   inputType: 'line' | 'key';
   label: string | null;
   locked: boolean;
@@ -521,6 +522,7 @@ Contains information used during UI management and state tracking:
 - `state`: Visual state indicator ('new', 'valid', 'error')
 - `parentId`: Reference to parent node
 - `children`: List of child node IDs
+- `selectedChild`: Which child continues the currently selected path, or null if none/no children
 - `inputType`: Type of input expected ('line' or 'key')
 - `label`: Optional label for the knot
 - `locked`: Boolean indicating if the knot is locked
