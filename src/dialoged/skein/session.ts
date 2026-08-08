@@ -5,7 +5,9 @@
 
 import { SkeinProcess, EngineType } from './process';
 import { SkeinTree, WireKnot, ResponseWithInputType } from './tree';
-import { DynamicProcessor } from './dynamic';
+import { DynamicProcessor, DynamicState, DynamicChanges } from './dynamic';
+
+const DYNAMIC_COMMAND = '@dynamic';
 
 /**
  * Session configuration
@@ -37,6 +39,8 @@ export class SkeinSession {
   private process: SkeinProcess | null = null;
   private isRunning: boolean = false;
   private dynamicProcessor: DynamicProcessor;
+  private dynamicState: DynamicState | null = null;
+  private dynamicChanges: DynamicChanges | null = null;
 
   constructor(config: SessionConfig) {
     this.id = this.generateId();
@@ -87,6 +91,10 @@ export class SkeinSession {
       await this.process.start();
       this.isRunning = true;
 
+      // Drain the interpreter's startup output (its own initial prompt) so it doesn't sit as
+      // a stale queued response ahead of the first real command's.
+      await this.process.readResponse();
+
       console.log(`Session ${this.id} started successfully`);
     } catch (error) {
       console.error('Failed to start session:', error);
@@ -102,27 +110,66 @@ export class SkeinSession {
       throw new Error('Session not running');
     }
 
-    try {
-      // Send command to process
-      this.process.sendCommand(command);
+    const parentId = this.tree.getActiveKnotId();
+    if (parentId === null) {
+      throw new Error('No active knot to run the command from');
+    }
 
-      // Read response (simplified implementation)
+    try {
+      this.process.sendCommand(command);
       const response = await this.process.readResponse();
 
-      // Add to tree structure using proper methods
-      // This is a simplified version - in practice, we'd need more sophisticated handling
-      const newTree = this.tree.addChild(0, command, {
+      this.tree = this.tree.addChild(parentId, command, {
         text: response.response,
         inputType: response.promptType
       });
 
-      this.tree = newTree;
+      // addChild always makes the new knot its parent's selectedChild, so this is the id we
+      // just created without needing addChild to hand it back explicitly.
+      const newKnotId = this.tree.getDerivedKnot(parentId)!.selectedChild!;
+      this.tree = this.tree.setActiveKnotId(newKnotId);
+
+      await this.refreshDynamicState();
 
       console.log(`Command "${command}" executed successfully`);
     } catch (error) {
       console.error('Failed to execute command:', error);
       throw error;
     }
+  }
+
+  /**
+   * Re-fetches @dynamic state from the running process and diffs it against the previous
+   * snapshot. dgdebug-only (per technical-design.md's Dynamic State Tracking section) - dfrotz
+   * doesn't support the @dynamic command.
+   */
+  private async refreshDynamicState(): Promise<void> {
+    if (this.config.engine !== 'dgdebug' || !this.process) {
+      return;
+    }
+
+    this.process.sendCommand(DYNAMIC_COMMAND);
+    const response = await this.process.readResponse();
+    const newState = this.dynamicProcessor.parse(response.response);
+
+    this.dynamicChanges = this.dynamicState ? this.dynamicProcessor.diff(this.dynamicState, newState) : null;
+    this.dynamicState = newState;
+  }
+
+  /**
+   * The most recently fetched dynamic state, or null if unavailable (non-dgdebug engine, or no
+   * command has run yet).
+   */
+  public getDynamicState(): DynamicState | null {
+    return this.dynamicState;
+  }
+
+  /**
+   * What changed in dynamic state since the previous command, or null if there's no prior
+   * snapshot to compare against.
+   */
+  public getDynamicChanges(): DynamicChanges | null {
+    return this.dynamicChanges;
   }
 
   /**
