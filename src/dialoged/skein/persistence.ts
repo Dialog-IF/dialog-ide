@@ -19,6 +19,9 @@ const KEY_VALUE_RE = /^([^:]+):\s*(.+)$/;
 
 type EngineType = 'dgdebug' | 'frotz' | 'frotz-release';
 
+// Strips the leading colon dialog-tool's writer always includes (str on a keyword). Note that
+// dialog-tool's own reader doesn't do this - its greedy kv-re regex mis-parses "engine: :x"
+// lines and silently drops the field - see technical-design.md's File Header notes.
 function normalizeEngine(raw: string | undefined): EngineType {
   const value = raw?.startsWith(':') ? raw.slice(1) : raw;
   if (value === 'dgdebug' || value === 'frotz' || value === 'frotz-release') {
