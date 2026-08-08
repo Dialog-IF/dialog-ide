@@ -14,9 +14,6 @@ export interface SessionFile {
   meta: {
     engine: 'dgdebug' | 'frotz' | 'frotz-release';
     seed: number;
-    version: string;
-    created: string;
-    modified: string;
   };
   knots: Record<string, WireKnot>;
 }
@@ -41,7 +38,10 @@ export class PersistenceManager {
 
       // Convert tree to file format
       const sessionFile: SessionFile = {
-        meta: tree.getMetadata(),
+        meta: {
+          engine: tree.getEngine(),
+          seed: tree.getSeed()
+        },
         knots: {}
       };
 
@@ -80,7 +80,7 @@ export class PersistenceManager {
       const engine = sessionFile.meta.engine || 'dgdebug';
       const seed = sessionFile.meta.seed || 12345;
 
-      return new SkeinTree(engine, seed);
+      return SkeinTree.newTree(engine, seed);
     } catch (error) {
       console.error('Failed to load session:', error);
       throw error;

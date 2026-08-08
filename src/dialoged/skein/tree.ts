@@ -53,42 +53,38 @@ export interface DerivedKnot {
 }
 
 /**
- * Tree metadata
- */
-export interface TreeMetadata {
-  engine: 'dgdebug' | 'frotz' | 'frotz-release';
-  seed: number;
-  version: string;
-  created: string;
-  modified: string;
-}
-
-/**
- * SkeinTree - immutable persistent tree structure
+ * SkeinTree - immutable persistent tree structure.
+ * engine and seed are fixed for the lifetime of a tree - a skein can't change
+ * which interpreter or random seed it was created with.
  */
 export class SkeinTree {
-  private metadata: TreeMetadata;
-  private knots: Map<number, WireKnot>;
-  private knotStates: Map<number, KnotState>;
-  private activeKnotId: number | null;
-  private fixedWidthFontOverride: boolean;
+  private readonly engine: 'dgdebug' | 'frotz' | 'frotz-release';
+  private readonly seed: number;
+  private readonly knots: Map<number, WireKnot>;
+  private readonly knotStates: Map<number, KnotState>;
+  private readonly activeKnotId: number | null;
+  private readonly fixedWidthFontOverride: boolean;
 
-  constructor(engine: 'dgdebug' | 'frotz' | 'frotz-release', seed: number) {
-    this.metadata = {
-      engine,
-      seed,
-      version: '1.0.0',
-      created: new Date().toISOString(),
-      modified: new Date().toISOString()
-    };
+  private constructor(
+    engine: 'dgdebug' | 'frotz' | 'frotz-release',
+    seed: number,
+    knots: Map<number, WireKnot>,
+    knotStates: Map<number, KnotState>,
+    activeKnotId: number | null,
+    fixedWidthFontOverride: boolean
+  ) {
+    this.engine = engine;
+    this.seed = seed;
+    this.knots = knots;
+    this.knotStates = knotStates;
+    this.activeKnotId = activeKnotId;
+    this.fixedWidthFontOverride = fixedWidthFontOverride;
+  }
 
-    // Initialize empty tree with root knot
-    this.knots = Map<number, WireKnot>();
-    this.knotStates = Map<number, KnotState>();
-    this.activeKnotId = null;
-    this.fixedWidthFontOverride = false;
-
-    // Create initial root knot (id 0)
+  /**
+   * Create a new tree with given engine and seed
+   */
+  public static newTree(engine: 'dgdebug' | 'frotz' | 'frotz-release', seed: number): SkeinTree {
     const initialKnot: WireKnot = {
       id: 0,
       command: 'START',
@@ -109,16 +105,14 @@ export class SkeinTree {
       children: []
     };
 
-    this.knots = this.knots.set(0, initialKnot);
-    this.knotStates = this.knotStates.set(0, initialState);
-    this.activeKnotId = 0;
-  }
-
-  /**
-   * Create a new tree with given engine and seed
-   */
-  public static newTree(engine: 'dgdebug' | 'frotz' | 'frotz-release', seed: number): SkeinTree {
-    return new SkeinTree(engine, seed);
+    return new SkeinTree(
+      engine,
+      seed,
+      Map<number, WireKnot>().set(0, initialKnot),
+      Map<number, KnotState>().set(0, initialState),
+      0,
+      false
+    );
   }
 
   /**
@@ -153,33 +147,19 @@ export class SkeinTree {
       children: []
     };
 
-    // Update knots and states - create a new tree instance with changes
-    const newTree = new SkeinTree(this.metadata.engine, this.metadata.seed);
-
-    // Copy all existing knots and states
-    newTree.knots = this.knots;
-    newTree.knotStates = this.knotStates;
-    newTree.activeKnotId = this.activeKnotId;
-    newTree.fixedWidthFontOverride = this.fixedWidthFontOverride;
-
-    // Add the new knot
-    newTree.knots = newTree.knots.set(newId, newKnot);
-    newTree.knotStates = newTree.knotStates.set(newId, newState);
-
     // Add child reference to parent
-    const parentKnotCopy = { ...parentKnot };
     const parentState = this.knotStates.get(parentId)!;
-    const updatedChildren = [...parentState.children, newId];
-
     const updatedParentState: KnotState = {
       ...parentState,
-      children: updatedChildren
+      children: [...parentState.children, newId]
     };
 
-    newTree.knots = newTree.knots.set(parentId, parentKnotCopy);
-    newTree.knotStates = newTree.knotStates.set(parentId, updatedParentState);
+    const knots = this.knots.set(newId, newKnot);
+    const knotStates = this.knotStates
+      .set(newId, newState)
+      .set(parentId, updatedParentState);
 
-    return newTree;
+    return new SkeinTree(this.engine, this.seed, knots, knotStates, this.activeKnotId, this.fixedWidthFontOverride);
   }
 
   /**
@@ -191,25 +171,13 @@ export class SkeinTree {
       throw new Error(`Knot ${id} not found`);
     }
 
-    // Create updated knot
     const updatedKnot: WireKnot = {
       ...knot,
       command,
       unblessedResponse: response
     };
 
-    const newTree = new SkeinTree(this.metadata.engine, this.metadata.seed);
-
-    // Copy all existing data
-    newTree.knots = this.knots;
-    newTree.knotStates = this.knotStates;
-    newTree.activeKnotId = this.activeKnotId;
-    newTree.fixedWidthFontOverride = this.fixedWidthFontOverride;
-
-    // Update the specific knot
-    newTree.knots = newTree.knots.set(id, updatedKnot);
-
-    return newTree;
+    return new SkeinTree(this.engine, this.seed, this.knots.set(id, updatedKnot), this.knotStates, this.activeKnotId, this.fixedWidthFontOverride);
   }
 
   /**
@@ -221,24 +189,12 @@ export class SkeinTree {
       throw new Error(`Knot ${id} not found`);
     }
 
-    // Create updated knot
     const updatedKnot: WireKnot = {
       ...knot,
       unblessedResponse: response
     };
 
-    const newTree = new SkeinTree(this.metadata.engine, this.metadata.seed);
-
-    // Copy all existing data
-    newTree.knots = this.knots;
-    newTree.knotStates = this.knotStates;
-    newTree.activeKnotId = this.activeKnotId;
-    newTree.fixedWidthFontOverride = this.fixedWidthFontOverride;
-
-    // Update the specific knot
-    newTree.knots = newTree.knots.set(id, updatedKnot);
-
-    return newTree;
+    return new SkeinTree(this.engine, this.seed, this.knots.set(id, updatedKnot), this.knotStates, this.activeKnotId, this.fixedWidthFontOverride);
   }
 
   /**
@@ -250,25 +206,13 @@ export class SkeinTree {
       throw new Error(`Knot ${id} not found`);
     }
 
-    // Create updated knot
     const updatedKnot: WireKnot = {
       ...knot,
       response: knot.unblessedResponse,
       unblessedResponse: null
     };
 
-    const newTree = new SkeinTree(this.metadata.engine, this.metadata.seed);
-
-    // Copy all existing data
-    newTree.knots = this.knots;
-    newTree.knotStates = this.knotStates;
-    newTree.activeKnotId = this.activeKnotId;
-    newTree.fixedWidthFontOverride = this.fixedWidthFontOverride;
-
-    // Update the specific knot
-    newTree.knots = newTree.knots.set(id, updatedKnot);
-
-    return newTree;
+    return new SkeinTree(this.engine, this.seed, this.knots.set(id, updatedKnot), this.knotStates, this.activeKnotId, this.fixedWidthFontOverride);
   }
 
   /**
@@ -278,19 +222,14 @@ export class SkeinTree {
     // This is a simplified implementation - in practice would need to handle
     // recursive deletion and parent-child relationship updates properly
 
-    const newTree = new SkeinTree(this.metadata.engine, this.metadata.seed);
-
-    // Copy all existing data
-    newTree.knots = this.knots;
-    newTree.knotStates = this.knotStates;
-    newTree.activeKnotId = this.activeKnotId;
-    newTree.fixedWidthFontOverride = this.fixedWidthFontOverride;
-
-    // Delete the knot and its descendants (simplified)
-    newTree.knots = newTree.knots.delete(id);
-    newTree.knotStates = newTree.knotStates.delete(id);
-
-    return newTree;
+    return new SkeinTree(
+      this.engine,
+      this.seed,
+      this.knots.delete(id),
+      this.knotStates.delete(id),
+      this.activeKnotId,
+      this.fixedWidthFontOverride
+    );
   }
 
   /**
@@ -300,19 +239,14 @@ export class SkeinTree {
     // Simplified implementation - in practice would need to properly handle
     // reparenting of children to the parent of the deleted knot
 
-    const newTree = new SkeinTree(this.metadata.engine, this.metadata.seed);
-
-    // Copy all existing data
-    newTree.knots = this.knots;
-    newTree.knotStates = this.knotStates;
-    newTree.activeKnotId = this.activeKnotId;
-    newTree.fixedWidthFontOverride = this.fixedWidthFontOverride;
-
-    // Delete the knot (simplified)
-    newTree.knots = newTree.knots.delete(id);
-    newTree.knotStates = newTree.knotStates.delete(id);
-
-    return newTree;
+    return new SkeinTree(
+      this.engine,
+      this.seed,
+      this.knots.delete(id),
+      this.knotStates.delete(id),
+      this.activeKnotId,
+      this.fixedWidthFontOverride
+    );
   }
 
   /**
@@ -322,15 +256,7 @@ export class SkeinTree {
     // Simplified implementation - in practice would need to properly handle
     // the complex parent-child relationship changes
 
-    const newTree = new SkeinTree(this.metadata.engine, this.metadata.seed);
-
-    // Copy all existing data
-    newTree.knots = this.knots;
-    newTree.knotStates = this.knotStates;
-    newTree.activeKnotId = this.activeKnotId;
-    newTree.fixedWidthFontOverride = this.fixedWidthFontOverride;
-
-    return newTree;
+    return new SkeinTree(this.engine, this.seed, this.knots, this.knotStates, this.activeKnotId, this.fixedWidthFontOverride);
   }
 
   /**
@@ -342,24 +268,12 @@ export class SkeinTree {
       throw new Error(`Knot ${id} not found`);
     }
 
-    // Create updated knot
     const updatedKnot: WireKnot = {
       ...knot,
       label
     };
 
-    const newTree = new SkeinTree(this.metadata.engine, this.metadata.seed);
-
-    // Copy all existing data
-    newTree.knots = this.knots;
-    newTree.knotStates = this.knotStates;
-    newTree.activeKnotId = this.activeKnotId;
-    newTree.fixedWidthFontOverride = this.fixedWidthFontOverride;
-
-    // Update the specific knot
-    newTree.knots = newTree.knots.set(id, updatedKnot);
-
-    return newTree;
+    return new SkeinTree(this.engine, this.seed, this.knots.set(id, updatedKnot), this.knotStates, this.activeKnotId, this.fixedWidthFontOverride);
   }
 
   /**
@@ -371,24 +285,12 @@ export class SkeinTree {
       throw new Error(`Knot ${id} not found`);
     }
 
-    // Create updated knot
     const updatedKnot: WireKnot = {
       ...knot,
       locked
     };
 
-    const newTree = new SkeinTree(this.metadata.engine, this.metadata.seed);
-
-    // Copy all existing data
-    newTree.knots = this.knots;
-    newTree.knotStates = this.knotStates;
-    newTree.activeKnotId = this.activeKnotId;
-    newTree.fixedWidthFontOverride = this.fixedWidthFontOverride;
-
-    // Update the specific knot
-    newTree.knots = newTree.knots.set(id, updatedKnot);
-
-    return newTree;
+    return new SkeinTree(this.engine, this.seed, this.knots.set(id, updatedKnot), this.knotStates, this.activeKnotId, this.fixedWidthFontOverride);
   }
 
   /**
@@ -457,17 +359,17 @@ export class SkeinTree {
   }
 
   /**
-   * Get tree metadata
+   * Get the interpreter engine this tree was created with
    */
-  public getMetadata(): TreeMetadata {
-    return { ...this.metadata };
+  public getEngine(): 'dgdebug' | 'frotz' | 'frotz-release' {
+    return this.engine;
   }
 
   /**
-   * Update tree modification time
+   * Get the random seed this tree was created with
    */
-  public updateModifiedTime(): void {
-    this.metadata.modified = new Date().toISOString();
+  public getSeed(): number {
+    return this.seed;
   }
 
   /**
@@ -481,15 +383,7 @@ export class SkeinTree {
    * Set active knot ID
    */
   public setActiveKnotId(id: number | null): SkeinTree {
-    const newTree = new SkeinTree(this.metadata.engine, this.metadata.seed);
-
-    // Copy all existing data
-    newTree.knots = this.knots;
-    newTree.knotStates = this.knotStates;
-    newTree.activeKnotId = id;
-    newTree.fixedWidthFontOverride = this.fixedWidthFontOverride;
-
-    return newTree;
+    return new SkeinTree(this.engine, this.seed, this.knots, this.knotStates, id, this.fixedWidthFontOverride);
   }
 }
 
