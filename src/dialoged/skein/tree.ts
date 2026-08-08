@@ -122,7 +122,7 @@ export class SkeinTree {
   /**
    * Add a child knot to the tree - returns a new SkeinTree instance
    */
-  public addChild(parentId: number, command: string, response: ResponseWithInputType): SkeinTree {
+  public addChild(parentId: number, command: string, response: Response): SkeinTree {
     // Create new knot with unique ID
     const newId = this.generateNextId();
 
@@ -171,7 +171,7 @@ export class SkeinTree {
   /**
    * Update knot command and response - returns a new SkeinTree instance
    */
-  public updateKnotCommandAndResponse(id: number, command: string, response: ResponseWithInputType): SkeinTree {
+  public updateKnotCommandAndResponse(id: number, command: string, response: Response): SkeinTree {
     const knot = this.knots.get(id);
     if (!knot) {
       throw new Error(`Knot ${id} not found`);
@@ -192,7 +192,7 @@ export class SkeinTree {
   /**
    * Update knot response only - returns a new SkeinTree instance
    */
-  public updateKnotResponse(id: number, response: ResponseWithInputType): SkeinTree {
+  public updateKnotResponse(id: number, response: Response): SkeinTree {
     const knot = this.knots.get(id);
     if (!knot) {
       throw new Error(`Knot ${id} not found`);
@@ -326,7 +326,7 @@ export class SkeinTree {
    * The existing knot becomes the (sole) child of the newly inserted parent, which takes
    * the existing knot's former place among its old parent's children.
    */
-  public insertParent(id: number, command: string, response: ResponseWithInputType): SkeinTree {
+  public insertParent(id: number, command: string, response: Response): SkeinTree {
     const knot = this.knots.get(id);
     if (!knot) {
       throw new Error(`Knot ${id} not found`);
@@ -663,12 +663,4 @@ export class SkeinTree {
   public setActiveKnotId(id: number | null): SkeinTree {
     return new SkeinTree(this.engine, this.seed, this.knots, this.knotStates, id);
   }
-}
-
-/**
- * Response with input type information
- */
-export interface ResponseWithInputType {
-  text: string;
-  inputType: 'line' | 'key';
 }

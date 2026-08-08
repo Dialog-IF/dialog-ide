@@ -151,16 +151,16 @@ A new knot is one with no blessed response (response is empty/undefined) and onl
 The SkeinTree supports a finite set of operations that each return a new SkeinTree instance:
 
 #### Core Operations
-1. **addChild(parentId: number, childId: number, command: string, response: ResponseWithInputType)**: 
+1. **addChild(parentId: number, childId: number, command: string, response: Response)**: 
    - Adds a new child knot to an existing parent
    - The new child becomes the selected child of its parent
    - Returns a new SkeinTree with the added child
 
-2. **updateKnotCommandAndResponse(id: number, command: string, response: ResponseWithInputType)**: 
+2. **updateKnotCommandAndResponse(id: number, command: string, response: Response)**: 
    - Updates an existing knot with a new command text and response text with prompt type
    - Returns a new SkeinTree with the updated knot
 
-3. **updateKnotResponse(id: number, response: ResponseWithInputType)**: 
+3. **updateKnotResponse(id: number, response: Response)**: 
    - Updates an existing knot with a new response text and prompt type
    - Returns a new SkeinTree with the updated knot
 
@@ -184,7 +184,7 @@ The SkeinTree supports a finite set of operations that each return a new SkeinTr
    - Deletes a knot and reparents its children to the parent knot
    - Returns a new SkeinTree with the knot spliced out
 
-8. **insertParent(id: number, command: string, response: ResponseWithInputType)**: 
+8. **insertParent(id: number, command: string, response: Response)**: 
    - Inserts a new parent knot above an existing knot
    - The existing knot becomes a child of the newly inserted parent
    - Returns a new SkeinTree with the modified structure

@@ -4,7 +4,7 @@
  */
 
 import { SkeinProcess, EngineType } from './process';
-import { SkeinTree, WireKnot, ResponseWithInputType } from './tree';
+import { SkeinTree } from './tree';
 import { DynamicProcessor, DynamicState, DynamicChanges } from './dynamic';
 
 const DYNAMIC_COMMAND = '@dynamic';
