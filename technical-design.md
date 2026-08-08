@@ -423,9 +423,11 @@ Read stdout until one of these is true of the raw (untagged) accumulated buffer:
 ##### Producing Clean Content
 Once a response is complete:
 1. Split into lines
-2. Drop the interpreter's startup banner lines and leading/trailing blank lines
+2. Drop the `"Line-type display ON"` startup banner line (dfrotz emits this even with `-q`) and leading/trailing blank lines
 3. Strip the 2-character tag from the front of every remaining line
 4. Drop the residual prompt line itself — it's metadata, not content
+5. Strip a leading redundant ANSI SGR-reset sequence (`\x1b[0m`) if present — both engines emit one even when it isn't needed
+6. Ensure the result ends with a newline, appending one if it doesn't — a keystroke prompt's content has none of its own, and downstream code (persistence, response-equality checks for blessing) relies on this being consistent
 
 The result is the knot's `response.text`; `response.inputType` is `'key'` for a keystroke prompt, `'line'` otherwise.
 

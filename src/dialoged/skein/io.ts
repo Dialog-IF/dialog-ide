@@ -1,117 +1,95 @@
 /**
  * Input/Output detection for the Skein engine.
- * Detects and parses different types of input prompts from interpreters.
+ *
+ * dgdebug (with --tag-lines) and dfrotz (with -r lt) prefix every output line with a 2-
+ * character tag identifying what kind of line it is - this is not a suffix-matching problem
+ * on the whole response, it's a per-line protocol. See technical-design.md's "Process
+ * Management" section (verified against dialog-tool's process.clj) for the full writeup this
+ * implementation follows.
  */
 
-/**
- * Prompt type detection
- */
-export type PromptType = 'line' | 'keystroke';
+import { EngineType } from './process';
 
-/**
- * Response parsing result
- */
-export interface ParseResult {
+export type PromptType = 'line' | 'key';
+
+export interface ParsedResponse {
   content: string;
   promptType: PromptType;
-  hasPrompt: boolean;
 }
 
-/**
- * Class for handling input/output detection
- */
+const LINE_TAG_TERMINATOR: Record<'dgdebug' | 'dfrotz', string> = {
+  dgdebug: '\n> ',
+  dfrotz: '\nT > '
+};
+const KEYSTROKE_PREFIX = ') ';
+const STARTUP_BANNER_LINE = 'Line-type display ON';
+// dgdebug/dfrotz emit a redundant leading SGR reset even when it isn't needed.
+const LEADING_SGR_RESET_RE = /^\x1b\[0m/;
+
 export class IoDetector {
-  /**
-   * Detect prompt type from response content
-   */
-  public detectPromptType(response: string): PromptType {
-    // This is a simplified implementation based on the technical specification
+  private readonly family: 'dgdebug' | 'dfrotz';
 
-    // Check for dgdebug line prompts (ends with "> ")
-    if (response.trim().endsWith('> ')) {
-      return 'line';
-    }
-
-    // Check for dgdebug keystroke prompts (starts with ") ")
-    if (response.trim().startsWith(') ')) {
-      return 'keystroke';
-    }
-
-    // Check for dfrotz line prompts (starts with "\nT > " where T is text indicator)
-    if (response.includes('\nT > ')) {
-      return 'line';
-    }
-
-    // Check for dfrotz keystroke prompts (starts with ") ")
-    if (response.trim().startsWith(') ')) {
-      return 'keystroke';
-    }
-
-    // Default to line prompt if no specific pattern detected
-    return 'line';
+  constructor(private readonly engine: EngineType) {
+    // frotz and frotz-release launch dfrotz identically - see technical-design.md's Process
+    // Management section - so they share the same tag family here too.
+    this.family = engine === 'dgdebug' ? 'dgdebug' : 'dfrotz';
   }
 
   /**
-   * Parse response content properly
+   * Does the raw (untagged) accumulated buffer represent a complete response yet? Keep
+   * reading from the process until this returns true.
    */
-  public parseResponse(response: string): ParseResult {
-    let cleanContent = response;
-    let promptType: PromptType = 'line';
-    let hasPrompt = false;
-
-    // Strip prompt indicators from the output
-    if (response.trim().endsWith('> ')) {
-      // dgdebug line prompt
-      cleanContent = response.slice(0, -2).trim();
-      promptType = 'line';
-      hasPrompt = true;
-    } else if (response.trim().startsWith(') ')) {
-      // Both interpreters keystroke prompt
-      cleanContent = response.slice(2).trim();
-      promptType = 'keystroke';
-      hasPrompt = true;
-    } else if (response.includes('\nT > ')) {
-      // dfrotz line prompt - remove everything up to and including the prompt
-      const parts = response.split('\nT > ');
-      cleanContent = parts.slice(1).join('\nT > ').trim();
-      promptType = 'line';
-      hasPrompt = true;
+  public isComplete(buffer: string): boolean {
+    if (buffer.endsWith(LINE_TAG_TERMINATOR[this.family])) {
+      return true;
     }
-
-    return {
-      content: cleanContent,
-      promptType,
-      hasPrompt
-    };
+    // Keystroke prompts don't end with a newline, so they can't be detected with a suffix
+    // check on the whole buffer - only the last line matters.
+    return this.lastLineOf(buffer).startsWith(KEYSTROKE_PREFIX);
   }
 
   /**
-   * Strip prompts from output
+   * Parse a complete buffer (isComplete(buffer) must be true) into clean content and prompt
+   * type: strips the interpreter's startup banner and leading blank lines, strips the 2-
+   * character tag from every remaining line, and drops the residual prompt line itself.
    */
-  public stripPrompts(output: string): string {
-    // Remove known prompt patterns from output
-    let cleaned = output;
+  public parse(buffer: string): ParsedResponse {
+    const promptType: PromptType = this.lastLineOf(buffer).startsWith(KEYSTROKE_PREFIX) ? 'key' : 'line';
 
-    // Remove dgdebug line prompts
-    cleaned = cleaned.replace(/>\s*$/, '');
+    const rawLines = buffer.replace(/\r/g, '').split('\n');
 
-    // Remove dfrotz line prompts
-    cleaned = cleaned.replace(/\nT > /g, '\n');
+    let lines = rawLines.filter((line) => line !== STARTUP_BANNER_LINE);
+    lines = dropLeading(lines, (line) => line === '');
+    lines = lines.map((line) => line.slice(2));
+    lines = dropLeading(lines, (line) => line === '');
+    lines = dropTrailing(lines, (line) => line === '' || line === '> ');
 
-    // Remove keystroke prompts
-    cleaned = cleaned.replace(/^\)\s*/, '');
+    const content = lines.join('\n').replace(LEADING_SGR_RESET_RE, '');
 
-    return cleaned.trim();
+    // The captured response always ends with a newline, even for a keystroke prompt that has
+    // none of its own - downstream code (writing to a skein file, diffing responses) relies
+    // on this being consistent.
+    return { content: content.endsWith('\n') ? content : `${content}\n`, promptType };
   }
 
-  /**
-   * Check if content contains a prompt
-   */
-  public hasPrompt(content: string): boolean {
-    return (
-      content.trim().endsWith('> ') ||
-      content.trim().startsWith(') ') ||
-      content.includes('\nT > ')
-    );
+  private lastLineOf(buffer: string): string {
+    const lines = buffer.split('\n');
+    return lines[lines.length - 1];
   }
+}
+
+function dropLeading<T>(items: T[], predicate: (item: T) => boolean): T[] {
+  let start = 0;
+  while (start < items.length && predicate(items[start])) {
+    start++;
+  }
+  return items.slice(start);
+}
+
+function dropTrailing<T>(items: T[], predicate: (item: T) => boolean): T[] {
+  let end = items.length;
+  while (end > 0 && predicate(items[end - 1])) {
+    end--;
+  }
+  return items.slice(0, end);
 }
