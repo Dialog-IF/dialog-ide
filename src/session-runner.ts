@@ -103,3 +103,16 @@ export async function isDgdebugAvailable(binDir?: string): Promise<boolean> {
     return false;
   }
 }
+
+/**
+ * Args for launching dgdebug as a genuinely interactive terminal session - matching
+ * dialog-tool's own `dgt debug` command exactly: just --quit (exit the debugger when the
+ * program terminates) plus the expanded source files, no --tag-lines/--unit-test/--seed/
+ * --width. This is deliberately NOT the SkeinProcess/tag-line-parsed path - it's a raw,
+ * unmanaged dgdebug session for free exploration, with VS Code's terminal owning a real PTY
+ * (so dgdebug gets its own natural interactive behavior, including terminal-width detection),
+ * not tied to any tracked skein session or tree.
+ */
+export function debugTerminalShellArgs(sourceFiles: string[]): string[] {
+  return ['--quit', ...sourceFiles];
+}

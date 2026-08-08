@@ -10,6 +10,8 @@ import {
   EngineType,
   PersistenceManager,
   readProject,
+  expandSources,
+  resolveCommandPath,
   SkeinService,
   SkeinSession
 } from './dialoged/skein';
@@ -17,6 +19,7 @@ import {
   DEFAULT_SESSION_ID,
   EngineChoice,
   ENGINE_CHOICES,
+  debugTerminalShellArgs,
   isDgdebugAvailable,
   isValidSessionId,
   listSkeinFiles,
@@ -76,7 +79,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       'dialog-ide.newSkein',
       withErrorHandling(() => newSkeinSession(resolveProjectRoot(getWorkspaceRoot())))
     ),
-    vscode.commands.registerCommand('dialog-ide.stopSkein', withErrorHandling(stopSkeinCommand))
+    vscode.commands.registerCommand('dialog-ide.stopSkein', withErrorHandling(stopSkeinCommand)),
+    vscode.commands.registerCommand(
+      'dialog-ide.debugInTerminal',
+      withErrorHandling(() => debugInTerminal(resolveProjectRoot(getWorkspaceRoot())))
+    )
   );
 }
 
@@ -244,6 +251,29 @@ async function stopSkeinCommand(): Promise<void> {
   }
   await stopActiveSession();
   vscode.window.showInformationMessage('Skein session stopped.');
+}
+
+/**
+ * Opens a real, unmanaged interactive dgdebug session in a VS Code terminal - not tied to any
+ * tracked skein session or tree, matching dialog-tool's own `dgt debug` command. No --tag-lines,
+ * since nothing here needs to parse the output - VS Code's terminal owns a real PTY and dgdebug
+ * behaves exactly as it would in any other terminal.
+ */
+async function debugInTerminal(projectRoot: string): Promise<void> {
+  const project = readProject(projectRoot);
+  if (!(await isDgdebugAvailable(project.binDir))) {
+    throw new Error(
+      'dgdebug was not found on PATH (or in binDir). Install the Dialog toolchain or set "binDir" in dialog.json.'
+    );
+  }
+
+  const sourceFiles = expandSources(project, { debug: true, target: 'dgdebug' });
+  const terminal = vscode.window.createTerminal({
+    name: 'Dialog Debugger',
+    shellPath: resolveCommandPath(project.binDir, 'dgdebug'),
+    shellArgs: debugTerminalShellArgs(sourceFiles)
+  });
+  terminal.show();
 }
 
 /**

@@ -34,6 +34,10 @@
       {
         "command": "dialog-ide.stopSkein",
         "title": "Dialog IDE: Stop Skein"
+      },
+      {
+        "command": "dialog-ide.debugInTerminal",
+        "title": "Dialog IDE: Debug in Terminal"
       }
     ]
   },

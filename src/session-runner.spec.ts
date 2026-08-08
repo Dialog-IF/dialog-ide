@@ -4,6 +4,7 @@ import {
   DEFAULT_SESSION_ID,
   ENGINE_CHOICES,
   SessionRunnerError,
+  debugTerminalShellArgs,
   isDgdebugAvailable,
   isValidSessionId,
   parseSeed,
@@ -96,6 +97,16 @@ describe('ENGINE_CHOICES', () => {
     expect(ENGINE_CHOICES.find((c) => c.engine === 'dgdebug')?.supported).toBe(true);
     expect(ENGINE_CHOICES.find((c) => c.engine === 'frotz')?.supported).toBe(false);
     expect(ENGINE_CHOICES.find((c) => c.engine === 'frotz-release')?.supported).toBe(false);
+  });
+});
+
+describe('debugTerminalShellArgs', () => {
+  it('is --quit plus the source files, matching dialog-tool\'s own "dgt debug" command - no --tag-lines/--unit-test/--seed', () => {
+    expect(debugTerminalShellArgs(['/proj/src/meta.dg', '/proj/src/orb.dg'])).toEqual([
+      '--quit',
+      '/proj/src/meta.dg',
+      '/proj/src/orb.dg'
+    ]);
   });
 });
 
