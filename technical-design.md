@@ -168,10 +168,11 @@ The SkeinTree supports a finite set of operations that each return a new SkeinTr
    - Updates knot state to 'valid' if not already 'valid'
    - Returns a new SkeinTree with the blessed knot
 
-5. **blessPath(id: number)**: 
-   - Blesses every knot from root to the given knot (inclusive) - i.e. `blessKnot` applied along the whole path, not just the one knot
+5. **blessTranscript(id: number)**: 
+   - Blesses every **non-valid** knot from root to the given knot (inclusive) - i.e. `blessKnot` applied to each knot on that path that isn't already `'valid'`, skipping the ones that are
+   - `id` is the leaf of the visible transcript (typically the active knot) - the operation targets what's currently on screen, not an arbitrary path
    - Backs the "Bless Changes" menu action (Skein Menu), as distinct from "Bless Knot"'s single-knot `blessKnot`
-   - Returns a new SkeinTree with every knot on that path blessed
+   - Returns a new SkeinTree with every non-valid knot on that path now blessed
 
 6. **deleteKnot(id: number)**: 
    - Deletes a knot and all its descendants recursively
