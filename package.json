@@ -1,13 +1,31 @@
 {
   "name": "dialog-ide",
+  "displayName": "Dialog IDE",
   "version": "1.0.0",
-  "description": "IDE for Dialog interactive fiction development with Skein engine",
-  "main": "src/main.js",
+  "description": "VS Code extension for Dialog interactive fiction development with a Skein engine",
+  "publisher": "hlship",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Debuggers"
+  ],
+  "main": "./dist/extension.js",
+  "activationEvents": [],
+  "contributes": {
+    "commands": [
+      {
+        "command": "dialog-ide.openSkein",
+        "title": "Dialog IDE: Open Skein"
+      }
+    ]
+  },
   "scripts": {
-    "start": "electron .",
+    "vscode:prepublish": "npm run build",
     "build": "tsc",
-    "dev": "node dist/main.js",
-    "test": "node run-tests.js",
+    "watch": "tsc -w",
+    "test": "jest",
     "clean": "rm -rf dist"
   },
   "keywords": [
@@ -19,16 +37,18 @@
   "author": "Howard Lewis Ship",
   "license": "MIT",
   "devDependencies": {
+    "@types/jest": "^30.0.0",
     "@types/node": "^20.0.0",
-    "electron": "^43.3.0",
+    "@types/vscode": "^1.85.0",
+    "jest": "^30.4.2",
+    "ts-jest": "^29.4.12",
     "typescript": "^5.0.0"
   },
   "files": [
-    "src/**/*",
+    "dist/**/*",
     "README.md"
   ],
   "dependencies": {
-    "electron-squirrel-startup": "^1.0.1",
     "immutable": "^5.1.9"
   }
 }

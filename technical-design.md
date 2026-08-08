@@ -109,6 +109,7 @@ interface DerivedKnot {
   state: 'new' | 'valid' | 'error';
   parentId: number | null;
   children: number[];
+  selectedChild: number | null;
   inputType: 'line' | 'key';
   label: string | null;
   locked: boolean;
@@ -168,26 +169,32 @@ The SkeinTree supports a finite set of operations that each return a new SkeinTr
    - Updates knot state to 'valid' if not already 'valid'
    - Returns a new SkeinTree with the blessed knot
 
-5. **deleteKnot(id: number)**: 
+5. **blessTranscript(id: number)**: 
+   - Blesses every **non-valid** knot from root to the given knot (inclusive) - i.e. `blessKnot` applied to each knot on that path that isn't already `'valid'`, skipping the ones that are
+   - `id` is the leaf of the visible transcript (typically the active knot) - the operation targets what's currently on screen, not an arbitrary path
+   - Backs the "Bless Changes" menu action (Skein Menu), as distinct from "Bless Knot"'s single-knot `blessKnot`
+   - Returns a new SkeinTree with every non-valid knot on that path now blessed
+
+6. **deleteKnot(id: number)**: 
    - Deletes a knot and all its descendants recursively
    - Returns a new SkeinTree with the knot removed
 
-6. **spliceKnot(id: number)**: 
+7. **spliceKnot(id: number)**: 
    - Deletes a knot and reparents its children to the parent knot
    - Returns a new SkeinTree with the knot spliced out
 
-7. **insertParent(id: number, command: string, response: ResponseWithInputType)**: 
+8. **insertParent(id: number, command: string, response: ResponseWithInputType)**: 
    - Inserts a new parent knot above an existing knot
    - The existing knot becomes a child of the newly inserted parent
    - Returns a new SkeinTree with the modified structure
 
-8. **setLabel(id: number, label: string | null)**: 
+9. **setLabel(id: number, label: string | null)**: 
    - Sets or clears the label for a knot
    - Returns a new SkeinTree with the updated label
 
-9. **setLockStatus(id: number, locked: boolean)**: 
-   - Sets or clears the lock status for a knot
-   - Returns a new SkeinTree with the updated lock status
+10. **setLockStatus(id: number, locked: boolean)**: 
+    - Sets or clears the lock status for a knot
+    - Returns a new SkeinTree with the updated lock status
 
 #### Knot State Management
 - **DerivedKnot.state** is determined by:
@@ -416,9 +423,11 @@ Read stdout until one of these is true of the raw (untagged) accumulated buffer:
 ##### Producing Clean Content
 Once a response is complete:
 1. Split into lines
-2. Drop the interpreter's startup banner lines and leading/trailing blank lines
+2. Drop the `"Line-type display ON"` startup banner line (dfrotz emits this even with `-q`) and leading/trailing blank lines
 3. Strip the 2-character tag from the front of every remaining line
 4. Drop the residual prompt line itself — it's metadata, not content
+5. Strip a leading redundant ANSI SGR-reset sequence (`\x1b[0m`) if present — both engines emit one even when it isn't needed
+6. Ensure the result ends with a newline, appending one if it doesn't — a keystroke prompt's content has none of its own, and downstream code (persistence, response-equality checks for blessing) relies on this being consistent
 
 The result is the knot's `response.text`; `response.inputType` is `'key'` for a keystroke prompt, `'line'` otherwise.
 
@@ -433,19 +442,52 @@ Dynamic state is a **live, ephemeral** view into the running interpreter's globa
 
 #### How It Works
 1. After the session lands on a knot (a command just executed, or the user selected a different knot while debugging), the session sends the `@dynamic` command to the running process
-2. dgdebug responds with a listing of global flags/variables and per-object flags/properties
-3. The response is parsed into a `DynamicState` structure and shown as an integrated UI tab (per master-spec.md's non-modal design goal), not a separate modal
+2. dgdebug responds with a listing of global and per-object flags and variables, as Dialog predicate patterns (a "$" is a placeholder for a substituted object name or value) — not as named properties
+3. The response is parsed into a `DynamicState` and shown as an integrated UI tab (per master-spec.md's non-modal design goal), not a separate modal
+
+This is Dialog-language-specific, dgdebug-only behavior — the format below is verified directly against dialog-tool's `skein/dynamic.clj` and its real captured `@dynamic` transcripts (see `dynamic.spec.ts`), not invented.
+
+#### Response Format
+`@dynamic` output has four sections, in order, each optional lines between headers:
+```
+> @dynamic
+GLOBAL FLAGS
+        (some fact)                              off
+        (another fact)                           on (changed)
+
+PER-OBJECT FLAGS
+        ($ is closed)
+                #drawer #glove-compartment
+
+GLOBAL VARIABLES
+        (remaining cigarettes $)                 6
+        (current room $)                         <unset>
+
+PER-OBJECT VARIABLES
+        ($ has parent $)
+                #flashlight                      #knock
+        ($ has relation $)
+                #flashlight                      #heldby
+```
+- A global flag is "set" when its value starts with `on` (a trailing `(changed)` marker may follow either `on` or `off` and doesn't affect this)
+- A global variable's value of `<unset>` means the variable isn't tracked/populated — it's dropped rather than kept as a literal string
+- Per-object flags/vars list one or more `#object-name` (and, for vars, a value) per line under the fact pattern
+- Long lines wrap: a continuation line ending the prior line's word with a hyphen glues with no inserted space (`#pane-of-\ncracked-glass` → `#pane-of-cracked-glass`); any other wrap glues with one space inserted, in addition to whatever leading whitespace the continuation line itself has (this can produce a double space — that's correct, matching dialog-tool's own output, not a bug to "fix")
+- Response text arrives with ANSI escape sequences in it (dgdebug's default formatting) — strip those before parsing, not after
 
 #### Data Structure
 ```typescript
 interface DynamicState {
-  globals: Record<string, boolean | string | number>;
-  objects: Record<string, {
-    flags: Record<string, boolean>;
-    properties: Record<string, string | number>;
-  }>;
+  flags: Set<string>;
+  vars: Record<string, string>;
 }
 ```
+- `flags`: every currently-set predicate, global and per-object, with `$` substituted for the actual object name (e.g. `(#drawer is closed)`)
+- `vars`: predicate pattern → human-readable predicate string with value(s) substituted for `$`. Global vars are keyed by their raw (unflattened) pattern (e.g. `(current room $)`); per-object vars are keyed by the pattern with just the object name substituted (e.g. `(#drawer is $ $)`) — this asymmetry matches dialog-tool's own keying and is preserved for fidelity rather than "fixed"
+- The `($ has parent $)` and `($ has relation $)` per-object vars are special-cased: merged into a synthetic `($ is $ $)` "location" var per object (e.g. `(#drawer is #partof #metal-desk)`) rather than appearing as their own separate vars. An object with a parent but no recorded relation gets `<unset>` for the relation slot
+
+#### Diffing
+Comparing two `DynamicState`s (typically before/after a command) produces `{added, removed, changed}`: flags/vars present only in the "after" state count as added, present only in "before" count as removed, and vars present in both with different values count as changed (as a `[before, after]` tuple). This is what actually renders as "what changed" in the dynamic state UI tab — showing the full flags/vars dump on every command would be noise.
 
 #### Availability
 `DynamicState` is only meaningful for the `dgdebug` engine (`dfrotz`/`dfrotz-release` don't support `@dynamic`), and only for the knot the process is currently positioned at (`Session.activeProcessKnotId`). Selecting a different knot re-runs the session up to that knot before dynamic state is refreshed.
@@ -472,6 +514,11 @@ interface TraceNode {
 - Nesting `depth` determines indentation/collapsibility in the trace pane
 - `source` is populated when dgdebug's output includes a file:line reference; `null` otherwise (e.g. built-in predicates)
 - Parsed trace nodes are a flat array keyed by `id`, scoped to the command/knot that produced them — also not persisted, regenerated by re-running the command
+
+#### Triggering a Trace
+Tracing is dgdebug-only and never touches the knot's stored response - it's a side query, not a tree mutation:
+- **Trace a knot's command**: replay the session up to the knot's parent, send `(trace on)`, execute the knot's command, send `(trace off)`, and parse the resulting output into `TraceNode`s. The knot's `response`/`unblessedResponse` are left untouched (the traced output is noise relative to normal transcript content).
+- **Trace startup**: restart the process with tracing enabled from launch (an extra `--trace` argument) to capture the traced startup banner, then restart again normally (without `--trace`) to leave the session in its regular state for further commands.
 
 ### 7. Full-Text Search
 In-memory search over the *blessed* content of the current skein tree, exposed in the Transcript View's search field.
@@ -510,6 +557,7 @@ Contains information used during UI management and state tracking:
 - `state`: Visual state indicator ('new', 'valid', 'error')
 - `parentId`: Reference to parent node
 - `children`: List of child node IDs
+- `selectedChild`: Which child continues the currently selected path, or null if none/no children
 - `inputType`: Type of input expected ('line' or 'key')
 - `label`: Optional label for the knot
 - `locked`: Boolean indicating if the knot is locked

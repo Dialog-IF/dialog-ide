@@ -47,6 +47,7 @@ export interface DerivedKnot {
   state: 'new' | 'valid' | 'error';
   parentId: number | null;
   children: number[];
+  selectedChild: number | null;
   inputType: 'line' | 'key';
   label: string | null;
   locked: boolean;
@@ -143,11 +144,12 @@ export class SkeinTree {
       children: []
     };
 
-    // Add child reference to parent
+    // Add child reference to parent, and make it the parent's selected child
     const parentState = this.knotStates.get(parentId)!;
     const updatedParentState: KnotState = {
       ...parentState,
-      children: [...parentState.children, newId]
+      children: [...parentState.children, newId],
+      selectedChild: newId
     };
 
     const knots = this.knots.set(newId, newKnot);
@@ -194,12 +196,18 @@ export class SkeinTree {
   }
 
   /**
-   * Bless a knot by rolling unblessedResponse over to response - returns a new SkeinTree instance
+   * Bless a knot by rolling unblessedResponse over to response - returns a new SkeinTree instance.
+   * A no-op when there's no pending unblessedResponse (nothing to bless), rather than nulling
+   * out an already-blessed response.
    */
   public blessKnot(id: number): SkeinTree {
     const knot = this.knots.get(id);
     if (!knot) {
       throw new Error(`Knot ${id} not found`);
+    }
+
+    if (!knot.unblessedResponse) {
+      return this;
     }
 
     const updatedKnot: WireKnot = {
@@ -212,45 +220,137 @@ export class SkeinTree {
   }
 
   /**
-   * Delete a knot and all its descendants - returns a new SkeinTree instance
+   * Bless every non-valid knot from root to the given knot (inclusive) - i.e. blessKnot
+   * applied along the whole path, skipping knots that are already valid. Backs the "Bless
+   * Changes" menu action, as distinct from blessKnot's single-knot "Bless Knot".
+   */
+  public blessTranscript(id: number): SkeinTree {
+    if (!this.knots.get(id)) {
+      throw new Error(`Knot ${id} not found`);
+    }
+
+    let tree: SkeinTree = this;
+    for (const pathId of this.pathFromRoot(id)) {
+      const knot = tree.knots.get(pathId)!;
+      if (SkeinTree.computeKnotState(knot) !== 'valid') {
+        tree = tree.blessKnot(pathId);
+      }
+    }
+    return tree;
+  }
+
+  /**
+   * Delete a knot and all its descendants recursively - returns a new SkeinTree instance.
+   * Also removes the knot from its (former) parent's children/selectedChild.
    */
   public deleteKnot(id: number): SkeinTree {
-    // This is a simplified implementation - in practice would need to handle
-    // recursive deletion and parent-child relationship updates properly
+    const knot = this.knots.get(id);
+    if (!knot) {
+      throw new Error(`Knot ${id} not found`);
+    }
 
-    return new SkeinTree(
-      this.engine,
-      this.seed,
-      this.knots.delete(id),
-      this.knotStates.delete(id),
-      this.activeKnotId
-    );
+    let knots = this.knots;
+    let knotStates = this.knotStates;
+    for (const descendantId of this.collectSubtreeIds(id)) {
+      knots = knots.delete(descendantId);
+      knotStates = knotStates.delete(descendantId);
+    }
+
+    if (knot.parentId !== null) {
+      knotStates = SkeinTree.removeChildFromParent(knotStates, knot.parentId, id);
+    }
+
+    return new SkeinTree(this.engine, this.seed, knots, knotStates, this.activeKnotId);
   }
 
   /**
-   * Splice a knot (delete and reparent children) - returns a new SkeinTree instance
+   * Delete a knot and reparent its children to its own parent - returns a new SkeinTree
+   * instance. The children take the spliced knot's place in the parent's children list.
    */
   public spliceKnot(id: number): SkeinTree {
-    // Simplified implementation - in practice would need to properly handle
-    // reparenting of children to the parent of the deleted knot
+    const knot = this.knots.get(id);
+    if (!knot) {
+      throw new Error(`Knot ${id} not found`);
+    }
 
-    return new SkeinTree(
-      this.engine,
-      this.seed,
-      this.knots.delete(id),
-      this.knotStates.delete(id),
-      this.activeKnotId
-    );
+    const knotState = this.knotStates.get(id)!;
+    const childIds = knotState.children;
+
+    let knots = this.knots.delete(id);
+    let knotStates = this.knotStates.delete(id);
+
+    for (const childId of childIds) {
+      const child = knots.get(childId)!;
+      knots = knots.set(childId, { ...child, parentId: knot.parentId });
+    }
+
+    if (knot.parentId !== null) {
+      const parentState = knotStates.get(knot.parentId)!;
+      const index = parentState.children.indexOf(id);
+      const children = index === -1
+        ? [...parentState.children, ...childIds]
+        : [...parentState.children.slice(0, index), ...childIds, ...parentState.children.slice(index + 1)];
+      knotStates = knotStates.set(knot.parentId, {
+        ...parentState,
+        children,
+        selectedChild: parentState.selectedChild === id
+          ? (childIds.length > 0 ? childIds[0] : null)
+          : parentState.selectedChild
+      });
+    }
+
+    return new SkeinTree(this.engine, this.seed, knots, knotStates, this.activeKnotId);
   }
 
   /**
-   * Insert a parent knot - returns a new SkeinTree instance
+   * Insert a new parent knot above an existing knot - returns a new SkeinTree instance.
+   * The existing knot becomes the (sole) child of the newly inserted parent, which takes
+   * the existing knot's former place among its old parent's children.
    */
   public insertParent(id: number, command: string, response: ResponseWithInputType): SkeinTree {
-    // Simplified implementation - in practice would need to properly handle
-    // the complex parent-child relationship changes
+    const knot = this.knots.get(id);
+    if (!knot) {
+      throw new Error(`Knot ${id} not found`);
+    }
 
-    return new SkeinTree(this.engine, this.seed, this.knots, this.knotStates, this.activeKnotId);
+    const newId = this.generateNextId();
+    const oldParentId = knot.parentId;
+
+    const newParentKnot: WireKnot = {
+      id: newId,
+      command,
+      response: null,
+      unblessedResponse: response,
+      parentId: oldParentId,
+      label: null,
+      locked: false
+    };
+    const newParentState: KnotState = {
+      state: 'new',
+      treeState: 'new',
+      selectedChild: id,
+      children: [id]
+    };
+
+    const updatedKnot: WireKnot = { ...knot, parentId: newId };
+
+    let knots = this.knots.set(newId, newParentKnot).set(id, updatedKnot);
+    let knotStates = this.knotStates.set(newId, newParentState);
+
+    if (oldParentId !== null) {
+      const grandparentState = knotStates.get(oldParentId)!;
+      const index = grandparentState.children.indexOf(id);
+      const children = index === -1
+        ? grandparentState.children
+        : [...grandparentState.children.slice(0, index), newId, ...grandparentState.children.slice(index + 1)];
+      knotStates = knotStates.set(oldParentId, {
+        ...grandparentState,
+        children,
+        selectedChild: grandparentState.selectedChild === id ? newId : grandparentState.selectedChild
+      });
+    }
+
+    return new SkeinTree(this.engine, this.seed, knots, knotStates, this.activeKnotId);
   }
 
   /**
@@ -320,6 +420,7 @@ export class SkeinTree {
       state: SkeinTree.computeKnotState(knot),
       parentId: knot.parentId,
       children: state ? state.children : [],
+      selectedChild: state ? state.selectedChild : null,
       inputType: knot.response ? knot.response.inputType : 'line',
       label: knot.label,
       locked: knot.locked
@@ -342,6 +443,57 @@ export class SkeinTree {
       return 'new';
     }
     return 'new';
+  }
+
+  /**
+   * Collect a knot's id and all its descendants' ids.
+   */
+  private collectSubtreeIds(id: number): number[] {
+    const ids: number[] = [id];
+    const state = this.knotStates.get(id);
+    if (state) {
+      for (const childId of state.children) {
+        ids.push(...this.collectSubtreeIds(childId));
+      }
+    }
+    return ids;
+  }
+
+  /**
+   * The path of knot ids from the root (id 0) down to the given knot, inclusive.
+   */
+  private pathFromRoot(id: number): number[] {
+    const path: number[] = [];
+    let current: WireKnot | undefined = this.knots.get(id);
+    while (current) {
+      path.unshift(current.id);
+      current = current.parentId !== null ? this.knots.get(current.parentId) : undefined;
+    }
+    return path;
+  }
+
+  /**
+   * Remove childId from parentId's children/selectedChild, reassigning selectedChild to the
+   * next remaining child (or null) if the removed child was selected.
+   */
+  private static removeChildFromParent(
+    knotStates: Map<number, KnotState>,
+    parentId: number,
+    childId: number
+  ): Map<number, KnotState> {
+    const parentState = knotStates.get(parentId);
+    if (!parentState) {
+      return knotStates;
+    }
+
+    const children = parentState.children.filter((existingId) => existingId !== childId);
+    return knotStates.set(parentId, {
+      ...parentState,
+      children,
+      selectedChild: parentState.selectedChild === childId
+        ? (children.length > 0 ? children[0] : null)
+        : parentState.selectedChild
+    });
   }
 
   /**
