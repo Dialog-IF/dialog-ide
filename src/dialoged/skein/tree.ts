@@ -312,30 +312,77 @@ export class SkeinTree {
 
     const state = this.knotStates.get(id);
 
-    // Determine knot state
-    let knotState: 'new' | 'valid' | 'error' = 'new';
-    if (knot.response) {
-      if (knot.unblessedResponse && knot.response.text !== knot.unblessedResponse.text) {
-        knotState = 'error';
-      } else {
-        knotState = 'valid';
-      }
-    } else if (knot.unblessedResponse) {
-      knotState = 'new';
-    }
-
     return {
       id: knot.id,
       command: knot.command,
       response: knot.response ? knot.response.text : '',
       unblessedResponse: knot.unblessedResponse ? knot.unblessedResponse.text : null,
-      state: knotState,
+      state: SkeinTree.computeKnotState(knot),
       parentId: knot.parentId,
       children: state ? state.children : [],
       inputType: knot.response ? knot.response.inputType : 'line',
       label: knot.label,
       locked: knot.locked
     };
+  }
+
+  /**
+   * Derive a knot's own state from its response/unblessedResponse content.
+   * Does not consider descendants - see technical-design.md on tree-status propagation,
+   * which isn't implemented yet.
+   */
+  private static computeKnotState(knot: WireKnot): 'new' | 'valid' | 'error' {
+    if (knot.response) {
+      if (knot.unblessedResponse && knot.response.text !== knot.unblessedResponse.text) {
+        return 'error';
+      }
+      return 'valid';
+    }
+    if (knot.unblessedResponse) {
+      return 'new';
+    }
+    return 'new';
+  }
+
+  /**
+   * Reconstruct a tree from a flat, unordered list of WireKnots - e.g. as read back from
+   * a skein file, which stores only id/parentId per knot and not the derived children/
+   * selectedChild structure. Mirrors dialog-tool's tree/rebuild: children are grouped by
+   * parentId, and each parent's selectedChild is the first child encountered when knots
+   * are processed in ascending id order.
+   */
+  public static fromKnots(
+    engine: 'dgdebug' | 'frotz' | 'frotz-release',
+    seed: number,
+    wireKnots: WireKnot[]
+  ): SkeinTree {
+    const sorted = [...wireKnots].sort((a, b) => a.id - b.id);
+
+    const childrenByParent = new globalThis.Map<number, number[]>();
+    for (const knot of sorted) {
+      if (knot.parentId !== null) {
+        const children = childrenByParent.get(knot.parentId) ?? [];
+        children.push(knot.id);
+        childrenByParent.set(knot.parentId, children);
+      }
+    }
+
+    let knots = Map<number, WireKnot>();
+    let knotStates = Map<number, KnotState>();
+    for (const knot of sorted) {
+      const children = childrenByParent.get(knot.id) ?? [];
+      const knotState = SkeinTree.computeKnotState(knot);
+      knots = knots.set(knot.id, knot);
+      knotStates = knotStates.set(knot.id, {
+        state: knotState,
+        // Tree-status propagation from descendants isn't implemented yet - see computeKnotState.
+        treeState: knotState,
+        selectedChild: children.length > 0 ? children[0] : null,
+        children
+      });
+    }
+
+    return new SkeinTree(engine, seed, knots, knotStates, 0);
   }
 
   /**

@@ -730,43 +730,68 @@ Web bundles created by aambundle include:
 ## File Format Specifications
 
 ### 1. Skein File Format (Text-based)
-The format follows the established dialog-tool skein file specification:
+This is not an IDE-original format — it's dialog-tool's actual on-disk skein format, verified directly against `dialog-tool`'s `skein/file.clj` and real `.skein` fixture files, so that files remain interchangeable between the two tools. It is a flat, line-oriented text file, not JSON, specifically so it diffs cleanly in a VCS.
 
 #### Format Structure
 ```
-seed: 1234567890
----- 
+seed: 42
+engine: :dgdebug
+--------------------------------------------------------------------------------
 id: 0
-command: START
-----
-This is the blessed response text.
+label: START
+--------------------------------------------------------------------------------
+The Featureless Space
+An interactive fiction by The Intrepid Author.
+...
+
+--------------------------------------------------------------------------------
+id: 1772224627854
+parent-id: 0
+command: i
+--------------------------------------------------------------------------------
+> i
+You have no possessions.
+
 ```
 
 #### File Header
-- Only the seed value appears prior to the first knot
-- No other header information is included
-- Format: `key: value` format (snake cased keys)
-- No comment lines ('#') are used
+- `key: value` lines appear before the first separator; order doesn't matter, both are optional per line
+- `seed`: numeric, the RNG seed for the session
+- `engine`: `:dgdebug`, `:frotz`, or `:frotz-release` — written **with the leading colon** (a Clojure keyword literal baked into the on-disk format by the reference implementation); defaults to `:dgdebug` when the line is omitted entirely. Readers must accept the value with or without the leading colon; writers should keep the colon for compatibility with files also touched by dialog-tool.
+- No comment lines (`#`) are used
+
+#### Separators
+Two distinct separator lines, each exactly 80 characters, are used:
+- Knot delimiter: eighty `-` characters, written between the header and the first knot, between each knot's key/value block and its response content, and between one knot's content and the next knot's key/value block. On read, treat any line of 4 or more `-` characters as this separator (the reference writer always emits exactly 80, but is lenient on read).
+- Unblessed-response delimiter: eighty `<` characters. Appears within a knot's content section, after the blessed response text, to introduce the unblessed (pending/unverified) response text. Same 4-or-more leniency on read. **Not** `>>>>` — despite similar specs elsewhere describing it that way, the actual character is `<`.
 
 #### Knot Structure
-Each knot begins with a line of ---- characters (at least 4), followed by:
-1. Key/value pairs for the knot properties
-2. Another ---- divider
-3. The response text (blessed response) - there is no separate "response" key
-4. When there is an unblessed response, it is separated from the response by a >>>> delimeter line
+Each knot is:
+1. A separator line
+2. Key/value pairs for the knot's properties (order as written by the reference: `id`, `label`, `locked`, `parent-id`, `command`, `prompt` — any absent/nil field is simply omitted, not written as empty)
+3. Another separator line
+4. The blessed response text, verbatim (no `response:` key — it's just the raw content up to the next delimiter). The reference implementation guarantees this text ends with a trailing newline.
+5. Optionally, the unblessed-response delimiter followed by the raw unblessed response text, on the same terms
 
 #### Knot Properties
-- `id`: Numeric knot identifier (ascending order)
-- `command`: Player input text
-- `parent-id`: Reference to parent node (omitted for root knot)
-- `input-type`: Type of input expected ('line' or 'key') - defaults to 'line' and normally omitted
-- `label`: Optional label for the knot
-- `locked`: Boolean indicating if the knot is locked - defaults to false and normally omitted
+- `id`: numeric knot identifier. Not small sequential integers — seeded from wall-clock time (milliseconds since epoch) and incremented by one per knot within the same session, except the root, which is always `0`
+- `label`: optional descriptive label; the root knot's label is always written as `START`
+- `locked`: only written as `locked: true` when the knot is locked; omitted (defaults false) otherwise
+- `parent-id`: reference to the parent knot; omitted for the root knot (which has none)
+- `command`: player input text; omitted for the root knot (the root has no command — its `label` of `START` is what identifies it, not a fabricated command string)
+- `prompt`: only written as `prompt: keystroke` when the knot's prompt is a keystroke prompt; omitted (defaults to a line prompt) otherwise. Note the file's field is `prompt` with values `line`/`keystroke`, not the in-memory `Response.inputType` field name/values (`'line' | 'key'`) — a translation happens at the persistence boundary, not a renamed passthrough.
+
+#### Round-Tripping WireKnot's Split Response
+`WireKnot` (see [Data Models](#1-skein-knot-model)) tracks `response` and `unblessedResponse` as two independent `{text, inputType}` values, but the file format has only one `prompt` field per knot. When writing, prefer `unblessedResponse.inputType` (the more current value) and fall back to `response.inputType`, defaulting to `'line'` if neither is present. When reading, the single `prompt` value is applied to both `response` and `unblessedResponse` if both are present in the file — in the (currently theoretical) case where a knot's blessed and unblessed responses actually have different prompt types, that distinction doesn't survive a save/load round-trip. That's a known, accepted limitation of matching dialog-tool's format rather than inventing an incompatible extension.
+
+#### Loading and Tree Reconstruction
+The file only stores the flat list of knots (via `id`/`parent-id`); it does not store computed structure like each parent's children list or which child is selected. On load, that has to be rebuilt: group knots by `parent-id` to get each parent's `children`, and set each parent's `selectedChild` to the first child encountered when knots are processed in ascending `id` order (matching dialog-tool's `rebuild`, which does the same from the file's guaranteed ascending write order).
 
 #### Notes
 - Knots are always written in ascending order by knot id
 - Knot ids are numeric with a soft guarantee that larger numbers represent a later point in time
 - Knot ids do not have to be purely sequential (they are seeded from wall clock time, then increment by one)
+- Saves are atomic: write to a temp file, then rename over the target — never write the target path directly
 - The file format maintains full compatibility with existing dialog-tool skein files
 
 ### 2. Configuration File Format (dialog.json)

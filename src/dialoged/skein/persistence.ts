@@ -1,21 +1,163 @@
 /**
  * Persistence layer for the Skein engine.
- * Handles saving and loading session state to/from files.
+ *
+ * Reads and writes the skein tree using dialog-tool's flat, line-oriented text format
+ * (not JSON) - see technical-design.md's "Skein File Format" for the full spec. This is
+ * verified against dialog-tool's skein/file.clj and real .skein fixture files, so files
+ * stay interchangeable between the two tools and diff cleanly in a VCS.
  */
 
-import { SkeinTree, WireKnot } from './tree';
+import { SkeinTree, WireKnot, Response } from './tree';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 
+const KNOT_SEPARATOR = '-'.repeat(80);
+const UNBLESSED_SEPARATOR = '<'.repeat(80);
+const KNOT_SEPARATOR_RE = /^-{4,}$/;
+const UNBLESSED_SEPARATOR_RE = /^<{4,}$/;
+const KEY_VALUE_RE = /^([^:]+):\s*(.+)$/;
+
+type EngineType = 'dgdebug' | 'frotz' | 'frotz-release';
+
+function normalizeEngine(raw: string | undefined): EngineType {
+  const value = raw?.startsWith(':') ? raw.slice(1) : raw;
+  if (value === 'dgdebug' || value === 'frotz' || value === 'frotz-release') {
+    return value;
+  }
+  return 'dgdebug';
+}
+
+function parseKeyValues(block: string): Record<string, string> {
+  const props: Record<string, string> = {};
+  for (const line of block.split('\n')) {
+    const match = KEY_VALUE_RE.exec(line);
+    if (match) {
+      props[match[1].trim()] = match[2];
+    }
+  }
+  return props;
+}
+
 /**
- * Session file format
+ * Splits raw file content on knot-separator lines, keeping the (possibly multi-line) text
+ * between them. Segment 0 is the header; segments alternate props/content per knot from
+ * there: [header, knot0-props, knot0-content, knot1-props, knot1-content, ...].
  */
-export interface SessionFile {
-  meta: {
-    engine: 'dgdebug' | 'frotz' | 'frotz-release';
-    seed: number;
+function splitOnKnotSeparator(content: string): string[] {
+  const segments: string[][] = [[]];
+  for (const line of content.split('\n')) {
+    if (KNOT_SEPARATOR_RE.test(line)) {
+      segments.push([]);
+    } else {
+      segments[segments.length - 1].push(line);
+    }
+  }
+  return segments.map((lines) => lines.join('\n'));
+}
+
+/**
+ * Splits a knot's content block into blessed/unblessed text on the unblessed-response
+ * separator. Empty text (nothing was ever written for that part) becomes null.
+ */
+function splitUnblessed(content: string): { blessed: string | null; unblessed: string | null } {
+  const lines = content.split('\n');
+  const index = lines.findIndex((line) => UNBLESSED_SEPARATOR_RE.test(line));
+  const blessed = (index === -1 ? content : lines.slice(0, index).join('\n'));
+  const unblessed = index === -1 ? null : lines.slice(index + 1).join('\n');
+  return {
+    blessed: blessed.length > 0 ? blessed : null,
+    unblessed: unblessed && unblessed.length > 0 ? unblessed : null
   };
-  knots: Record<string, WireKnot>;
+}
+
+function serializeKnot(knot: WireKnot): string {
+  const lines: string[] = [];
+  const isRoot = knot.parentId === null;
+
+  lines.push(KNOT_SEPARATOR);
+  lines.push(`id: ${knot.id}`);
+  if (knot.label !== null) {
+    lines.push(`label: ${knot.label}`);
+  }
+  if (knot.locked) {
+    lines.push('locked: true');
+  }
+  if (knot.parentId !== null) {
+    lines.push(`parent-id: ${knot.parentId}`);
+  }
+  // The root knot has no command - it's identified by its "START" label, not a fabricated command.
+  if (!isRoot) {
+    lines.push(`command: ${knot.command}`);
+  }
+  // WireKnot tracks inputType per response; the file has one prompt field per knot, so
+  // prefer the more current (unblessed) value - see technical-design.md's note on this.
+  const promptSource = knot.unblessedResponse ?? knot.response;
+  if (promptSource?.inputType === 'key') {
+    lines.push('prompt: keystroke');
+  }
+  lines.push(KNOT_SEPARATOR);
+
+  if (knot.response) {
+    lines.push(knot.response.text);
+  }
+  if (knot.unblessedResponse) {
+    lines.push(UNBLESSED_SEPARATOR);
+    lines.push(knot.unblessedResponse.text);
+  }
+
+  return lines.join('\n');
+}
+
+function serializeTree(tree: SkeinTree): string {
+  const lines: string[] = [
+    `seed: ${tree.getSeed()}`,
+    `engine: :${tree.getEngine()}`
+  ];
+
+  const knots = tree.getAllKnots().sort((a, b) => a.id - b.id);
+  for (const knot of knots) {
+    lines.push(serializeKnot(knot));
+  }
+
+  // No forced trailing newline: knot content already carries whatever trailing newline(s)
+  // it captured from the process, and forcing one more here would corrupt round-tripping.
+  return lines.join('\n');
+}
+
+function deserializeTree(content: string): SkeinTree {
+  const segments = splitOnKnotSeparator(content);
+
+  const header = parseKeyValues(segments[0]);
+  const seed = header.seed ? parseInt(header.seed, 10) : 0;
+  const engine = normalizeEngine(header.engine);
+
+  const wireKnots: WireKnot[] = [];
+  // segments[1 + 2k] is knot k's props block, segments[2 + 2k] is its content block.
+  for (let i = 1; i + 1 < segments.length; i += 2) {
+    const props = parseKeyValues(segments[i]);
+    if (!props.id) {
+      continue; // malformed block; skip rather than fail the whole load
+    }
+
+    const { blessed, unblessed } = splitUnblessed(segments[i + 1]);
+    const inputType: 'line' | 'key' = props.prompt === 'keystroke' ? 'key' : 'line';
+    const parentId = props['parent-id'] !== undefined ? parseInt(props['parent-id'], 10) : null;
+
+    const toResponse = (text: string | null): Response | null =>
+      text !== null ? { text, inputType } : null;
+
+    wireKnots.push({
+      id: parseInt(props.id, 10),
+      command: props.command ?? (parentId === null ? 'START' : ''),
+      response: toResponse(blessed),
+      unblessedResponse: toResponse(unblessed),
+      parentId,
+      label: props.label ?? null,
+      locked: props.locked === 'true'
+    });
+  }
+
+  return SkeinTree.fromKnots(engine, seed, wireKnots);
 }
 
 /**
@@ -29,31 +171,13 @@ export class PersistenceManager {
   }
 
   /**
-   * Save session data to file
+   * Save session data to file, atomically
    */
   public async saveSession(tree: SkeinTree, sessionId: string): Promise<void> {
     try {
-      // Ensure base path exists
       await fs.mkdir(this.basePath, { recursive: true });
-
-      // Convert tree to file format
-      const sessionFile: SessionFile = {
-        meta: {
-          engine: tree.getEngine(),
-          seed: tree.getSeed()
-        },
-        knots: {}
-      };
-
-      // Add knots to file format
-      const allKnots = tree.getAllKnots();
-      for (const knot of allKnots) {
-        sessionFile.knots[knot.id] = knot;
-      }
-
-      // Write to file
-      const filePath = path.join(this.basePath, `${sessionId}.json`);
-      await fs.writeFile(filePath, JSON.stringify(sessionFile, null, 2));
+      const filePath = path.join(this.basePath, `${sessionId}.skein`);
+      await this.atomicWrite(filePath, serializeTree(tree));
 
       console.log(`Session ${sessionId} saved successfully to ${filePath}`);
     } catch (error) {
@@ -67,20 +191,12 @@ export class PersistenceManager {
    */
   public async loadSession(sessionId: string): Promise<SkeinTree> {
     try {
-      const filePath = path.join(this.basePath, `${sessionId}.json`);
+      const filePath = path.join(this.basePath, `${sessionId}.skein`);
       const fileContent = await fs.readFile(filePath, 'utf8');
-      const sessionFile: SessionFile = JSON.parse(fileContent);
-
-      // In a real implementation, we would reconstruct the SkeinTree from this data
-      // For now, returning an empty tree with metadata
+      const tree = deserializeTree(fileContent);
 
       console.log(`Session ${sessionId} loaded successfully from ${filePath}`);
-
-      // This is a simplified version - in reality this would properly construct a tree
-      const engine = sessionFile.meta.engine || 'dgdebug';
-      const seed = sessionFile.meta.seed || 12345;
-
-      return SkeinTree.newTree(engine, seed);
+      return tree;
     } catch (error) {
       console.error('Failed to load session:', error);
       throw error;
@@ -106,24 +222,5 @@ export class PersistenceManager {
       console.error('Atomic write failed:', error);
       throw error;
     }
-  }
-
-  /**
-   * Validate data during load
-   */
-  public validateSessionData(data: any): boolean {
-    // Basic validation of session data structure
-    if (!data || typeof data !== 'object') {
-      return false;
-    }
-
-    // Check required fields
-    if (!data.meta || !data.knots) {
-      return false;
-    }
-
-    // Additional validation logic would go here
-
-    return true;
   }
 }
