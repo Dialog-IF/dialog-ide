@@ -1,0 +1,209 @@
+import { EventEmitter } from 'events';
+
+const mockSpawn = jest.fn();
+jest.mock('child_process', () => ({
+  spawn: (...args: unknown[]) => mockSpawn(...args)
+}));
+
+import { SkeinProcess, ProcessConfig } from './process';
+
+/**
+ * A fake ChildProcess: EventEmitter for process-level events ('close', 'error'), plus
+ * EventEmitter stdout/stderr streams and a spied stdin.write, matching just enough of the
+ * child_process.ChildProcess shape that process.ts actually touches.
+ */
+function createFakeChildProcess() {
+  const child = new EventEmitter() as EventEmitter & {
+    stdout: EventEmitter;
+    stderr: EventEmitter;
+    stdin: { write: jest.Mock };
+    kill: jest.Mock;
+    exitCode: number | null;
+  };
+  child.stdout = new EventEmitter();
+  child.stderr = new EventEmitter();
+  child.stdin = { write: jest.fn() };
+  child.kill = jest.fn();
+  child.exitCode = null;
+  return child;
+}
+
+/**
+ * Builds a synthetic tagged raw buffer the way dgdebug (--tag-lines) actually emits one -
+ * see io.spec.ts for the same helper against IoDetector directly.
+ */
+function taggedBuffer(contentLines: string[], promptLine: string): string {
+  const tagged = contentLines.map((line) => `  ${line}`);
+  return [...tagged, promptLine].join('\n');
+}
+
+const DGDEBUG_CONFIG: ProcessConfig = { engine: 'dgdebug', seed: 1, gamePath: '/tmp/game.zblorb' };
+
+describe('SkeinProcess', () => {
+  let fakeChild: ReturnType<typeof createFakeChildProcess>;
+
+  beforeEach(() => {
+    mockSpawn.mockReset();
+    fakeChild = createFakeChildProcess();
+    mockSpawn.mockReturnValue(fakeChild);
+  });
+
+  describe('start', () => {
+    it('spawns dgdebug with the documented flags', async () => {
+      const proc = new SkeinProcess(DGDEBUG_CONFIG);
+      await proc.start();
+
+      expect(mockSpawn).toHaveBeenCalledWith(
+        'dgdebug',
+        [
+          '--numbered',
+          '--seed', '1',
+          '--width', '-1',
+          '--unit-test',
+          '--transcripting',
+          '--tag-lines',
+          '--formatting', 'ansi',
+          '/tmp/game.zblorb'
+        ],
+        expect.objectContaining({ stdio: ['pipe', 'pipe', 'pipe'] })
+      );
+      expect(proc.isProcessRunning()).toBe(true);
+    });
+
+    it('spawns dfrotz with the documented flags for both frotz and frotz-release', async () => {
+      const proc = new SkeinProcess({ engine: 'frotz-release', seed: 42, gamePath: '/tmp/g.zblorb' });
+      await proc.start();
+
+      expect(mockSpawn).toHaveBeenCalledWith(
+        'dfrotz',
+        ['-q', '-m', '-r', 'lt', '-f', 'normal', '-s', '42', '-w', '-1', '/tmp/g.zblorb'],
+        expect.anything()
+      );
+    });
+  });
+
+  describe('readResponse', () => {
+    it('resolves once the accumulated stdout buffer reaches the line-prompt terminator', async () => {
+      const proc = new SkeinProcess(DGDEBUG_CONFIG);
+      await proc.start();
+      proc.sendCommand('look');
+
+      const readPromise = proc.readResponse();
+      fakeChild.stdout.emit('data', Buffer.from(taggedBuffer(['You are here.'], '> ')));
+
+      await expect(readPromise).resolves.toEqual({
+        command: 'look',
+        response: 'You are here.\n',
+        promptType: 'line'
+      });
+    });
+
+    it('does not resolve until the terminator arrives, even across chunked stdout events', async () => {
+      const proc = new SkeinProcess(DGDEBUG_CONFIG);
+      await proc.start();
+      proc.sendCommand('look');
+
+      const readPromise = proc.readResponse();
+      let resolved = false;
+      readPromise.then(() => {
+        resolved = true;
+      });
+
+      fakeChild.stdout.emit('data', Buffer.from('  You are '));
+      await Promise.resolve();
+      expect(resolved).toBe(false);
+
+      fakeChild.stdout.emit('data', Buffer.from('here.\n> '));
+      const response = await readPromise;
+      expect(response.response).toBe('You are here.\n');
+    });
+
+    it('reports promptType "key" for a keystroke prompt', async () => {
+      const proc = new SkeinProcess(DGDEBUG_CONFIG);
+      await proc.start();
+      proc.sendCommand('score');
+
+      const readPromise = proc.readResponse();
+      fakeChild.stdout.emit('data', Buffer.from(taggedBuffer(['Press a key.'], ') ')));
+
+      const response = await readPromise;
+      expect(response.promptType).toBe('key');
+    });
+
+    it('delivers a response that completed before readResponse() was called, from the queue', async () => {
+      const proc = new SkeinProcess(DGDEBUG_CONFIG);
+      await proc.start();
+      proc.sendCommand('look');
+
+      fakeChild.stdout.emit('data', Buffer.from(taggedBuffer(['You are here.'], '> ')));
+
+      const response = await proc.readResponse();
+      expect(response.response).toBe('You are here.\n');
+    });
+
+    it('resets the buffer between responses so a second command gets only its own output', async () => {
+      const proc = new SkeinProcess(DGDEBUG_CONFIG);
+      await proc.start();
+
+      proc.sendCommand('look');
+      const first = proc.readResponse();
+      fakeChild.stdout.emit('data', Buffer.from(taggedBuffer(['You are here.'], '> ')));
+      await first;
+
+      proc.sendCommand('inventory');
+      const second = proc.readResponse();
+      fakeChild.stdout.emit('data', Buffer.from(taggedBuffer(['You are carrying nothing.'], '> ')));
+
+      await expect(second).resolves.toEqual({
+        command: 'inventory',
+        response: 'You are carrying nothing.\n',
+        promptType: 'line'
+      });
+    });
+
+    it('rejects if the process is not running and nothing is queued', async () => {
+      const proc = new SkeinProcess(DGDEBUG_CONFIG);
+      await expect(proc.readResponse()).rejects.toThrow('Process not running');
+    });
+
+    it('rejects any still-pending reader when the process closes early', async () => {
+      const proc = new SkeinProcess(DGDEBUG_CONFIG);
+      await proc.start();
+      proc.sendCommand('look');
+
+      const readPromise = proc.readResponse();
+      fakeChild.emit('close', 1, null);
+
+      await expect(readPromise).rejects.toThrow('Process closed before a response was received');
+    });
+
+    it('flushes a partial trailing buffer as a best-effort response when the process closes mid-response', async () => {
+      const proc = new SkeinProcess(DGDEBUG_CONFIG);
+      await proc.start();
+      proc.sendCommand('look');
+
+      const readPromise = proc.readResponse();
+      fakeChild.stdout.emit('data', Buffer.from('  Incomplete output with no prompt yet'));
+      fakeChild.emit('close', 1, null);
+
+      const response = await readPromise;
+      expect(response.response).toBe('Incomplete output with no prompt yet\n');
+    });
+  });
+
+  describe('sendCommand', () => {
+    it('writes the command plus a newline to stdin', async () => {
+      const proc = new SkeinProcess(DGDEBUG_CONFIG);
+      await proc.start();
+
+      proc.sendCommand('look');
+
+      expect(fakeChild.stdin.write).toHaveBeenCalledWith('look\n');
+    });
+
+    it('throws if the process has not been started', () => {
+      const proc = new SkeinProcess(DGDEBUG_CONFIG);
+      expect(() => proc.sendCommand('look')).toThrow('Process not running');
+    });
+  });
+});
