@@ -3,11 +3,16 @@
  * Orchestrates command execution and maintains session state.
  */
 
-import { SkeinProcess, EngineType } from './process';
+import { SkeinProcess, ProcessConfig, EngineType } from './process';
 import { SkeinTree } from './tree';
 import { DynamicProcessor, DynamicState, DynamicChanges } from './dynamic';
+import { readProject, expandSources } from './project';
 
 const DYNAMIC_COMMAND = '@dynamic';
+// dialog-tool's start-debug-process! filters sources by :target :dgdebug when launching the
+// debugger - not the project's configured build target (:zblorb/:aa/...) - so files suffixed
+// for a specific compile target (e.g. "effects.zblorb.dg") are excluded from a dgdebug run.
+const DGDEBUG_TARGET_FILTER = 'dgdebug';
 
 /**
  * Session configuration
@@ -15,7 +20,7 @@ const DYNAMIC_COMMAND = '@dynamic';
 export interface SessionConfig {
   engine: EngineType;
   seed: number;
-  gamePath: string;
+  projectRoot: string;
 }
 
 /**
@@ -81,12 +86,7 @@ export class SkeinSession {
     }
 
     try {
-      // Create and start the process
-      this.process = new SkeinProcess({
-        engine: this.config.engine,
-        seed: this.config.seed,
-        gamePath: this.config.gamePath
-      });
+      this.process = new SkeinProcess(this.buildProcessConfig());
 
       await this.process.start();
       this.isRunning = true;
@@ -100,6 +100,25 @@ export class SkeinSession {
       console.error('Failed to start session:', error);
       throw error;
     }
+  }
+
+  /**
+   * Reads the project and expands its sources into the ProcessConfig the running engine
+   * needs. dgdebug interprets source files directly; frotz/frotz-release need a compiled game
+   * (a dialogc pre-flight build step, which doesn't exist yet - see technical-design.md's
+   * Process Management section for the dfrotz/frotz-release compile-time distinction).
+   */
+  private buildProcessConfig(): ProcessConfig {
+    const { engine, seed, projectRoot } = this.config;
+
+    if (engine !== 'dgdebug') {
+      throw new Error(`${engine} is not yet supported - compiling a game file isn't implemented`);
+    }
+
+    const project = readProject(projectRoot);
+    const sourceFiles = expandSources(project, { debug: true, target: DGDEBUG_TARGET_FILTER });
+
+    return { engine, seed, sourceFiles, binDir: project.binDir };
   }
 
   /**
