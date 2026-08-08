@@ -311,7 +311,7 @@ The IDE maintains full compatibility with text-based skein file formats:
 
 ### Architecture
 1. **Frontend Framework**:
-   - Electron-based cross-platform application
+   - VS Code extension, hosting the Skein UI in a webview panel
    - TypeScript for type safety
    - Datastar for reactive UI components
 

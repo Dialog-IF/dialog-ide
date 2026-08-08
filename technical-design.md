@@ -24,7 +24,7 @@ The Dialog IDE follows a client-server architecture pattern with Datastar's appr
 ```
 ┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
 │   UI Layer      │    │  Core Engine     │    │  Tool Interface │
-│ (Electron/TS)   │    │ (TypeScript)     │    │ (Process Mgmt)  │
+│ (VS Code Ext)   │    │ (TypeScript)     │    │ (Process Mgmt)  │
 │                 │    │                  │    │                 │
 │  - Editor       │    │  - Skein Tree    │    │  - dialogc      │
 │  - Graph View   │    │  - File Manager  │    │  - dgdebug      │
@@ -66,10 +66,10 @@ While the core architecture is server-driven with Datastar, the IDE may still le
 At this time, the primary architecture remains server-driven with Datastar's DOM morphing. React components are not required for core functionality and would be used only where they provide clear advantages over the server-rendered approach.
 
 ### Technology Stack
-- **Frontend**: Electron with TypeScript, React components
+- **Frontend**: VS Code extension host with TypeScript, rendering the Skein UI in a WebviewPanel
 - **Core Engine**: TypeScript with immutable data structures
 - **UI Framework**: Custom implementation with Datastar-inspired reactivity
-- **Build Tools**: Webpack for bundling, npm scripts for build processes
+- **Build Tools**: tsc, npm scripts for build processes
 - **Testing**: Jest for unit tests, Playwright for integration tests
 
 ## Core Components
@@ -530,7 +530,7 @@ In-memory search over the *blessed* content of the current skein tree, exposed i
 
 #### Implementation Notes
 - The index is rebuilt in memory from the current `SkeinTree`; it is not persisted
-- Any reasonably fast in-process text index is acceptable (a simple inverted index, or a small JS library such as `minisearch`/`flexsearch`) — there's no requirement to depend on Apache Lucene, which is JVM-only and doesn't fit a Node/Electron process
+- Any reasonably fast in-process text index is acceptable (a simple inverted index, or a small JS library such as `minisearch`/`flexsearch`) — there's no requirement to depend on Apache Lucene, which is JVM-only and doesn't fit a Node/VS Code extension process
 - Results should include enough context for a snippet with the matched term highlighted, plus the knot `id` for jump-to-knot navigation
 
 ## Data Models
@@ -908,7 +908,7 @@ For TypeScript implementation, considering the following persistent data structu
 - **Interoperability**: Ensure chosen library works well with standard JavaScript types and functions
 - **Performance**: Evaluate memory usage and execution speed for typical skein operations
 - **Tooling Support**: Consider integration with existing development tools and debugging workflows
-- **Bundle Size**: For Electron application, minimize impact on overall bundle size
+- **Bundle Size**: For the VS Code extension, minimize impact on overall bundle size
 
 #### Recommendation
 The implementation will use a combination of:

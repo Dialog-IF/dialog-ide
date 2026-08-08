@@ -2,7 +2,7 @@
 
 ## Codebase Overview
 
-This is a TypeScript/JavaScript Electron-based IDE for Dialog interactive fiction development. The project implements a skein-based system for managing interactive command sessions, with the core functionality centered around the Skein engine.
+This is a TypeScript/JavaScript VS Code extension for Dialog interactive fiction development. The project implements a skein-based system for managing interactive command sessions, with the core functionality centered around the Skein engine.
 
 The **skein** represents the interactive user interface itself - a branching narrative that can be replayed, explored, and navigated. The **skein engine** is the underlying background process that executes the interactive fiction (dfrotz or dialogc wrapped by application logic to parse its output).
 
@@ -20,15 +20,13 @@ The codebase follows a clear separation of concerns:
 2. **IDE Integration**: `src/dialoged/` - Provides IDE-specific functionality:
    - Project discovery and configuration
    - File system integration
-   - Electron-based GUI components
+   - VS Code extension host (`src/extension.ts`) and webview-based GUI components
    - Debugging and session management within the IDE context
 
 ## Development Commands and Workflows
 
 ### Running the IDE
-```bash
-npm run dev
-```
+Open the project in VS Code and press F5 to launch an Extension Development Host (see `.vscode/launch.json`).
 
 ### Building the Application
 ```bash
@@ -38,11 +36,6 @@ npm run build
 ### Testing
 ```bash
 npm test
-```
-
-### Linting
-```bash
-npm run lint
 ```
 
 ## Key Files
@@ -74,7 +67,7 @@ When working with sessions in the IDE:
 
 ## Implementation Context
 
-This is an Electron application that provides a rich desktop IDE experience for Dialog development. The Skein engine runs as a background process within the Electron environment, communicating with the main UI through HTTP endpoints and Datastar/SSE for reactive updates.
+This is a VS Code extension that provides a rich IDE experience for Dialog development inside the editor. The Skein engine runs as a background process managed by the extension host, communicating with a webview-hosted UI through HTTP endpoints and Datastar/SSE for reactive updates.
 
 The implementation handles:
 - Process lifecycle management
