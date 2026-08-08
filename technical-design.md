@@ -374,6 +374,116 @@ interface EditorState {
 - **openFiles**: Set of all currently open file paths
 - **fileContents**: Map storing the current content of all open files
 
+### 4. Process Management
+Manages the interpreter subprocess (`dgdebug` or `dfrotz`) that backs a session.
+
+#### Engine Types and Launch Arguments
+
+##### dgdebug
+```bash
+dgdebug --numbered --seed <seed> --width -1 --unit-test --transcripting --tag-lines --formatting ansi <source-file> [<source-file> ...]
+```
+Unlike dfrotz, dgdebug interprets Dialog source directly — there is no compiled game file. The trailing arguments are the project's `.dg` source files themselves, in compilation order (project sources, then debug-category sources, then libraries) — not a single game path.
+
+##### dfrotz (debug and release)
+```bash
+dfrotz -q -m -r lt -f normal -s <seed> -w -1 <gamePath>
+```
+The dfrotz command line is identical for `frotz` and `frotz-release` — the distinction is not a launch flag. It's made earlier, at **compile time**, in which sources get built into `<gamePath>`:
+- **`frotz`**: the game is compiled including `debug`-category sources (per the project's `dialog.json`), matching a normal debug build
+- **`frotz-release`**: the game is compiled excluding `debug`-category sources — the same "include debug sources or not" toggle used for Export (see [Export Functionality](#export-functionality))
+
+So starting a `frotz` vs. `frotz-release` session requires building (or selecting an already-built) game file with the appropriate source set *before* invoking dfrotz — `gamePath` for the two engine types will typically point at two different compiled outputs. This build isn't a plain export build, either: frotz normally prints a status line that would otherwise land inline in the transcript and break the tag-line parsing below, so the skein-specific build needs to suppress it (dialog-tool's reference implementation does this by compiling in a small patch source ahead of the project's own sources — the current codebase doesn't do this yet).
+
+#### Input/Output Processing
+Both `--tag-lines` (dgdebug) and `-r lt` (dfrotz) put the interpreter into a mode where **every line of output is prefixed with a short tag** identifying what kind of line it is. Parsing has to work at the tag level, not by matching a suffix against the whole response blob.
+
+##### Tags
+
+| Line kind | dgdebug tag | dfrotz tag |
+|---|---|---|
+| Plain content | `"  "` (two spaces) | `"  "` (two spaces) |
+| Line-input prompt (final line) | `"> "` | `"T "` (T = numeric turn indicator) followed by the visible `"> "` prompt |
+| Keystroke-input prompt (final line) | `") "` | `") "` |
+
+##### Detecting End-of-Response
+Read stdout until one of these is true of the raw (untagged) accumulated buffer:
+- **Line prompt**: buffer ends with `"\n> "` (dgdebug) or `"\nT > "` (dfrotz) — the leading newline is required; a bare trailing `"> "` is not sufficient, since ordinary content could coincidentally contain it
+- **Keystroke prompt**: the buffer's *last line* (not the whole buffer) starts with `") "` — keystroke prompts don't end with a newline, so a whole-buffer suffix check won't match
+
+##### Producing Clean Content
+Once a response is complete:
+1. Split into lines
+2. Drop the interpreter's startup banner lines and leading/trailing blank lines
+3. Strip the 2-character tag from the front of every remaining line
+4. Drop the residual prompt line itself — it's metadata, not content
+
+The result is the knot's `response.text`; `response.inputType` is `'key'` for a keystroke prompt, `'line'` otherwise.
+
+#### Process Lifecycle
+- **Start**: spawn the interpreter with the arguments above; wire stdout/stderr into a response buffer
+- **Send Command**: write the command plus a newline to stdin
+- **Read Response**: accumulate stdout until a recognized prompt is seen, then resolve with the parsed content and prompt type
+- **Terminate**: SIGTERM, then SIGKILL after a grace period if the process hasn't exited
+
+### 5. Dynamic State Tracking
+Dynamic state is a **live, ephemeral** view into the running interpreter's global/object state. It is not part of `WireKnot` and is never persisted to the skein file — it exists only while a `dgdebug` session is active and is recomputed on demand.
+
+#### How It Works
+1. After the session lands on a knot (a command just executed, or the user selected a different knot while debugging), the session sends the `@dynamic` command to the running process
+2. dgdebug responds with a listing of global flags/variables and per-object flags/properties
+3. The response is parsed into a `DynamicState` structure and shown as an integrated UI tab (per master-spec.md's non-modal design goal), not a separate modal
+
+#### Data Structure
+```typescript
+interface DynamicState {
+  globals: Record<string, boolean | string | number>;
+  objects: Record<string, {
+    flags: Record<string, boolean>;
+    properties: Record<string, string | number>;
+  }>;
+}
+```
+
+#### Availability
+`DynamicState` is only meaningful for the `dgdebug` engine (`dfrotz`/`dfrotz-release` don't support `@dynamic`), and only for the knot the process is currently positioned at (`Session.activeProcessKnotId`). Selecting a different knot re-runs the session up to that knot before dynamic state is refreshed.
+
+### 6. Trace Visualization
+Also a live, ephemeral view (not persisted), driven by dgdebug's `--tag-lines` trace output. This is what backs master-spec.md's "Real-time Code Navigation" requirement — clicking a trace line jumps the editor to the source file/line it came from.
+
+#### Trace Line Structure
+```typescript
+interface TraceNode {
+  id: number;
+  depth: number;
+  type: 'ENTER' | 'QUERY' | 'FOUND' | 'NOW';
+  text: string;
+  source: {
+    file: string;
+    line: number;
+  } | null;
+}
+```
+
+#### Parsing
+- Trace output is tagged per-line (`--tag-lines`) so it can be correlated with the command that produced it
+- Nesting `depth` determines indentation/collapsibility in the trace pane
+- `source` is populated when dgdebug's output includes a file:line reference; `null` otherwise (e.g. built-in predicates)
+- Parsed trace nodes are a flat array keyed by `id`, scoped to the command/knot that produced them — also not persisted, regenerated by re-running the command
+
+### 7. Full-Text Search
+In-memory search over the *blessed* content of the current skein tree, exposed in the Transcript View's search field.
+
+#### Indexed Fields
+- `command`
+- `response` (blessed text only — unblessed/pending responses are excluded)
+- `label`
+
+#### Implementation Notes
+- The index is rebuilt in memory from the current `SkeinTree`; it is not persisted
+- Any reasonably fast in-process text index is acceptable (a simple inverted index, or a small JS library such as `minisearch`/`flexsearch`) — there's no requirement to depend on Apache Lucene, which is JVM-only and doesn't fit a Node/Electron process
+- Results should include enough context for a snippet with the matched term highlighted, plus the knot `id` for jump-to-knot navigation
+
 ## Data Models
 
 ### 1. Skein Knot Model
@@ -444,6 +554,21 @@ interface Theme {
     activeNode: string;
     graphBackground: string;
   };
+}
+```
+
+### 4. Dynamic State Model
+See [Process Management / Dynamic State Tracking](#5-dynamic-state-tracking) — `DynamicState` is computed live from the running process and is never part of `WireKnot` or persisted skein data.
+
+### 5. Trace Model
+See [Trace Visualization](#6-trace-visualization) — `TraceNode` entries are computed live per command execution and are never persisted.
+
+### 6. Search Model
+```typescript
+interface SearchResult {
+  knotId: number;
+  field: 'command' | 'response' | 'label';
+  snippet: string; // matched text with surrounding context
 }
 ```
 
@@ -561,10 +686,7 @@ The IDE properly handles ANSI escape sequences in game output:
 - Integration with the skein's ANSI formatting support
 
 #### Input Detection
-The engines use the first two characters to identify expected input:
-- First character: indicates type of input expected (e.g., '>', '?', etc.)
-- Second character: additional context for input type (e.g., key press, line input)
-- IDE interprets these to determine when to send input and what type of input to provide
+See [Process Management](#4-process-management) for the concrete prompt-detection rules (line vs. keystroke prompts). Detection is based on matching the trailing or leading prompt text of the response, not a fixed two-character prefix.
 
 ### 6. Test Runner Integration
 The IDE includes a test runner that executes unit tests:
@@ -583,10 +705,7 @@ The IDE implements the full dialog-skein protocol for communication with engines
 
 ##### Input/Output Processing
 - Proper handling of engine prompts and input expectations
-- Recognition of first two characters to identify input type:
-  - '>' for line input (standard user command)
-  - '?' for single-key input (confirmation, choice)
-  - Other special characters for different input modes
+- Prompt type is determined by matching the shape of the trailing (or, for dfrotz line prompts, leading) prompt text — see [Process Management](#4-process-management) for the exact rules per engine
 - Correctly parsing output streams to separate game text from control sequences
 
 ##### ANSI Support

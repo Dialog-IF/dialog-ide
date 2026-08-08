@@ -47,14 +47,19 @@ npm run lint
 
 ## Key Files
 
+Implemented:
 - `src/dialoged/skein/process.ts` - Process management and I/O handling
-- `src/dialoged/skein/session.ts` - Session orchestration  
-- `src/dialoged/skein/tree.ts` - Tree structure and knot management
+- `src/dialoged/skein/session.ts` - Session orchestration
+- `src/dialoged/skein/tree.ts` - Tree structure and knot management (`WireKnot`/`DerivedKnot`, blessing, undo/redo state)
 - `src/dialoged/skein/service.ts` - Web service interface for UI
-- `src/dialoged/skein/trace.ts` - Trace output parsing
-- `src/dialoged/skein/syntax.ts` - Syntax highlighting
-- `src/dialoged/skein/search.ts` - Search functionality
 - `src/dialoged/skein/dynamic.ts` - Dynamic state processing
+- `src/dialoged/skein/persistence.ts` - Session persistence
+- `src/dialoged/skein/io.ts` - Input/output prompt detection
+
+Planned, not yet implemented (see `technical-design.md` Core Components 4-7):
+- `src/dialoged/skein/trace.ts` - Trace output parsing and source-line navigation
+- `src/dialoged/skein/search.ts` - Full-text search over blessed knot content
+- Syntax highlighting for the editor (not yet assigned a file)
 
 ## Session Management in IDE Context
 
