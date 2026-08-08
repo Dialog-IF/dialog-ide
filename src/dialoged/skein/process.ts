@@ -122,7 +122,7 @@ export class SkeinProcess extends EventEmitter {
     }
 
     const parsed = this.ioDetector.parse(this.buffer);
-    this.buffer = '';
+    this.buffer = nextBufferSeed(parsed.promptType);
 
     const response: ProcessResponse = {
       command: this.lastCommand,
@@ -273,4 +273,22 @@ export class SkeinProcess extends EventEmitter {
   public isProcessRunning(): boolean {
     return this.isRunning && this.process !== null;
   }
+}
+
+/**
+ * What the accumulation buffer should start as right after a response is drained - mirrors
+ * dialog-tool's process.clj gen-input-scanner, which reseeds its StringBuilder the same way.
+ *
+ * dgdebug/dfrotz's raw stream doesn't emit a fresh 2-char tag before the command echo that
+ * follows a prompt - the prompt's own tag (just consumed as the tail of the response we drained)
+ * effectively covers it too. Seeding with "  " (a synthetic content tag) means the next
+ * response's first real line still gets correctly tag-stripped by IoDetector.parse() rather than
+ * losing its own first two characters to a slice(2) that has nothing to strip. For a line prompt
+ * specifically, seeding with "  > " (rather than just "  ") means the visible "> " prompt symbol
+ * survives that same stripping step and appears as genuine leading content in the next response -
+ * matching dialog-tool's own captured .skein fixtures (e.g. "> i\nYou have no possessions.\n").
+ * A keystroke prompt doesn't carry a visible marker forward the same way.
+ */
+function nextBufferSeed(promptType: 'line' | 'key'): string {
+  return promptType === 'line' ? '  > ' : '  ';
 }

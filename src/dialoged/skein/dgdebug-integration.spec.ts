@@ -49,8 +49,19 @@ describeIfDgdebug('Real dgdebug integration (no mocks)', () => {
 
         proc.sendCommand('look');
         const lookResponse = await proc.readResponse();
+        // Regression check: dgdebug echoes the command back as the literal start of the next
+        // response (no fresh tag of its own - see nextBufferSeed in process.ts), so a response
+        // that starts with anything other than "> <the exact command just sent>" means that
+        // echo got truncated again.
+        expect(lookResponse.response.startsWith('> look\n')).toBe(true);
         expect(lookResponse.response).toContain('You are in an endless, featureless space');
         expect(lookResponse.response).toContain('Floating nearby is a small white orb');
+
+        // A longer, multi-word command is what actually exposes truncation (a 1-2 character
+        // command's echo can be fully swallowed by a slice(2) bug without any visible symptom).
+        proc.sendCommand('take orb');
+        const takeResponse = await proc.readResponse();
+        expect(takeResponse.response).toBe('> take orb\nYou take the White Orb.\n');
 
         proc.sendCommand('@dynamic');
         const dynamicResponse = await proc.readResponse();

@@ -30,11 +30,23 @@ function createFakeChildProcess() {
 
 /**
  * Builds a synthetic tagged raw buffer the way dgdebug (--tag-lines) actually emits one -
- * see io.spec.ts for the same helper against IoDetector directly.
+ * see io.spec.ts for the same helper against IoDetector directly. Accurate for the very first
+ * response of a session (the startup banner), where there's no prior prompt to have seeded the
+ * buffer - see echoedResponseBuffer for any response after that.
  */
 function taggedBuffer(contentLines: string[], promptLine: string): string {
   const tagged = contentLines.map((line) => `  ${line}`);
   return [...tagged, promptLine].join('\n');
+}
+
+/**
+ * Builds the raw stdout chunk dgdebug emits for a command *after* the first one in a session.
+ * Unlike the first response, this doesn't start with its own 2-char tag - the previous prompt's
+ * tag (already reseeded into SkeinProcess's buffer by nextBufferSeed) covers the command echo
+ * too, so the echo appears bare here, exactly as dgdebug's real raw stream does.
+ */
+function echoedResponseBuffer(command: string, contentLines: string[], promptLine: string): string {
+  return `${command}\n${taggedBuffer(contentLines, promptLine)}`;
 }
 
 const DGDEBUG_CONFIG: ProcessConfig = {
@@ -174,7 +186,7 @@ describe('SkeinProcess', () => {
       expect(response.response).toBe('You are here.\n');
     });
 
-    it('resets the buffer between responses so a second command gets only its own output', async () => {
+    it('reseeds the buffer with the prior prompt between responses, so a second command gets only its own output plus its echoed "> command" prefix', async () => {
       const proc = new SkeinProcess(DGDEBUG_CONFIG);
       await proc.start();
 
@@ -185,11 +197,31 @@ describe('SkeinProcess', () => {
 
       proc.sendCommand('inventory');
       const second = proc.readResponse();
-      fakeChild.stdout.emit('data', Buffer.from(taggedBuffer(['You are carrying nothing.'], '> ')));
+      fakeChild.stdout.emit('data', Buffer.from(echoedResponseBuffer('inventory', ['You are carrying nothing.'], '> ')));
 
       await expect(second).resolves.toEqual({
         command: 'inventory',
-        response: 'You are carrying nothing.\n',
+        response: '> inventory\nYou are carrying nothing.\n',
+        promptType: 'line'
+      });
+    });
+
+    it('does not truncate a multi-character command\'s echo (regression: the buffer must be reseeded with the prior prompt\'s tag, not reset to empty, or the echo\'s first two characters are lost to a stray tag-strip)', async () => {
+      const proc = new SkeinProcess(DGDEBUG_CONFIG);
+      await proc.start();
+
+      proc.sendCommand('look');
+      const first = proc.readResponse();
+      fakeChild.stdout.emit('data', Buffer.from(taggedBuffer(['A room.'], '> ')));
+      await first;
+
+      proc.sendCommand('take orb');
+      const second = proc.readResponse();
+      fakeChild.stdout.emit('data', Buffer.from(echoedResponseBuffer('take orb', ['You take the orb.'], '> ')));
+
+      await expect(second).resolves.toEqual({
+        command: 'take orb',
+        response: '> take orb\nYou take the orb.\n',
         promptType: 'line'
       });
     });
