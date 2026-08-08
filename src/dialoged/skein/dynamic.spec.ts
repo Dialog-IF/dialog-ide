@@ -1,123 +1,170 @@
-import { DynamicProcessor, DynamicKnot } from './dynamic';
+import * as fs from 'fs';
+import * as path from 'path';
+import { DynamicProcessor, DynamicState } from './dynamic';
 
-function state(overrides: Partial<DynamicKnot> = {}): DynamicKnot {
-  return { globals: {}, objects: {}, ...overrides };
+const FIXTURES_DIR = path.join(__dirname, '__fixtures__', 'dynamic');
+
+function readFixture(name: string): string {
+  return fs.readFileSync(path.join(FIXTURES_DIR, name), 'utf8');
 }
 
-describe('DynamicProcessor.extractChanges', () => {
+describe('DynamicProcessor.parse', () => {
   let processor: DynamicProcessor;
 
   beforeEach(() => {
     processor = new DynamicProcessor();
   });
 
-  it('reports nothing when neither globals nor objects changed', () => {
-    const before = state({ globals: { seen_orb: true } });
-    const after = state({ globals: { seen_orb: true } });
-    expect(processor.extractChanges(before, after)).toEqual([]);
+  it('parses a small real @dynamic response into flags and vars', () => {
+    const state = processor.parse(readFixture('dynamic-small.txt'));
+
+    // GLOBAL FLAGS: "on" -> flag present; "off" -> absent, regardless of a trailing "(changed)"
+    expect(state.flags.has('(sand-dancer is named)')).toBe(true);
+    expect(state.flags.has('(caught by shadows)')).toBe(false);
+
+    // PER-OBJECT FLAGS: "($ is closed)" with object #drawer -> flattened into the flags set
+    expect(state.flags.has('(#drawer is closed)')).toBe(true);
+
+    // GLOBAL VARIABLES: value substituted for "$", keyed by the raw pattern
+    expect(state.vars['(remaining cigarettes $)']).toBe('(remaining cigarettes 6)');
+
+    // ($ has parent $) + ($ has relation $) merge into a synthetic ($ is $ $) location var
+    expect(state.vars['(#flashlight is $ $)']).toBe('(#flashlight is #heldby #knock)');
   });
 
-  it('reports a changed global value', () => {
-    const before = state({ globals: { turns: 1 } });
-    const after = state({ globals: { turns: 2 } });
-    expect(processor.extractChanges(before, after)).toEqual([
-      { type: 'global', name: 'turns', field: null, oldValue: 1, newValue: 2 }
-    ]);
-  });
-
-  it('reports a newly-added global', () => {
-    const before = state();
-    const after = state({ globals: { game_started: true } });
-    expect(processor.extractChanges(before, after)).toEqual([
-      { type: 'global', name: 'game_started', field: null, oldValue: undefined, newValue: true }
-    ]);
-  });
-
-  it('reports a removed global', () => {
-    const before = state({ globals: { temp_flag: true } });
-    const after = state();
-    expect(processor.extractChanges(before, after)).toEqual([
-      { type: 'global', name: 'temp_flag', field: null, oldValue: true, newValue: undefined }
-    ]);
-  });
-
-  it('reports a newly-added object with its full value as newValue', () => {
-    const before = state();
-    const player = { flags: { alive: true }, properties: { location: 'forest' } };
-    const after = state({ objects: { player } });
-    expect(processor.extractChanges(before, after)).toEqual([
-      { type: 'object', name: 'player', field: null, oldValue: undefined, newValue: player }
-    ]);
-  });
-
-  it('reports a removed object with its full prior value as oldValue', () => {
-    const player = { flags: { alive: true }, properties: {} };
-    const before = state({ objects: { player } });
-    const after = state();
-    expect(processor.extractChanges(before, after)).toEqual([
-      { type: 'object', name: 'player', field: null, oldValue: player, newValue: undefined }
-    ]);
-  });
-
-  it('reports a changed object flag', () => {
-    const before = state({ objects: { player: { flags: { alive: true }, properties: {} } } });
-    const after = state({ objects: { player: { flags: { alive: false }, properties: {} } } });
-    expect(processor.extractChanges(before, after)).toEqual([
-      { type: 'object', name: 'player', field: 'alive', oldValue: true, newValue: false }
-    ]);
-  });
-
-  it('reports a newly-added object flag', () => {
-    const before = state({ objects: { player: { flags: {}, properties: {} } } });
-    const after = state({ objects: { player: { flags: { poisoned: true }, properties: {} } } });
-    expect(processor.extractChanges(before, after)).toEqual([
-      { type: 'object', name: 'player', field: 'poisoned', oldValue: undefined, newValue: true }
-    ]);
-  });
-
-  it('reports a changed object property', () => {
-    const before = state({ objects: { player: { flags: {}, properties: { location: 'forest' } } } });
-    const after = state({ objects: { player: { flags: {}, properties: { location: 'cave' } } } });
-    expect(processor.extractChanges(before, after)).toEqual([
-      { type: 'object', name: 'player', field: 'location', oldValue: 'forest', newValue: 'cave' }
-    ]);
-  });
-
-  it('reports a newly-added object property', () => {
-    const before = state({ objects: { player: { flags: {}, properties: {} } } });
-    const after = state({ objects: { player: { flags: {}, properties: { name: 'Hero' } } } });
-    expect(processor.extractChanges(before, after)).toEqual([
-      { type: 'object', name: 'player', field: 'name', oldValue: undefined, newValue: 'Hero' }
-    ]);
-  });
-
-  it('combines multiple simultaneous changes into one list', () => {
-    const before = state({
-      globals: { turns: 1 },
-      objects: { player: { flags: { alive: true }, properties: {} } }
-    });
-    const after = state({
-      globals: { turns: 2, game_over: false },
-      objects: { player: { flags: { alive: true }, properties: {} }, orb: { flags: {}, properties: {} } }
-    });
-    const changes = processor.extractChanges(before, after);
-    expect(changes).toHaveLength(3);
-    expect(changes).toEqual(
-      expect.arrayContaining([
-        { type: 'global', name: 'turns', field: null, oldValue: 1, newValue: 2 },
-        { type: 'global', name: 'game_over', field: null, oldValue: undefined, newValue: false },
-        { type: 'object', name: 'orb', field: null, oldValue: undefined, newValue: { flags: {}, properties: {} } }
-      ])
+  it('exactly matches dialog-tool\'s real parser output on a full dgdebug response (dynamic-1.txt)', () => {
+    // dynamic-1-expected.json was generated by running dialog-tool's actual parse function
+    // (via babashka) against dynamic-1.txt, not hand-transcribed - so this is a full,
+    // verified-correct equality check across every flag and every var (42 flags, 105 vars),
+    // not a handful of spot-checks.
+    const state = processor.parse(readFixture('dynamic-1.txt'));
+    const expected: { flags: string[]; vars: Record<string, string> } = JSON.parse(
+      readFixture('dynamic-1-expected.json')
     );
+
+    expect([...state.flags].sort()).toEqual(expected.flags.slice().sort());
+    expect(state.vars).toEqual(expected.vars);
+  });
+
+  it('glues a word-wrapped global var value back together without an extra space after a hyphen break', () => {
+    // dialog-tool's parse-when-global-var-wraps: "...#about-\nlizards]" -> "...#about-lizards]"
+    const state = processor.parse(readFixture('dynamic-global-var-wrap.txt'));
+    expect(state.vars['(discussable quips $)']).toBe(
+      '(discussable quips [#about-sand-dancer #about-lizards])'
+    );
+  });
+
+  it('glues a word-wrapped object flag list back together across the wrap', () => {
+    // dialog-tool's parse-when-object-flag-wraps: "...#photo #pane-of-\ncracked-glass..."
+    const state = processor.parse(readFixture('dynamic-object-flag-wrap.txt'));
+    expect(state.flags.has('(#pane-of-cracked-glass is closed)')).toBe(true);
+  });
+
+  it('glues a word-wrapped nested-list object var value back together', () => {
+    // dialog-tool's parse-object-value-with-split
+    const state = processor.parse(readFixture('dynamic-split-dict-list.txt'));
+    expect(state.vars['(#bartender has conversation queue $)']).toBe(
+      '(#bartender has conversation queue [[#postponed-obligatory #play-billiards]])'
+    );
+  });
+
+  it('does not misparse a wrapped list continuation line (single leading space) as a bogus var, and strips embedded ANSI codes', () => {
+    // dialog-tool's parse-when-list-word-wrapped: a value list wraps with only a single
+    // leading space (not the usual two), which previously confused the parser into adding a
+    // garbage entry; this fixture is also real ANSI-heavy dgdebug output (color/bold codes
+    // wrapping the section headers), so this doubles as the ANSI-stripping test.
+    const state = processor.parse(readFixture('dynamic-list-wrapped.txt'));
+    expect(Object.keys(state.vars).every((key) => /^\(.+\)$/.test(key))).toBe(true);
+    // Note the double space: the wrap wasn't at a hyphen break, so a space gets inserted
+    // when gluing the lines, on top of the single leading space already on the continuation
+    // line - this matches dialog-tool's own output exactly (verified via babashka), not a bug.
+    expect(state.vars['(discussable quips $)']).toBe(
+      '(discussable quips [#vegetable #mineral #vertebrate  #invertebrate])'
+    );
+  });
+
+  it('defaults relation to <unset> when an object has a parent but no recorded relation', () => {
+    const response = [
+      '> @dynamic',
+      'GLOBAL FLAGS',
+      '',
+      'PER-OBJECT FLAGS',
+      '',
+      'GLOBAL VARIABLES',
+      '',
+      'PER-OBJECT VARIABLES',
+      '  ($ has parent $)',
+      '    #orphan-relation #room',
+      '  ($ has relation $)',
+      ''
+    ].join('\n');
+    const state = new DynamicProcessor().parse(response);
+    expect(state.vars['(#orphan-relation is $ $)']).toBe('(#orphan-relation is <unset> #room)');
   });
 });
 
-describe('DynamicProcessor - unimplemented parsing', () => {
-  // processDynamicOutput, flattenPredicates, and handleObjectFlags are currently stubs that
-  // ignore their input and return an empty/default structure regardless. These are placeholders
-  // for real tests once @dynamic output parsing is actually implemented - see technical-design.md's
-  // "Dynamic State Tracking" section for the expected behavior.
-  test.todo('processDynamicOutput parses @dynamic output into globals/objects');
-  test.todo('flattenPredicates flattens per-object predicate structures for presentation');
-  test.todo('handleObjectFlags updates dynamic state for a specific object\'s flags');
+describe('DynamicProcessor.diff', () => {
+  let processor: DynamicProcessor;
+
+  beforeEach(() => {
+    processor = new DynamicProcessor();
+  });
+
+  function state(overrides: Partial<DynamicState> = {}): DynamicState {
+    return { flags: new Set(), vars: {}, ...overrides };
+  }
+
+  it('reports nothing when neither flags nor vars changed', () => {
+    const before = state({ flags: new Set(['(seen orb)']), vars: { '(turns $)': '(turns 1)' } });
+    const after = state({ flags: new Set(['(seen orb)']), vars: { '(turns $)': '(turns 1)' } });
+    const result = processor.diff(before, after);
+    expect(result.added.size).toBe(0);
+    expect(result.removed.size).toBe(0);
+    expect(result.changed.size).toBe(0);
+  });
+
+  it('reports an added flag', () => {
+    const before = state();
+    const after = state({ flags: new Set(['(game started)']) });
+    const result = processor.diff(before, after);
+    expect(result.added).toEqual(new Set(['(game started)']));
+  });
+
+  it('reports a removed flag', () => {
+    const before = state({ flags: new Set(['(temp flag)']) });
+    const after = state();
+    const result = processor.diff(before, after);
+    expect(result.removed).toEqual(new Set(['(temp flag)']));
+  });
+
+  it('reports a changed var value as a [before, after] tuple', () => {
+    const before = state({ vars: { '(turns $)': '(turns 1)' } });
+    const after = state({ vars: { '(turns $)': '(turns 2)' } });
+    const result = processor.diff(before, after);
+    expect(result.changed).toEqual(new Set([['(turns 1)', '(turns 2)']]));
+  });
+
+  it('treats a var appearing only in after as added, and only in before as removed', () => {
+    const before = state({ vars: { '(current quip $)': '(current quip #greet)' } });
+    const after = state({ vars: { "(player's it refers to $)": "(player's it refers to #lighter)" } });
+    const result = processor.diff(before, after);
+    expect(result.added).toEqual(new Set(["(player's it refers to #lighter)"]));
+    expect(result.removed).toEqual(new Set(['(current quip #greet)']));
+  });
+
+  it('matches dialog-tool\'s real before/after fixture diff', () => {
+    const before = processor.parse(readFixture('dynamic-before.txt'));
+    const after = processor.parse(readFixture('dynamic-after.txt'));
+    const result = processor.diff(before, after);
+
+    expect(result.added).toEqual(new Set(['(#duct-tape is noted useful)']));
+    expect(result.removed).toEqual(new Set(['(#duct-tape is hidden)']));
+    expect(result.changed).toEqual(
+      new Set<[string, string]>([
+        ['(turns in current room 5)', '(turns in current room 6)'],
+        ['(last command was [light web])', '(last command was [x hole])'],
+        ["(player's it refers to #lighter)", "(player's it refers to #hole)"]
+      ])
+    );
+  });
 });
