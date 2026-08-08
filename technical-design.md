@@ -971,7 +971,7 @@ The implementation will use a combination of:
 ### 2. Integration Testing
 #### Tool Integration
 - dialogc compilation workflow
-- dgdebug debugger integration
+- dgdebug debugger integration - covered by `dgdebug-integration.spec.ts`, which spawns the real dgdebug binary (project.ts -> session.ts/process.ts -> io.ts/dynamic.ts, nothing mocked) against a real fixture project; it skips itself when dgdebug isn't on PATH rather than failing, so it stays portable to machines/CI without the Dialog toolchain installed
 - frotz engine execution
 - aambundle export functionality
 
