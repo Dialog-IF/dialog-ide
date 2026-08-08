@@ -108,7 +108,7 @@ function serializeKnot(knot: WireKnot): string {
   return lines.join('\n');
 }
 
-function serializeTree(tree: SkeinTree): string {
+export function serializeTree(tree: SkeinTree): string {
   const lines: string[] = [
     `seed: ${tree.getSeed()}`,
     `engine: :${tree.getEngine()}`
@@ -124,7 +124,7 @@ function serializeTree(tree: SkeinTree): string {
   return lines.join('\n');
 }
 
-function deserializeTree(content: string): SkeinTree {
+export function deserializeTree(content: string): SkeinTree {
   const segments = splitOnKnotSeparator(content);
 
   const header = parseKeyValues(segments[0]);

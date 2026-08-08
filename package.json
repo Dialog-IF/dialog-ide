@@ -7,7 +7,7 @@
     "start": "electron .",
     "build": "tsc",
     "dev": "node dist/main.js",
-    "test": "node run-tests.js",
+    "test": "jest",
     "clean": "rm -rf dist"
   },
   "keywords": [
@@ -19,8 +19,11 @@
   "author": "Howard Lewis Ship",
   "license": "MIT",
   "devDependencies": {
+    "@types/jest": "^30.0.0",
     "@types/node": "^20.0.0",
     "electron": "^43.3.0",
+    "jest": "^30.4.2",
+    "ts-jest": "^29.4.12",
     "typescript": "^5.0.0"
   },
   "files": [
