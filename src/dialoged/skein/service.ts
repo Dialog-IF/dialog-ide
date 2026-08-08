@@ -3,6 +3,7 @@
  * Provides HTTP endpoints for UI communication using TypeScript Datastar library approach.
  */
 
+import * as http from 'http';
 import { SkeinSession } from './session';
 import { SkeinTree } from './tree';
 
@@ -29,26 +30,41 @@ export class SkeinService {
   private config: ServiceConfig;
   private sessions: Map<string, SkeinSession> = new Map();
   private isRunning: boolean = false;
+  private server: http.Server | undefined;
+  private port: number | undefined;
 
   constructor(config: ServiceConfig) {
     this.config = config;
   }
 
   /**
-   * Start the web service
+   * Start the web service.
+   *
+   * Spike-minimal: a single "is this thing alive" route, just enough to prove a VS Code
+   * webview can embed it via <iframe src="http://localhost:PORT">. The real Hyper/Datastar
+   * routes (session data, SSE) land in a later pass - see technical-design.md.
    */
   public async start(): Promise<void> {
     if (this.isRunning) {
       throw new Error('Service already running');
     }
 
-    console.log(`Starting Skein service on ${this.config.host}:${this.config.port}`);
+    this.server = http.createServer((_req, res) => {
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(
+        `<!DOCTYPE html><html><body style="font-family: sans-serif;">` +
+          `<p>Skein service is alive - ${new Date().toISOString()}</p></body></html>`
+      );
+    });
 
-    // In a real implementation, this would start an HTTP server
-    // with endpoints for session management and command execution
+    await new Promise<void>((resolve, reject) => {
+      this.server!.once('error', reject);
+      this.server!.listen(this.config.port, this.config.host, resolve);
+    });
 
+    const address = this.server.address();
+    this.port = typeof address === 'object' && address !== null ? address.port : this.config.port;
     this.isRunning = true;
-    console.log('Skein service started successfully');
   }
 
   /**
@@ -63,10 +79,24 @@ export class SkeinService {
     for (const session of this.sessions.values()) {
       await session.stop();
     }
-
     this.sessions.clear();
+
+    await new Promise<void>((resolve, reject) => {
+      this.server!.close((error) => (error ? reject(error) : resolve()));
+    });
+    this.server = undefined;
+    this.port = undefined;
     this.isRunning = false;
-    console.log('Skein service stopped');
+  }
+
+  /**
+   * The actual bound port - differs from config.port when config.port is 0 (OS-assigned).
+   */
+  public getPort(): number {
+    if (this.port === undefined) {
+      throw new Error('Service is not running');
+    }
+    return this.port;
   }
 
   /**

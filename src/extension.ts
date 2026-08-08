@@ -39,7 +39,7 @@ let activeSessionId: string | undefined;
 let activeProjectRoot: string | undefined;
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
-  skeinService = new SkeinService({ port: 3000, host: 'localhost' });
+  skeinService = new SkeinService({ port: 0, host: 'localhost' });
   await skeinService.start();
 
   statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
@@ -48,25 +48,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   context.subscriptions.push(statusBarItem);
 
   context.subscriptions.push(
-    vscode.commands.registerCommand('dialog-ide.openSkein', () => {
-      if (skeinPanel) {
-        skeinPanel.reveal(vscode.ViewColumn.Beside);
-        return;
-      }
-
-      skeinPanel = vscode.window.createWebviewPanel(
-        'dialogIdeSkein',
-        'Dialog Skein',
-        vscode.ViewColumn.Beside,
-        { enableScripts: true, retainContextWhenHidden: true }
-      );
-
-      skeinPanel.webview.html = getWebviewHtml(currentSessionDisplay());
-
-      skeinPanel.onDidDispose(() => {
-        skeinPanel = undefined;
-      });
-    }),
+    vscode.commands.registerCommand('dialog-ide.openSkein', () => ensureSkeinPanel()),
     vscode.commands.registerCommand(
       'dialog-ide.runDefaultSkein',
       withErrorHandling(() => runDefaultSkein(resolveProjectRoot(getWorkspaceRoot())))
@@ -321,7 +303,35 @@ function setActiveSession(session: SkeinSession, sessionId: string, projectRoot:
   activeSessionId = sessionId;
   activeProjectRoot = projectRoot;
   refreshStatusBar();
+  ensureSkeinPanel();
   refreshSkeinPanel();
+}
+
+/**
+ * Creates the skein webview panel if it doesn't exist yet, or reveals it if it does - shared by
+ * the explicit "Open Skein" command and by setActiveSession, so starting/loading a session always
+ * shows its panel rather than requiring a separate "Open Skein" afterwards.
+ */
+function ensureSkeinPanel(): vscode.WebviewPanel {
+  if (skeinPanel) {
+    skeinPanel.reveal(vscode.ViewColumn.Beside);
+    return skeinPanel;
+  }
+
+  skeinPanel = vscode.window.createWebviewPanel(
+    'dialogIdeSkein',
+    'Dialog Skein',
+    vscode.ViewColumn.Beside,
+    { enableScripts: true, retainContextWhenHidden: true }
+  );
+
+  skeinPanel.webview.html = getWebviewHtml(currentSessionDisplay());
+
+  skeinPanel.onDidDispose(() => {
+    skeinPanel = undefined;
+  });
+
+  return skeinPanel;
 }
 
 function refreshStatusBar(): void {
@@ -359,19 +369,27 @@ function currentSessionDisplay(): ActiveSessionDisplay | undefined {
 }
 
 /**
- * Placeholder shell until service.ts serves the real Datastar/SSE UI over
- * http://localhost:<port> and this panel is pointed at it instead.
+ * Spike: proves a VS Code webview can embed the Hyper/Datastar service via a plain
+ * <iframe src="http://localhost:PORT">, before the real skein UI is built on top of it (see
+ * technical-design.md). The CSP's frame-src/connect-src allow only http://localhost:* -
+ * the iframe's own document (served by SkeinService) still needs "unsafe-inline" style for
+ * whatever CSS it carries, but that's scoped to the iframe's origin, not this outer page.
  */
 function getWebviewHtml(active: ActiveSessionDisplay | undefined): string {
   const status = active
     ? `<p>Session: <code>${active.sessionId}.skein</code> &middot; Engine: <code>${active.engine}</code> &middot; Seed: <code>${active.seed}</code></p>`
     : `<p>No skein session running. Run <strong>Dialog IDE: Run Default Skein</strong>, <strong>Run Skein...</strong>, or <strong>New Skein...</strong> from the Command Palette.</p>`;
 
+  const serviceUrl = skeinService ? `http://localhost:${skeinService.getPort()}/` : undefined;
+  const iframe = serviceUrl
+    ? `<iframe src="${serviceUrl}" style="width: 100%; height: 200px; border: 1px solid var(--vscode-panel-border);"></iframe>`
+    : `<p>Skein service is not running.</p>`;
+
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline';" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; frame-src http://localhost:*; child-src http://localhost:*;" />
   <title>Dialog Skein</title>
   <style>
     body { font-family: var(--vscode-font-family); color: var(--vscode-foreground); padding: 1rem; }
@@ -381,8 +399,10 @@ function getWebviewHtml(active: ActiveSessionDisplay | undefined): string {
 <body>
   <h2>Dialog Skein</h2>
   ${status}
-  <p>This panel will host the real Datastar/SSE skein UI once the HTTP server in
-     <code>service.ts</code> is implemented.</p>
+  <p>This panel will host the real Datastar/SSE skein UI once <code>service.ts</code> serves
+     it. For now, the box below is that same iframe embedding a live spike endpoint -
+     it should show a timestamp that updates on every panel reveal.</p>
+  ${iframe}
 </body>
 </html>`;
 }
