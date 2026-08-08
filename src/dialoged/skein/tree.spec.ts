@@ -383,6 +383,92 @@ describe('SkeinTree.fromKnots', () => {
     const tree = SkeinTree.fromKnots('dgdebug', 1, [knot({ id: 0, label: 'START' })]);
     expect(tree.getActiveKnotId()).toBe(0);
   });
+
+  it('propagates treeState bottom-up across multiple levels, not just from each knot\'s own state', () => {
+    const tree = SkeinTree.fromKnots('dgdebug', 1, [
+      knot({ id: 0, label: 'START', response: { text: 'welcome', inputType: 'line' } }),
+      knot({ id: 1, parentId: 0, response: { text: 'a', inputType: 'line' } }),
+      knot({ id: 2, parentId: 1, unblessedResponse: { text: 'b', inputType: 'line' } })
+    ]);
+    expect(tree.getDerivedKnot(2)?.treeState).toBe('new');
+    // id 1 is itself 'valid', but its child is 'new', so its treeState must reflect that
+    expect(tree.getDerivedKnot(1)?.state).toBe('valid');
+    expect(tree.getDerivedKnot(1)?.treeState).toBe('new');
+    expect(tree.getDerivedKnot(0)?.treeState).toBe('new');
+  });
+});
+
+describe('SkeinTree treeState propagation', () => {
+  // Builds a tree where id 1 is blessed/valid and id 2 (its child) is in 'error' (blessed
+  // response no longer matches its current unblessedResponse).
+  function treeWithErroredGrandchild(): SkeinTree {
+    return SkeinTree.newTree('dgdebug', 1)
+      .addChild(0, 'look', { text: 'a', inputType: 'line' })
+      .blessKnot(1)
+      .addChild(1, 'north', { text: 'b', inputType: 'line' })
+      .blessKnot(2)
+      .updateKnotResponse(2, { text: 'c', inputType: 'line' });
+  }
+
+  it('propagates a new child\'s state up to the (otherwise valid) root', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1).addChild(0, 'look', { text: 'a', inputType: 'line' });
+    expect(tree.getDerivedKnot(0)?.treeState).toBe('new');
+  });
+
+  it('propagates an error several levels deep all the way to the root, without changing ancestors\' own state', () => {
+    const tree = treeWithErroredGrandchild();
+
+    expect(tree.getDerivedKnot(2)?.state).toBe('error');
+    expect(tree.getDerivedKnot(1)?.state).toBe('valid');
+    expect(tree.getDerivedKnot(1)?.treeState).toBe('error');
+    expect(tree.getDerivedKnot(0)?.treeState).toBe('error');
+  });
+
+  it('clears propagated error state once the offending knot is blessed', () => {
+    const fixed = treeWithErroredGrandchild().blessKnot(2);
+
+    expect(fixed.getDerivedKnot(2)?.state).toBe('valid');
+    expect(fixed.getDerivedKnot(1)?.treeState).toBe('valid');
+    expect(fixed.getDerivedKnot(0)?.treeState).toBe('valid');
+  });
+
+  it('lowers the parent\'s treeState back down after deleting an errored subtree', () => {
+    const afterDelete = treeWithErroredGrandchild().deleteKnot(2);
+
+    expect(afterDelete.getDerivedKnot(1)?.treeState).toBe('valid');
+    expect(afterDelete.getDerivedKnot(0)?.treeState).toBe('valid');
+  });
+
+  it('preserves propagation to the grandparent after splicing out the middle knot', () => {
+    const spliced = treeWithErroredGrandchild().spliceKnot(1);
+
+    expect(spliced.getKnot(2)!.parentId).toBe(0);
+    expect(spliced.getDerivedKnot(0)?.treeState).toBe('error');
+  });
+
+  it('initializes a newly inserted parent\'s treeState from its existing child, not just its own new state', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1)
+      .addChild(0, 'look', { text: 'a', inputType: 'line' })
+      .blessKnot(1)
+      .updateKnotResponse(1, { text: 'b', inputType: 'line' }); // id 1 is now 'error'
+
+    const withParent = tree.insertParent(1, 'wait', { text: 'w', inputType: 'line' });
+    const newParentId = withParent.getDerivedKnot(0)!.selectedChild!;
+
+    expect(withParent.getDerivedKnot(newParentId)?.state).toBe('new');
+    expect(withParent.getDerivedKnot(newParentId)?.treeState).toBe('error');
+    expect(withParent.getDerivedKnot(0)?.treeState).toBe('error');
+  });
+
+  it('keeps the parent\'s treeState at the highest of all its children, not just the most recently changed one', () => {
+    const withValidSibling = treeWithErroredGrandchild()
+      .addChild(0, 'inventory', { text: 'c', inputType: 'line' })
+      .blessKnot(3);
+
+    // Root still has id 1 -> id 2 (error) as one branch and the new valid id 3 as another -
+    // the valid sibling must not mask the error still present elsewhere.
+    expect(withValidSibling.getDerivedKnot(0)?.treeState).toBe('error');
+  });
 });
 
 describe('SkeinTree.setActiveKnotId', () => {

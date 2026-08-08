@@ -6,6 +6,12 @@
 import { Map } from 'immutable';
 
 /**
+ * A knot's own status, or (for treeState) the greatest status among a knot and its
+ * descendants. Ordering: error > new > valid.
+ */
+export type KnotStatus = 'new' | 'valid' | 'error';
+
+/**
  * Response type with input type information
  */
 export interface Response {
@@ -30,8 +36,8 @@ export interface WireKnot {
  * KnotState - state tracking for UI management
  */
 export interface KnotState {
-  state: 'new' | 'valid' | 'error';
-  treeState: 'new' | 'valid' | 'error';
+  state: KnotStatus;
+  treeState: KnotStatus;
   selectedChild: number | null;
   children: number[];
 }
@@ -44,7 +50,8 @@ export interface DerivedKnot {
   command: string;
   response: string;
   unblessedResponse: string | null;
-  state: 'new' | 'valid' | 'error';
+  state: KnotStatus;
+  treeState: KnotStatus;
   parentId: number | null;
   children: number[];
   selectedChild: number | null;
@@ -153,9 +160,10 @@ export class SkeinTree {
     };
 
     const knots = this.knots.set(newId, newKnot);
-    const knotStates = this.knotStates
+    let knotStates = this.knotStates
       .set(newId, newState)
       .set(parentId, updatedParentState);
+    knotStates = SkeinTree.propagateTreeState(knots, knotStates, parentId);
 
     return new SkeinTree(this.engine, this.seed, knots, knotStates, this.activeKnotId);
   }
@@ -175,7 +183,10 @@ export class SkeinTree {
       unblessedResponse: response
     };
 
-    return new SkeinTree(this.engine, this.seed, this.knots.set(id, updatedKnot), this.knotStates, this.activeKnotId);
+    const knots = this.knots.set(id, updatedKnot);
+    const knotStates = SkeinTree.propagateOwnStateChange(knots, this.knotStates, id, updatedKnot);
+
+    return new SkeinTree(this.engine, this.seed, knots, knotStates, this.activeKnotId);
   }
 
   /**
@@ -192,7 +203,10 @@ export class SkeinTree {
       unblessedResponse: response
     };
 
-    return new SkeinTree(this.engine, this.seed, this.knots.set(id, updatedKnot), this.knotStates, this.activeKnotId);
+    const knots = this.knots.set(id, updatedKnot);
+    const knotStates = SkeinTree.propagateOwnStateChange(knots, this.knotStates, id, updatedKnot);
+
+    return new SkeinTree(this.engine, this.seed, knots, knotStates, this.activeKnotId);
   }
 
   /**
@@ -216,7 +230,10 @@ export class SkeinTree {
       unblessedResponse: null
     };
 
-    return new SkeinTree(this.engine, this.seed, this.knots.set(id, updatedKnot), this.knotStates, this.activeKnotId);
+    const knots = this.knots.set(id, updatedKnot);
+    const knotStates = SkeinTree.propagateOwnStateChange(knots, this.knotStates, id, updatedKnot);
+
+    return new SkeinTree(this.engine, this.seed, knots, knotStates, this.activeKnotId);
   }
 
   /**
@@ -258,6 +275,7 @@ export class SkeinTree {
 
     if (knot.parentId !== null) {
       knotStates = SkeinTree.removeChildFromParent(knotStates, knot.parentId, id);
+      knotStates = SkeinTree.propagateTreeState(knots, knotStates, knot.parentId);
     }
 
     return new SkeinTree(this.engine, this.seed, knots, knotStates, this.activeKnotId);
@@ -297,6 +315,7 @@ export class SkeinTree {
           ? (childIds.length > 0 ? childIds[0] : null)
           : parentState.selectedChild
       });
+      knotStates = SkeinTree.propagateTreeState(knots, knotStates, knot.parentId);
     }
 
     return new SkeinTree(this.engine, this.seed, knots, knotStates, this.activeKnotId);
@@ -349,6 +368,10 @@ export class SkeinTree {
         selectedChild: grandparentState.selectedChild === id ? newId : grandparentState.selectedChild
       });
     }
+
+    // Recomputes newId's own treeState from its (pre-existing) child id, then continues
+    // upward - covers both the newly inserted knot and its ancestors in one pass.
+    knotStates = SkeinTree.propagateTreeState(knots, knotStates, newId);
 
     return new SkeinTree(this.engine, this.seed, knots, knotStates, this.activeKnotId);
   }
@@ -417,7 +440,8 @@ export class SkeinTree {
       command: knot.command,
       response: knot.response ? knot.response.text : '',
       unblessedResponse: knot.unblessedResponse ? knot.unblessedResponse.text : null,
-      state: SkeinTree.computeKnotState(knot),
+      state: state ? state.state : SkeinTree.computeKnotState(knot),
+      treeState: state ? state.treeState : SkeinTree.computeKnotState(knot),
       parentId: knot.parentId,
       children: state ? state.children : [],
       selectedChild: state ? state.selectedChild : null,
@@ -428,21 +452,76 @@ export class SkeinTree {
   }
 
   /**
-   * Derive a knot's own state from its response/unblessedResponse content.
-   * Does not consider descendants - see technical-design.md on tree-status propagation,
-   * which isn't implemented yet.
+   * Derive a knot's own status from its response/unblessedResponse content. Does not consider
+   * descendants - see propagateTreeState for how that own status feeds into treeState.
    */
-  private static computeKnotState(knot: WireKnot): 'new' | 'valid' | 'error' {
+  private static computeKnotState(knot: WireKnot): KnotStatus {
     if (knot.response) {
       if (knot.unblessedResponse && knot.response.text !== knot.unblessedResponse.text) {
         return 'error';
       }
       return 'valid';
     }
-    if (knot.unblessedResponse) {
+    return 'new';
+  }
+
+  /**
+   * The greater of two statuses, ranking error > new > valid.
+   */
+  private static maxStatus(a: KnotStatus, b: KnotStatus): KnotStatus {
+    if (a === 'error' || b === 'error') {
+      return 'error';
+    }
+    if (a === 'new' || b === 'new') {
       return 'new';
     }
-    return 'new';
+    return 'valid';
+  }
+
+  /**
+   * Recomputes a knot's own `state` from its (already-updated) WireKnot, then propagates
+   * treeState from that knot upward. Used by every mutation that changes a knot's
+   * response/unblessedResponse (updateKnotCommandAndResponse, updateKnotResponse, blessKnot).
+   */
+  private static propagateOwnStateChange(
+    knots: Map<number, WireKnot>,
+    knotStates: Map<number, KnotState>,
+    id: number,
+    updatedKnot: WireKnot
+  ): Map<number, KnotState> {
+    const state = knotStates.get(id)!;
+    const withUpdatedState = knotStates.set(id, { ...state, state: SkeinTree.computeKnotState(updatedKnot) });
+    return SkeinTree.propagateTreeState(knots, withUpdatedState, id);
+  }
+
+  /**
+   * Recomputes treeState at startId (as the greatest of its own state and its children's
+   * treeState) and continues upward through every ancestor to the root, mirroring dialog-tool's
+   * tree.clj propagate-status. Each level's computation only reads its immediate children's
+   * already-correct treeState, not the whole subtree, so a single call costs O(depth), not
+   * O(subtree size) - the whole reason treeState is stored and propagated rather than
+   * recomputed from scratch on every read.
+   */
+  private static propagateTreeState(
+    knots: Map<number, WireKnot>,
+    knotStates: Map<number, KnotState>,
+    startId: number
+  ): Map<number, KnotState> {
+    let states = knotStates;
+    let currentId: number | null = startId;
+
+    while (currentId !== null) {
+      const current = states.get(currentId)!;
+      const computed = current.children.reduce(
+        (acc, childId) => SkeinTree.maxStatus(acc, states.get(childId)!.treeState),
+        current.state
+      );
+
+      states = states.set(currentId, { ...current, treeState: computed });
+      currentId = knots.get(currentId)!.parentId;
+    }
+
+    return states;
   }
 
   /**
@@ -525,13 +604,19 @@ export class SkeinTree {
       const children = childrenByParent.get(knot.id) ?? [];
       const knotState = SkeinTree.computeKnotState(knot);
       knots = knots.set(knot.id, knot);
+      // treeState starts equal to the knot's own state (as if it had no children yet) and
+      // gets corrected below, bottom-up, once every knot's entry exists.
       knotStates = knotStates.set(knot.id, {
         state: knotState,
-        // Tree-status propagation from descendants isn't implemented yet - see computeKnotState.
         treeState: knotState,
         selectedChild: children.length > 0 ? children[0] : null,
         children
       });
+    }
+
+    const leafIds = sorted.filter((knot) => !childrenByParent.has(knot.id)).map((knot) => knot.id);
+    for (const leafId of leafIds) {
+      knotStates = SkeinTree.propagateTreeState(knots, knotStates, leafId);
     }
 
     return new SkeinTree(engine, seed, knots, knotStates, 0);

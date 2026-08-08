@@ -107,6 +107,7 @@ interface DerivedKnot {
   response: string;
   unblessedResponse: string | null;
   state: 'new' | 'valid' | 'error';
+  treeState: 'new' | 'valid' | 'error';
   parentId: number | null;
   children: number[];
   selectedChild: number | null;
@@ -209,6 +210,7 @@ The SkeinTree supports a finite set of operations that each return a new SkeinTr
   - Tree status = maximum of direct status and tree statuses of all children
   - Ordering: error > new > valid
   - Used for coloring knots in navigation view
+- Tree status is stored per knot (`KnotState.treeState`) and eagerly propagated on every mutation that can affect it, not recomputed from scratch on each read: any operation that changes a knot's own status (`updateKnotCommandAndResponse`, `updateKnotResponse`, `blessKnot`) or its children set (`addChild`, `deleteKnot`, `spliceKnot`, `insertParent`) walks from the affected knot up through its ancestors to the root, recomputing each level from its immediate children's already-correct tree status - O(depth), not O(subtree size)
 
 #### Additional Knot Properties
 - **Label**: A (tree unique) label that can be assigned to knots
