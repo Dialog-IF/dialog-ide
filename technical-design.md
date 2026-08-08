@@ -120,7 +120,6 @@ interface SkeinTree {
   knots: Map<number, WireKnot>;
   knotStates: Map<number, KnotState>;
   activeKnotId: number | null;
-  fixedWidthFontOverride: boolean;
 }
 ```
 `engine` and `seed` are fixed at creation and never change for the life of a tree — a skein can't switch interpreters or reseed itself after the fact. There's no separate metadata/versioning wrapper around them; they're plain fields.

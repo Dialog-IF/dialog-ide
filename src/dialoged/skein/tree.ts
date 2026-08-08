@@ -63,22 +63,19 @@ export class SkeinTree {
   private readonly knots: Map<number, WireKnot>;
   private readonly knotStates: Map<number, KnotState>;
   private readonly activeKnotId: number | null;
-  private readonly fixedWidthFontOverride: boolean;
 
   private constructor(
     engine: 'dgdebug' | 'frotz' | 'frotz-release',
     seed: number,
     knots: Map<number, WireKnot>,
     knotStates: Map<number, KnotState>,
-    activeKnotId: number | null,
-    fixedWidthFontOverride: boolean
+    activeKnotId: number | null
   ) {
     this.engine = engine;
     this.seed = seed;
     this.knots = knots;
     this.knotStates = knotStates;
     this.activeKnotId = activeKnotId;
-    this.fixedWidthFontOverride = fixedWidthFontOverride;
   }
 
   /**
@@ -110,8 +107,7 @@ export class SkeinTree {
       seed,
       Map<number, WireKnot>().set(0, initialKnot),
       Map<number, KnotState>().set(0, initialState),
-      0,
-      false
+      0
     );
   }
 
@@ -159,7 +155,7 @@ export class SkeinTree {
       .set(newId, newState)
       .set(parentId, updatedParentState);
 
-    return new SkeinTree(this.engine, this.seed, knots, knotStates, this.activeKnotId, this.fixedWidthFontOverride);
+    return new SkeinTree(this.engine, this.seed, knots, knotStates, this.activeKnotId);
   }
 
   /**
@@ -177,7 +173,7 @@ export class SkeinTree {
       unblessedResponse: response
     };
 
-    return new SkeinTree(this.engine, this.seed, this.knots.set(id, updatedKnot), this.knotStates, this.activeKnotId, this.fixedWidthFontOverride);
+    return new SkeinTree(this.engine, this.seed, this.knots.set(id, updatedKnot), this.knotStates, this.activeKnotId);
   }
 
   /**
@@ -194,7 +190,7 @@ export class SkeinTree {
       unblessedResponse: response
     };
 
-    return new SkeinTree(this.engine, this.seed, this.knots.set(id, updatedKnot), this.knotStates, this.activeKnotId, this.fixedWidthFontOverride);
+    return new SkeinTree(this.engine, this.seed, this.knots.set(id, updatedKnot), this.knotStates, this.activeKnotId);
   }
 
   /**
@@ -212,7 +208,7 @@ export class SkeinTree {
       unblessedResponse: null
     };
 
-    return new SkeinTree(this.engine, this.seed, this.knots.set(id, updatedKnot), this.knotStates, this.activeKnotId, this.fixedWidthFontOverride);
+    return new SkeinTree(this.engine, this.seed, this.knots.set(id, updatedKnot), this.knotStates, this.activeKnotId);
   }
 
   /**
@@ -227,8 +223,7 @@ export class SkeinTree {
       this.seed,
       this.knots.delete(id),
       this.knotStates.delete(id),
-      this.activeKnotId,
-      this.fixedWidthFontOverride
+      this.activeKnotId
     );
   }
 
@@ -244,8 +239,7 @@ export class SkeinTree {
       this.seed,
       this.knots.delete(id),
       this.knotStates.delete(id),
-      this.activeKnotId,
-      this.fixedWidthFontOverride
+      this.activeKnotId
     );
   }
 
@@ -256,7 +250,7 @@ export class SkeinTree {
     // Simplified implementation - in practice would need to properly handle
     // the complex parent-child relationship changes
 
-    return new SkeinTree(this.engine, this.seed, this.knots, this.knotStates, this.activeKnotId, this.fixedWidthFontOverride);
+    return new SkeinTree(this.engine, this.seed, this.knots, this.knotStates, this.activeKnotId);
   }
 
   /**
@@ -273,7 +267,7 @@ export class SkeinTree {
       label
     };
 
-    return new SkeinTree(this.engine, this.seed, this.knots.set(id, updatedKnot), this.knotStates, this.activeKnotId, this.fixedWidthFontOverride);
+    return new SkeinTree(this.engine, this.seed, this.knots.set(id, updatedKnot), this.knotStates, this.activeKnotId);
   }
 
   /**
@@ -290,7 +284,7 @@ export class SkeinTree {
       locked
     };
 
-    return new SkeinTree(this.engine, this.seed, this.knots.set(id, updatedKnot), this.knotStates, this.activeKnotId, this.fixedWidthFontOverride);
+    return new SkeinTree(this.engine, this.seed, this.knots.set(id, updatedKnot), this.knotStates, this.activeKnotId);
   }
 
   /**
@@ -383,7 +377,7 @@ export class SkeinTree {
    * Set active knot ID
    */
   public setActiveKnotId(id: number | null): SkeinTree {
-    return new SkeinTree(this.engine, this.seed, this.knots, this.knotStates, id, this.fixedWidthFontOverride);
+    return new SkeinTree(this.engine, this.seed, this.knots, this.knotStates, id);
   }
 }
 
