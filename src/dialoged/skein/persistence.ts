@@ -207,6 +207,37 @@ export class PersistenceManager {
   }
 
   /**
+   * List the ids of existing sessions (".skein" files in basePath, extension stripped),
+   * sorted. An absent basePath (no sessions saved yet) is a normal empty result, not an error.
+   */
+  public async listSessions(): Promise<string[]> {
+    try {
+      const entries = await fs.readdir(this.basePath, { withFileTypes: true });
+      return entries
+        .filter((entry) => entry.isFile() && entry.name.endsWith('.skein'))
+        .map((entry) => entry.name.slice(0, -'.skein'.length))
+        .sort();
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+        return [];
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Whether a session with the given id has already been saved.
+   */
+  public async sessionExists(sessionId: string): Promise<boolean> {
+    try {
+      await fs.access(path.join(this.basePath, `${sessionId}.skein`));
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
    * Perform atomic file operations
    */
   public async atomicWrite(filePath: string, content: string): Promise<void> {

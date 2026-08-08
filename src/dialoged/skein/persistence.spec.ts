@@ -175,4 +175,39 @@ describe('PersistenceManager', () => {
     const manager = new PersistenceManager(tempDir);
     await expect(manager.loadSession('does-not-exist')).rejects.toThrow();
   });
+
+  describe('listSessions', () => {
+    it('returns the sorted ids of saved sessions, extension stripped', async () => {
+      const manager = new PersistenceManager(tempDir);
+      await manager.saveSession(SkeinTree.newTree('dgdebug', 1), 'zebra');
+      await manager.saveSession(SkeinTree.newTree('dgdebug', 1), 'apple');
+      expect(await manager.listSessions()).toEqual(['apple', 'zebra']);
+    });
+
+    it('ignores non-.skein files in basePath', async () => {
+      const manager = new PersistenceManager(tempDir);
+      await manager.saveSession(SkeinTree.newTree('dgdebug', 1), 'real-session');
+      fs.writeFileSync(path.join(tempDir, 'notes.txt'), 'hello');
+      expect(await manager.listSessions()).toEqual(['real-session']);
+    });
+
+    it('returns an empty array rather than throwing when basePath does not exist yet', async () => {
+      const manager = new PersistenceManager(path.join(tempDir, 'never-created'));
+      expect(await manager.listSessions()).toEqual([]);
+    });
+  });
+
+  describe('sessionExists', () => {
+    it('is true for a saved session and false otherwise', async () => {
+      const manager = new PersistenceManager(tempDir);
+      await manager.saveSession(SkeinTree.newTree('dgdebug', 1), 'present');
+      expect(await manager.sessionExists('present')).toBe(true);
+      expect(await manager.sessionExists('absent')).toBe(false);
+    });
+
+    it('is false (not throwing) when basePath does not exist yet', async () => {
+      const manager = new PersistenceManager(path.join(tempDir, 'never-created'));
+      expect(await manager.sessionExists('anything')).toBe(false);
+    });
+  });
 });

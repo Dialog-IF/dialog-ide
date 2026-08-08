@@ -18,6 +18,22 @@
       {
         "command": "dialog-ide.openSkein",
         "title": "Dialog IDE: Open Skein"
+      },
+      {
+        "command": "dialog-ide.runDefaultSkein",
+        "title": "Dialog IDE: Run Default Skein"
+      },
+      {
+        "command": "dialog-ide.runSkein",
+        "title": "Dialog IDE: Run Skein..."
+      },
+      {
+        "command": "dialog-ide.newSkein",
+        "title": "Dialog IDE: New Skein..."
+      },
+      {
+        "command": "dialog-ide.stopSkein",
+        "title": "Dialog IDE: Stop Skein"
       }
     ]
   },
