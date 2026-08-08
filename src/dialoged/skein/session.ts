@@ -3,6 +3,7 @@
  * Orchestrates command execution and maintains session state.
  */
 
+import { EventEmitter } from 'events';
 import { SkeinProcess, ProcessConfig, EngineType } from './process';
 import { SkeinTree } from './tree';
 import { DynamicProcessor, DynamicState, DynamicChanges } from './dynamic';
@@ -46,6 +47,7 @@ export class SkeinSession {
   private dynamicProcessor: DynamicProcessor;
   private dynamicState: DynamicState | null = null;
   private dynamicChanges: DynamicChanges | null = null;
+  private readonly changeEmitter = new EventEmitter();
 
   constructor(config: SessionConfig) {
     this.id = this.generateId();
@@ -91,11 +93,19 @@ export class SkeinSession {
       await this.process.start();
       this.isRunning = true;
 
-      // Drain the interpreter's startup output (its own initial prompt) so it doesn't sit as
-      // a stale queued response ahead of the first real command's.
-      await this.process.readResponse();
+      // Capture the interpreter's real startup banner as knot 0's response, replacing
+      // SkeinTree.newTree's generic "Welcome to the game." placeholder - io.ts's tag-line
+      // parser already separates the prompt from the content, so (unlike the placeholder)
+      // this doesn't carry a trailing "> " into the displayed text. updateKnotResponse only
+      // ever sets the *unblessed* response, so blessKnot immediately promotes it - knot 0
+      // has no prior history to diff against, it should just start out 'valid'.
+      const banner = await this.process.readResponse();
+      this.tree = this.tree
+        .updateKnotResponse(0, { text: banner.response, inputType: banner.promptType })
+        .blessKnot(0);
 
       console.log(`Session ${this.id} started successfully`);
+      this.changeEmitter.emit('change');
     } catch (error) {
       console.error('Failed to start session:', error);
       throw error;
@@ -151,10 +161,23 @@ export class SkeinSession {
       await this.refreshDynamicState();
 
       console.log(`Command "${command}" executed successfully`);
+      this.changeEmitter.emit('change');
     } catch (error) {
       console.error('Failed to execute command:', error);
       throw error;
     }
+  }
+
+  /**
+   * Notified whenever runCommand mutates the tree - the hook service.ts's SSE loop uses to know
+   * when to push a fresh render to connected browsers.
+   */
+  public onChange(listener: () => void): void {
+    this.changeEmitter.on('change', listener);
+  }
+
+  public offChange(listener: () => void): void {
+    this.changeEmitter.off('change', listener);
   }
 
   /**

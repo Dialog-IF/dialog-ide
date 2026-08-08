@@ -5,6 +5,7 @@
  * behind those commands).
  */
 
+import * as path from 'path';
 import * as vscode from 'vscode';
 import {
   EngineType,
@@ -39,7 +40,11 @@ let activeSessionId: string | undefined;
 let activeProjectRoot: string | undefined;
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
-  skeinService = new SkeinService({ port: 0, host: 'localhost' });
+  skeinService = new SkeinService({
+    port: 0,
+    host: 'localhost',
+    mediaRoot: path.join(context.extensionPath, 'media')
+  });
   await skeinService.start();
 
   statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
@@ -293,6 +298,7 @@ async function stopActiveSession(): Promise<void> {
     activeSession = undefined;
     activeSessionId = undefined;
     activeProjectRoot = undefined;
+    skeinService?.setActiveSession(undefined, undefined);
     refreshStatusBar();
     refreshSkeinPanel();
   }
@@ -302,6 +308,7 @@ function setActiveSession(session: SkeinSession, sessionId: string, projectRoot:
   activeSession = session;
   activeSessionId = sessionId;
   activeProjectRoot = projectRoot;
+  skeinService?.setActiveSession(session, sessionId);
   refreshStatusBar();
   ensureSkeinPanel();
   refreshSkeinPanel();
@@ -369,10 +376,10 @@ function currentSessionDisplay(): ActiveSessionDisplay | undefined {
 }
 
 /**
- * Spike: proves a VS Code webview can embed the Hyper/Datastar service via a plain
- * <iframe src="http://localhost:PORT">, before the real skein UI is built on top of it (see
- * technical-design.md). The CSP's frame-src/connect-src allow only http://localhost:* -
- * the iframe's own document (served by SkeinService) still needs "unsafe-inline" style for
+ * Embeds the real (read-only, for now - see the Phase 1 plan) skein transcript via
+ * <iframe src="http://localhost:PORT">, served by SkeinService and styled with dialog-tool's
+ * own vendored Tailwind/DaisyUI CSS. The CSP's frame-src/connect-src allow only
+ * http://localhost:* - the iframe's own document still needs "unsafe-inline" style for
  * whatever CSS it carries, but that's scoped to the iframe's origin, not this outer page.
  */
 function getWebviewHtml(active: ActiveSessionDisplay | undefined): string {
@@ -382,7 +389,7 @@ function getWebviewHtml(active: ActiveSessionDisplay | undefined): string {
 
   const serviceUrl = skeinService ? `http://localhost:${skeinService.getPort()}/` : undefined;
   const iframe = serviceUrl
-    ? `<iframe src="${serviceUrl}" style="width: 100%; height: 200px; border: 1px solid var(--vscode-panel-border);"></iframe>`
+    ? `<iframe src="${serviceUrl}" style="width: 100%; height: 70vh; border: 1px solid var(--vscode-panel-border);"></iframe>`
     : `<p>Skein service is not running.</p>`;
 
   return `<!DOCTYPE html>
@@ -399,9 +406,8 @@ function getWebviewHtml(active: ActiveSessionDisplay | undefined): string {
 <body>
   <h2>Dialog Skein</h2>
   ${status}
-  <p>This panel will host the real Datastar/SSE skein UI once <code>service.ts</code> serves
-     it. For now, the box below is that same iframe embedding a live spike endpoint -
-     it should show a timestamp that updates on every panel reveal.</p>
+  <p>Read-only transcript for now - sending commands, undo/redo, bless, and everything else
+     from the real skein UI lands in a later pass.</p>
   ${iframe}
 </body>
 </html>`;

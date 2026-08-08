@@ -41,7 +41,7 @@ describe('SkeinSession', () => {
   });
 
   describe('start', () => {
-    it('reads the project, expands sources, and drains the interpreter\'s initial response', async () => {
+    it('reads the project, expands sources, and captures the interpreter\'s initial response', async () => {
       mockReadResponse.mockResolvedValueOnce(BANNER_RESPONSE);
       const session = SkeinSession.createNew(DGDEBUG_CONFIG);
 
@@ -49,6 +49,29 @@ describe('SkeinSession', () => {
 
       expect(mockReadResponse).toHaveBeenCalledTimes(1);
       expect(session.isRunningSession()).toBe(true);
+    });
+
+    it('replaces knot 0\'s placeholder text with the real, blessed startup banner', async () => {
+      mockReadResponse.mockResolvedValueOnce(BANNER_RESPONSE);
+      const session = SkeinSession.createNew(DGDEBUG_CONFIG);
+
+      await session.start();
+
+      const knot0 = session.getTree().getDerivedKnot(0)!;
+      expect(knot0.response).toBe('Welcome to the game.\n');
+      expect(knot0.unblessedResponse).toBeNull();
+      expect(knot0.state).toBe('valid');
+    });
+
+    it('emits a change event once the startup banner is captured', async () => {
+      mockReadResponse.mockResolvedValueOnce(BANNER_RESPONSE);
+      const session = SkeinSession.createNew(DGDEBUG_CONFIG);
+      const onChange = jest.fn();
+      session.onChange(onChange);
+
+      await session.start();
+
+      expect(onChange).toHaveBeenCalledTimes(1);
     });
 
     it('throws for engines that need a compiled game (frotz/frotz-release), which isn\'t implemented yet', async () => {
