@@ -1,0 +1,394 @@
+@import "tailwindcss";
+@plugin "daisyui";
+
+/* Restore popover hidden state that Tailwind's preflight overrides */
+[popover]:not(:popover-open) {
+  display: none;
+}
+
+/* Prevent layout shift when popovers/modals set overflow:hidden on body */
+html {
+  scrollbar-gutter: stable;
+}
+
+/* Icon classes using mask-image to inherit currentColor */
+.icon {
+  display: inline-block;
+  width: 1.5rem;
+  height: 1.5rem;
+  background-color: currentColor;
+  mask-size: contain;
+  mask-repeat: no-repeat;
+  mask-position: center;
+  -webkit-mask-size: contain;
+  -webkit-mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  vertical-align: middle;
+}
+
+.icon-globe {
+  mask-image: url('/icons/globe-alt.svg');
+  -webkit-mask-image: url('/icons/globe-alt.svg');
+}
+
+
+.icon-warning {
+  mask-image: url('/icons/exclamation-triangle.svg');
+  -webkit-mask-image: url('/icons/exclamation-triangle.svg');
+}
+
+.icon-error {
+  mask-image: url('/icons/x-circle-solid.svg');
+  -webkit-mask-image: url('/icons/x-circle-solid.svg');
+}
+
+.icon-undo {
+  mask-image: url('/icons/arrow-uturn-left.svg');
+  -webkit-mask-image: url('/icons/arrow-uturn-left.svg');
+}
+
+.icon-redo {
+  mask-image: url('/icons/arrow-uturn-right.svg');
+  -webkit-mask-image: url('/icons/arrow-uturn-right.svg');
+}
+
+.icon-jump {
+  mask-image: url('/icons/bookmark-solid.svg');
+  -webkit-mask-image: url('/icons/bookmark-solid.svg');
+}
+
+.icon-arrow-down-circle {
+  mask-image: url('/icons/arrow-down-circle-solid.svg');
+  -webkit-mask-image: url('/icons/arrow-down-circle-solid.svg');
+}
+
+.icon-children {
+  mask-image: url('/icons/command-line-solid.svg');
+  -webkit-mask-image: url('/icons/command-line-solid.svg');
+}
+
+.icon-dots-vertical {
+  mask-image: url('/icons/ellipsis-vertical-solid.svg');
+  -webkit-mask-image: url('/icons/ellipsis-vertical-solid.svg');
+}
+
+.icon-save {
+  mask-image: url('/icons/folder-arrow-down-solid.svg');
+  -webkit-mask-image: url('/icons/folder-arrow-down-solid.svg');
+}
+
+.icon-play {
+  mask-image: url('/icons/play-solid.svg');
+  -webkit-mask-image: url('/icons/play-solid.svg');
+}
+
+.icon-quit {
+  mask-image: url('/icons/x-circle-solid.svg');
+  -webkit-mask-image: url('/icons/x-circle-solid.svg');
+}
+
+.icon-reload {
+  mask-image: url('/icons/arrow-path-solid.svg');
+  -webkit-mask-image: url('/icons/arrow-path-solid.svg');
+}
+
+.icon-lock {
+  mask-image: url('/icons/lock-closed-solid.svg');
+  -webkit-mask-image: url('/icons/lock-closed-solid.svg');
+}
+
+.icon-arrow-up {
+  mask-image: url('/icons/arrow-up-solid.svg');
+  -webkit-mask-image: url('/icons/arrow-up-solid.svg');
+}
+
+.icon-scroll-top {
+  mask-image: url('/icons/chevron-double-up-solid.svg');
+  -webkit-mask-image: url('/icons/chevron-double-up-solid.svg');
+}
+
+.icon-scroll-bottom {
+  mask-image: url('/icons/chevron-double-down-solid.svg');
+  -webkit-mask-image: url('/icons/chevron-double-down-solid.svg');
+}
+
+.icon-arrow-down {
+  mask-image: url('/icons/arrow-down-solid.svg');
+  -webkit-mask-image: url('/icons/arrow-down-solid.svg');
+}
+
+.icon-arrow-right {
+  mask-image: url('/icons/arrow-right-solid.svg');
+  -webkit-mask-image: url('/icons/arrow-right-solid.svg');
+}
+
+.icon-arrow-left {
+  mask-image: url('/icons/arrow-right-solid.svg');
+  -webkit-mask-image: url('/icons/arrow-right-solid.svg');
+  transform: scaleX(-1);
+}
+
+.icon-bless {
+  mask-image: url('/icons/check-circle-solid.svg');
+  -webkit-mask-image: url('/icons/check-circle-solid.svg');
+}
+
+.icon-bless-all {
+  mask-image: url('/icons/check-badge-solid.svg');
+  -webkit-mask-image: url('/icons/check-badge-solid.svg');
+}
+
+.icon-add {
+  mask-image: url('/icons/plus-circle-solid.svg');
+  -webkit-mask-image: url('/icons/plus-circle-solid.svg');
+}
+
+.icon-edit {
+  mask-image: url('/icons/pencil-solid.svg');
+  -webkit-mask-image: url('/icons/pencil-solid.svg');
+}
+
+.icon-label {
+  mask-image: url('/icons/tag-solid.svg');
+  -webkit-mask-image: url('/icons/tag-solid.svg');
+}
+
+.icon-insert {
+  mask-image: url('/icons/arrow-up-on-square-stack-solid.svg');
+  -webkit-mask-image: url('/icons/arrow-up-on-square-stack-solid.svg');
+}
+
+.icon-delete {
+  mask-image: url('/icons/trash-solid.svg');
+  -webkit-mask-image: url('/icons/trash-solid.svg');
+}
+
+.icon-splice {
+  mask-image: url('/icons/scissors-solid.svg');
+  -webkit-mask-image: url('/icons/scissors-solid.svg');
+}
+
+.icon-dynamic {
+  mask-image: url('/icons/cpu-chip-solid.svg');
+  -webkit-mask-image: url('/icons/cpu-chip-solid.svg');
+}
+
+.icon-trace {
+  mask-image: url('/icons/bug-ant-solid.svg');
+  -webkit-mask-image: url('/icons/bug-ant-solid.svg');
+}
+
+.icon-search {
+  mask-image: url('/icons/magnifying-glass-solid.svg');
+  -webkit-mask-image: url('/icons/magnifying-glass-solid.svg');
+}
+
+/* Search field: expand to overlay right toolbar buttons when focused */
+.search-expand-label {
+  transition: min-width 150ms ease;
+}
+
+.search-expand-label:focus-within {
+  min-width: 32rem;
+}
+
+/* Native <details class="dropdown"> knot-menu trigger: undo daisyUI's own dropdown-widget rule
+   that sets pointer-events:none on a dropdown's first tabindex child while the dropdown container
+   is :focus-within. That rule exists for daisyUI's other (JS-free, hover/focus-driven) dropdown
+   variant, to stop the trigger from re-toggling while already open via that focus mechanism - our
+   open/closed state is governed entirely by the server-set `open` attribute, not by focus. Left
+   in place, it fires the moment the trigger itself receives focus (which happens as part of
+   mousedown, before click), so pointer-events is already "none" on it by the time mouseup/click
+   hit-tests the same point - the click's real target silently becomes the <details> parent
+   instead, and our handler (attached to the summary) never sees it at all. Found via a headless-
+   browser click trace (mousedown reached the trigger; mouseup/click landed on <details>) after
+   CSS-only guesses failed to explain "popups don't open". Unlayered, so it beats daisyUI's
+   layered rule regardless of specificity - same technique as the tooltip overrides below. */
+.dropdown:is(details) > summary {
+  pointer-events: auto !important;
+}
+
+/* Knot-menu popup (.knot-menu-popover - see knot-menu.ts): position:fixed instead of daisyUI's
+   default position:absolute, anchored to its trigger via real CSS anchor positioning (anchor-name
+   set on the trigger, position-anchor here referencing it, both inline styles baked in per-knot -
+   see knot-menu.ts). `position` is what actually determines whether an ancestor's overflow:auto
+   clips it: an absolutely-positioned popup is clipped by the tree pane's own scroll container the
+   moment a knot is out of view; a fixed-positioned one anchored the same way is not - confirmed
+   with a headless-browser layout check (identical anchor-name/position-anchor, only `position`
+   differed) before relying on it here.
+
+   inset:auto is load-bearing, not decoration: daisyUI's own dropdown-left/dropdown-right classes
+   set explicit top/bottom/inset-inline-start/end on .dropdown-content (see node_modules/daisyui/
+   components/dropdown.css), written assuming position:absolute relative to the .dropdown element
+   itself. Under position:fixed the containing block is the viewport instead, so those same values
+   mean something totally different (e.g. inset-inline-start:100% becomes "100% of the viewport
+   width", not "the far edge of the trigger") - confirmed by a headless-browser check that without
+   this reset the popup lands pinned to the viewport edge, nowhere near its trigger. Resetting them
+   to auto here (unlayered, so it beats daisyUI's layered declarations regardless of specificity -
+   same technique as the pointer-events and tooltip overrides above) is what lets position-area
+   below actually take over positioning, since position-area only fills in inset properties that
+   are auto.
+
+   dropdown-right/dropdown-left (the same modifier classes already on the trigger, from
+   knot-menu.ts) key which side position-area uses - own rules here rather than trying to read
+   daisyUI's --anchor-h/--anchor-v custom properties, since those were likewise computed for the
+   position:absolute case. position-try-fallbacks lets the browser flip the popup to the other
+   side on its own if the chosen one would still run off the viewport, rather than that being
+   hardcoded per pane and only right some of the time. */
+.knot-menu-popover {
+  position: fixed;
+  inset: auto;
+  position-try-fallbacks: flip-inline, flip-block;
+}
+.dropdown-right .knot-menu-popover {
+  position-area: right;
+}
+.dropdown-left .knot-menu-popover {
+  position-area: left;
+}
+
+/* Tooltip direction overrides.
+   DaisyUI 5 places .tooltip and .tooltip-left/.tooltip-right in the same @layer
+   at equal specificity, so processing order determines the winner — unreliably.
+   Styles outside any @layer always beat @layer styles, so these win cleanly. */
+.tooltip.tooltip-left[data-tip]::before,
+.tooltip.tooltip-left > .tooltip-content {
+  inset: 50% var(--tt-off) auto auto;
+  transform: translateX(calc(var(--tt-pos, .25rem) - .25rem)) translateY(-50%);
+}
+.tooltip.tooltip-left::after {
+  inset: 50% calc(var(--tt-tail) + 1px) auto auto;
+  transform: translateX(var(--tt-pos, .25rem)) translateY(-50%) rotate(-90deg);
+}
+.tooltip.tooltip-right[data-tip]::before,
+.tooltip.tooltip-right > .tooltip-content {
+  inset: 50% auto auto var(--tt-off);
+  transform: translateX(calc(var(--tt-pos, -.25rem) + .25rem)) translateY(-50%);
+}
+.tooltip.tooltip-right::after {
+  inset: 50% auto auto calc(var(--tt-tail) + 1px);
+  transform: translateX(var(--tt-pos, -.25rem)) translateY(-50%) rotate(90deg);
+}
+
+/* Tooltips: high-contrast colours that flip with the OS colour scheme */
+@media (prefers-color-scheme: light) {
+  .tooltip {
+    --tt-bg: black;
+  }
+  .tooltip[data-tip]::before,
+  .tooltip > .tooltip-content {
+    color: white;
+  }
+}
+
+@media (prefers-color-scheme: dark) {
+  .tooltip {
+    --tt-bg: white;
+  }
+  .tooltip[data-tip]::before,
+  .tooltip > .tooltip-content {
+    color: black;
+  }
+}
+
+/* ANSI SGR styling classes for blessed output */
+.ansi-bold {
+  font-weight: bold;
+}
+
+.ansi-italic {
+  font-style: italic;
+}
+
+.ansi-underline {
+  text-decoration: underline;
+}
+
+.ansi-fixed {
+  font-family: monospace, monospace;
+}
+
+.ansi-black {
+  color: #1a1a1a;
+}
+
+.ansi-red {
+  color: #cc0000;
+}
+
+.ansi-green {
+  color: #00aa00;
+}
+
+.ansi-yellow {
+  color: #aa8800;
+}
+
+.ansi-blue {
+  color: #0000cc;
+}
+
+.ansi-magenta {
+  color: #aa00aa;
+}
+
+.ansi-cyan {
+  color: #00aaaa;
+}
+
+.ansi-white {
+  color: #aaaaaa;
+}
+
+.ansi-mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+/* Dialog source syntax highlighting classes */
+.dg-comment {
+  color: #6b7280;
+  font-style: italic;
+}
+
+.dg-keyword {
+  color: #7c3aed;
+  font-weight: 600;
+}
+
+.dg-object {
+  color: #0d9488;
+}
+
+.dg-variable {
+  color: #d97706;
+}
+
+.dg-number {
+  color: #9333ea;
+}
+
+.dg-dict-word {
+  color: #16a34a;
+}
+
+.dg-predicate {
+  color: #2563eb;
+}
+
+.dg-heading {
+  color: #1e40af;
+  font-weight: 700;
+}
+
+.dg-escape {
+  color: #ea580c;
+}
+
+.dg-punctuation {
+  color: #6b7280;
+}
+
+.dg-error {
+  color: #dc2626;
+  text-decoration: wavy underline;
+}

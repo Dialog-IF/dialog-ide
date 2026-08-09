@@ -436,6 +436,20 @@ export class SkeinTree {
   }
 
   /**
+   * The command path from root to id, inclusive of id but excluding root itself (root has no
+   * command to replay - its response comes from the interpreter's startup banner). Used by
+   * SkeinSession.replayTo to restart the process and resend each command in order.
+   */
+  public commandPath(id: number): { id: number; command: string }[] {
+    if (!this.knots.get(id)) {
+      throw new Error(`Knot ${id} not found`);
+    }
+    return this.pathFromRoot(id)
+      .filter((pathId) => pathId !== 0)
+      .map((pathId) => ({ id: pathId, command: this.knots.get(pathId)!.command }));
+  }
+
+  /**
    * Get all knots in the tree
    */
   public getAllKnots(): WireKnot[] {

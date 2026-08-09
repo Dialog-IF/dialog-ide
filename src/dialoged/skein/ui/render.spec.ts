@@ -30,6 +30,36 @@ describe('renderNavbar', () => {
     expect(html).toContain('aria-label="2 new knots"');
     expect(html).toContain('aria-label="0 error knots"');
   });
+
+  it('wires Replay All to a plain @post(), no signal needed - the server targets the active spine itself', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1);
+    const html = renderNavbar(INFO, tree);
+    expect(html).toContain(`data-on:click="@post('/actions/replay-all')"`);
+  });
+
+  it('wires the Bless dropdown items to the current active knot, baked in server-side at render time', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1)
+      .addChild(0, 'look', { text: 'a', inputType: 'line' })
+      .setActiveKnotId(1);
+    const html = renderNavbar(INFO, tree);
+    expect(html).toContain(`$knotId = 1; @post('/actions/bless-knot')`);
+    expect(html).toContain(`$knotId = 1; @post('/actions/bless-changes')`);
+  });
+
+  it('does not render the still-deferred prototype buttons (Undo/Redo/Reload/Quit/Jump/Search)', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1);
+    const html = renderNavbar(INFO, tree);
+    for (const deferred of ['icon-undo', 'icon-redo', 'icon-reload', 'icon-quit', 'icon-jump', 'icon-search']) {
+      expect(html).not.toContain(deferred);
+    }
+  });
+
+  it('wires Save to a plain @post() with no confirmation - the only thing that ever writes the .skein file', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1);
+    const html = renderNavbar(INFO, tree);
+    expect(html).toContain(`data-on:click="@post('/actions/save')"`);
+    expect(html).toContain('icon-save');
+  });
 });
 
 describe('renderKnotList', () => {
@@ -50,6 +80,29 @@ describe('renderKnotList', () => {
     const html = renderKnotList(tree);
     const knot1Section = html.split('id="knot-1"')[1];
     expect(knot1Section).toContain('icon-arrow-right');
+  });
+
+  it('wires the row to select the knot on click, with no right-click affordance, both plain Datastar @post - and renders that knot\'s menu inline, closed by default', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1)
+      .addChild(0, 'look', { text: 'a', inputType: 'line' })
+      .setActiveKnotId(1);
+    const html = renderKnotList(tree);
+    const knot1Section = html.split('id="knot-1"')[1].split('id="knot-')[0];
+    expect(knot1Section).toContain(`data-on:click="if (!evt.target.closest('details')) { $knotId = 1; @post('/actions/select-knot') }"`);
+    expect(knot1Section).not.toContain('data-on:contextmenu');
+    expect(knot1Section).toContain('<details class="dropdown dropdown-left font-sans" style="anchor-name: --knot-menu-transcript-1">'); // present, but not open
+    expect(knot1Section).not.toContain('<details class="dropdown dropdown-left font-sans" open style="anchor-name: --knot-menu-transcript-1">');
+  });
+
+  it('opens knot 1\'s menu (and only knot 1\'s) when menuKnotId matches it', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1)
+      .addChild(0, 'look', { text: 'a', inputType: 'line' })
+      .setActiveKnotId(1);
+    const html = renderKnotList(tree, 1);
+    const knot0Section = html.split('id="knot-0"')[1].split('id="knot-1"')[0];
+    const knot1Section = html.split('id="knot-1"')[1];
+    expect(knot0Section).not.toContain('<details class="dropdown dropdown-left font-sans" open style="anchor-name: --knot-menu-transcript-0">');
+    expect(knot1Section).toContain('<details class="dropdown dropdown-left font-sans" open style="anchor-name: --knot-menu-transcript-1">');
   });
 
   it('escapes HTML and converts ANSI bold to a [B]...[/B] marker within a diff (never-blessed knot)', () => {
@@ -83,13 +136,14 @@ describe('renderKnotList', () => {
   });
 
   it('has no stray leading whitespace before the response text on a labeled root knot (regression - the response container is whitespace-pre-wrap, so template-literal indentation around an empty keystroke chip used to render as a visible leading blank line/indent)', () => {
-    // Root already has label 'START' (from newTree) - the label badge and the response text
-    // must be immediately adjacent, with no whitespace-pre-wrap-significant gap between them.
+    // Root already has label 'START' (from newTree) - the floated cluster (label badge + menu
+    // trigger) and the response text must be immediately adjacent, with no
+    // whitespace-pre-wrap-significant gap between them.
     const tree = SkeinTree.newTree('dgdebug', 1)
       .updateKnotResponse(0, { text: 'The Featureless Space\nAn interactive fiction.\n', inputType: 'line' })
       .blessKnot(0);
     const html = renderKnotList(tree);
-    expect(html).toContain('START</span></div>The Featureless Space\nAn interactive fiction.\n</div>');
+    expect(html).toContain('</details></div>The Featureless Space\nAn interactive fiction.\n</div>');
   });
 
   it('shows the command as a keystroke chip when the parent ended on a keystroke prompt', () => {
@@ -184,11 +238,13 @@ describe('renderApp', () => {
     expect(html).toContain('id="knot-0"');
   });
 
-  it('renders the command input, focused and submitting to the send-command action, when the active knot expects a line', () => {
-    const tree = SkeinTree.newTree('dgdebug', 1); // root is 'line'
+  it('always renders the command input for a line-expecting active knot - "time travel" (jumping to an earlier knot and typing a different command) needs no special confirmation', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1)
+      .addChild(0, 'look', { text: 'a', inputType: 'line' })
+      .setActiveKnotId(0); // active knot is root, an "earlier" point relative to knot 1
     const html = renderApp(INFO, tree);
     expect(html).toContain('id="new-command-input"');
-    expect(html).toContain('data-init="el.focus()"');
+    expect(html).toContain('data-init="el.focus(); el.scrollIntoView({block: \'nearest\', behavior: \'smooth\'})"');
     expect(html).toContain(`data-on:change="@post('/actions/send-command')"`);
   });
 
@@ -199,6 +255,37 @@ describe('renderApp', () => {
     const html = renderApp(INFO, tree);
     expect(html).not.toContain('id="new-command-input"');
     expect(html).toContain("Keystroke input isn't supported yet");
+  });
+
+  it('includes the resizable tree pane and its drag handle alongside the transcript', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1).addChild(0, 'look', { text: 'a', inputType: 'line' });
+    const html = renderApp(INFO, tree);
+    expect(html).toContain('id="tree-pane-outer"');
+    expect(html).toContain('id="tree-pane-handle"');
+    expect(html).toContain('id="tree-pane"'); // from renderTreePane
+    expect(html).toContain('data-tree-node-id="0"');
+    expect(html).toContain('data-init="sk.initTreePaneResize()"');
+  });
+
+  it('threads graphMenuId and transcriptMenuId through independently - each pane only opens its own', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1).addChild(0, 'look', { text: 'a', inputType: 'line' }).setActiveKnotId(1);
+    const graphOpen = '<details class="dropdown dropdown-right font-sans" open style="anchor-name: --knot-menu-graph-1">';
+    const transcriptOpen = '<details class="dropdown dropdown-left font-sans" open style="anchor-name: --knot-menu-transcript-1">';
+
+    // Only the graph pane's menu open (transcriptMenuId omitted/null).
+    const graphOnly = renderApp(INFO, tree, 1);
+    expect(graphOnly).toContain(graphOpen);
+    expect(graphOnly).not.toContain(transcriptOpen);
+
+    // Both open, independently, even though it's the same knot in both panes.
+    const both = renderApp(INFO, tree, 1, 1);
+    expect(both).toContain(graphOpen);
+    expect(both).toContain(transcriptOpen);
+
+    // Neither open.
+    const neither = renderApp(INFO, tree);
+    expect(neither).not.toContain(graphOpen);
+    expect(neither).not.toContain(transcriptOpen);
   });
 });
 
@@ -215,5 +302,21 @@ describe('renderPage', () => {
   it('shows a placeholder when no session is active', () => {
     const html = renderPage(undefined, undefined);
     expect(html).toContain('No skein session running');
+  });
+
+  it('renders each knot\'s actions menu inline, declaratively wired, with no confirm() gates anywhere', () => {
+    const html = renderPage(INFO, SkeinTree.newTree('dgdebug', 1));
+    expect(html).toContain('class="dropdown dropdown-right font-sans"');
+    expect(html).toContain(`data-on:click="$knotId = 0; @post('/actions/bless-knot')"`);
+    expect(html).toContain(`data-on:click="$knotId = 0; @post('/actions/toggle-lock')"`);
+    expect(html).toContain(`data-on:click="$knotId = 0; @post('/actions/splice-knot')"`);
+    expect(html).toContain(`data-on:click="$knotId = 0; @post('/actions/delete-knot')"`);
+    expect(html).not.toContain('confirm(');
+  });
+
+  it('opens the requested knot\'s menu (native <details open>) when graphMenuId is passed through', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1).addChild(0, 'look', { text: 'a', inputType: 'line' }).setActiveKnotId(1);
+    const html = renderPage(INFO, tree, 1);
+    expect(html).toContain('<details class="dropdown dropdown-right font-sans" open style="anchor-name: --knot-menu-graph-1">');
   });
 });

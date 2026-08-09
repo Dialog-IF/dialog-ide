@@ -50,6 +50,22 @@ function normalizeCommand(text: string): string {
   return text.trim().replace(/\s+/g, ' ');
 }
 
+/** Parses a JSON request body into a plain object, tolerating empty/invalid bodies as `{}`. */
+function parseJsonBody(body: string): Record<string, unknown> {
+  try {
+    const parsed = JSON.parse(body || '{}');
+    return typeof parsed === 'object' && parsed !== null ? (parsed as Record<string, unknown>) : {};
+  } catch {
+    return {};
+  }
+}
+
+/** Reads a validated integer `knotId` out of a parsed JSON body, or null if missing/invalid. */
+function parseKnotId(payload: Record<string, unknown>): number | null {
+  const { knotId } = payload;
+  return typeof knotId === 'number' && Number.isInteger(knotId) ? knotId : null;
+}
+
 /**
  * Class for managing the web service interface
  */
@@ -62,6 +78,11 @@ export class SkeinService {
 
   private activeSession: SkeinSession | undefined;
   private activeSessionId: string | undefined;
+  // Persists the active session's tree to its .skein file - provided by whoever calls
+  // setActiveSession (extension.ts owns the project root/PersistenceManager, which this service
+  // has no knowledge of). Explicit-save-only: nothing in this class ever calls this on its own
+  // initiative, only POST /actions/save. Undefined when no session is active.
+  private saveHandler: (() => Promise<void>) | undefined;
   private readonly sseClients = new Set<http.ServerResponse>();
   private readonly onActiveSessionChange = (): void => this.broadcast();
 
@@ -147,15 +168,22 @@ export class SkeinService {
    * Tells the web UI which session to render. Subscribes to the session's change notifications
    * (see session.ts's onChange) so the SSE loop can push a fresh render whenever the tree
    * mutates; unsubscribes from whichever session was previously active. Pass undefined for both
-   * arguments when no session is running.
+   * arguments when no session is running. onSave backs the navbar's Save button (POST
+   * /actions/save) - the caller (extension.ts) owns the project root/PersistenceManager this
+   * service has no knowledge of, so it provides the actual persistence closure.
    */
-  public setActiveSession(session: SkeinSession | undefined, sessionId: string | undefined): void {
+  public setActiveSession(
+    session: SkeinSession | undefined,
+    sessionId: string | undefined,
+    onSave?: () => Promise<void>
+  ): void {
     if (this.activeSession) {
       this.activeSession.offChange(this.onActiveSessionChange);
     }
 
     this.activeSession = session;
     this.activeSessionId = sessionId;
+    this.saveHandler = onSave;
 
     if (this.activeSession) {
       this.activeSession.onChange(this.onActiveSessionChange);
@@ -177,7 +205,14 @@ export class SkeinService {
 
     if (url.pathname === '/') {
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-      res.end(renderPage(this.currentDisplayInfo(), this.activeSession?.getTree()));
+      res.end(
+        renderPage(
+          this.currentDisplayInfo(),
+          this.activeSession?.getTree(),
+          this.activeSession?.getGraphMenuId() ?? null,
+          this.activeSession?.getTranscriptMenuId() ?? null
+        )
+      );
       return;
     }
 
@@ -188,6 +223,76 @@ export class SkeinService {
 
     if (req.method === 'POST' && url.pathname === '/actions/send-command') {
       await this.handleSendCommand(req, res);
+      return;
+    }
+
+    if (req.method === 'POST' && url.pathname === '/actions/select-knot') {
+      // Also used for the actions menu's "New Child" - selecting a knot and then relying on the
+      // command input's own replay-if-stale guard (session.ts's runCommand) for the actual new
+      // command, so it needs no route of its own.
+      await this.handleKnotAction(req, res, (session, knotId) => session.setActiveKnot(knotId), {
+        focusAfter: true
+      });
+      return;
+    }
+
+    if (req.method === 'POST' && url.pathname === '/actions/open-graph-menu') {
+      await this.handleKnotAction(req, res, (session, knotId) => session.openGraphMenu(knotId));
+      return;
+    }
+
+    if (req.method === 'POST' && url.pathname === '/actions/open-transcript-menu') {
+      await this.handleKnotAction(req, res, (session, knotId) => session.openTranscriptMenu(knotId));
+      return;
+    }
+
+    if (req.method === 'POST' && url.pathname === '/actions/bless-knot') {
+      await this.handleKnotAction(req, res, (session, knotId) => session.blessKnot(knotId));
+      return;
+    }
+
+    if (req.method === 'POST' && url.pathname === '/actions/bless-changes') {
+      await this.handleKnotAction(req, res, (session, knotId) => session.blessChanges(knotId));
+      return;
+    }
+
+    if (req.method === 'POST' && url.pathname === '/actions/toggle-lock') {
+      await this.handleKnotAction(req, res, (session, knotId) => session.toggleLock(knotId));
+      return;
+    }
+
+    if (req.method === 'POST' && url.pathname === '/actions/set-label') {
+      await this.handleSetLabel(req, res);
+      return;
+    }
+
+    if (req.method === 'POST' && url.pathname === '/actions/delete-knot') {
+      await this.handleKnotAction(req, res, (session, knotId) => session.deleteKnot(knotId));
+      return;
+    }
+
+    if (req.method === 'POST' && url.pathname === '/actions/splice-knot') {
+      await this.handleKnotAction(req, res, (session, knotId) => session.spliceKnot(knotId));
+      return;
+    }
+
+    if (req.method === 'POST' && url.pathname === '/actions/replay-to') {
+      await this.handleKnotAction(req, res, (session, knotId) => session.replayToKnot(knotId));
+      return;
+    }
+
+    if (req.method === 'POST' && url.pathname === '/actions/replay-all') {
+      await this.handleReplayAll(req, res);
+      return;
+    }
+
+    if (req.method === 'POST' && url.pathname === '/actions/save') {
+      await this.handleSave(req, res);
+      return;
+    }
+
+    if (req.method === 'POST' && url.pathname === '/actions/close-menus') {
+      await this.handleCloseMenus(req, res);
       return;
     }
 
@@ -233,17 +338,8 @@ export class SkeinService {
       return;
     }
 
-    const body = await readRequestBody(req);
-    let signals: unknown;
-    try {
-      signals = body ? JSON.parse(body) : {};
-    } catch {
-      signals = {};
-    }
-    const rawCommand =
-      typeof signals === 'object' && signals !== null && 'newCommand' in signals
-        ? (signals as { newCommand: unknown }).newCommand
-        : '';
+    const signals = parseJsonBody(await readRequestBody(req));
+    const rawCommand = signals.newCommand;
     const command = normalizeCommand(typeof rawCommand === 'string' ? rawCommand : '');
 
     if (command === '') {
@@ -262,6 +358,157 @@ export class SkeinService {
     }
 
     this.broadcastScript('sk.resetAndFocusCommandInput()');
+    res.writeHead(204);
+    res.end();
+  }
+
+  /**
+   * Shared plumbing for the actions-menu / navbar knot actions (select-knot, open-graph-menu,
+   * open-transcript-menu, bless-knot, bless-changes, toggle-lock, delete-knot, splice-knot,
+   * replay-to): parses {knotId} from the JSON body, requires an active session, runs fn, and
+   * responds 204/400/500 - the same shape as handleSendCommand. session.ts's own methods already
+   * manage graphMenuId/transcriptMenuId (opening or closing them) as part of the same state
+   * update that emits 'change', so there's nothing left for this to do about menu state - one
+   * broadcast, already correct. set-label and replay-all have their own handlers below since
+   * their request/response shapes don't quite fit this one (an extra field; no knot id at all).
+   */
+  private async handleKnotAction(
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+    fn: (session: SkeinSession, knotId: number) => void | Promise<void>,
+    options: { focusAfter?: boolean } = {}
+  ): Promise<void> {
+    if (!this.activeSession) {
+      res.writeHead(400);
+      res.end();
+      return;
+    }
+
+    const knotId = parseKnotId(parseJsonBody(await readRequestBody(req)));
+    if (knotId === null) {
+      res.writeHead(400);
+      res.end();
+      return;
+    }
+
+    try {
+      await fn(this.activeSession, knotId);
+    } catch (error) {
+      console.error('Knot action failed:', error);
+      res.writeHead(500);
+      res.end();
+      return;
+    }
+
+    if (options.focusAfter) {
+      this.broadcastScript('sk.resetAndFocusCommandInput()');
+    }
+    res.writeHead(204);
+    res.end();
+  }
+
+  /** POST /actions/set-label - {knotId, label}; a blank/missing label clears it (setLabel(id, null)). */
+  private async handleSetLabel(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+    if (!this.activeSession) {
+      res.writeHead(400);
+      res.end();
+      return;
+    }
+
+    const payload = parseJsonBody(await readRequestBody(req));
+    const knotId = parseKnotId(payload);
+    if (knotId === null) {
+      res.writeHead(400);
+      res.end();
+      return;
+    }
+    const rawLabel = payload.label;
+    const label = typeof rawLabel === 'string' && rawLabel.trim() !== '' ? rawLabel.trim() : null;
+
+    try {
+      this.activeSession.setLabel(knotId, label);
+    } catch (error) {
+      console.error('Failed to set label:', error);
+      res.writeHead(500);
+      res.end();
+      return;
+    }
+
+    res.writeHead(204);
+    res.end();
+  }
+
+  /**
+   * POST /actions/replay-all - the navbar's Replay All. No knotId: session.replayAll() always
+   * targets the active spine's own leaf.
+   */
+  private async handleReplayAll(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+    if (!this.activeSession) {
+      res.writeHead(400);
+      res.end();
+      return;
+    }
+
+    // No fields to read, but the body still needs draining - an unread POST body left on a
+    // keep-alive connection would corrupt the next request parsed off the same socket.
+    await readRequestBody(req);
+
+    try {
+      await this.activeSession.replayAll();
+    } catch (error) {
+      console.error('Replay All failed:', error);
+      res.writeHead(500);
+      res.end();
+      return;
+    }
+
+    res.writeHead(204);
+    res.end();
+  }
+
+  /**
+   * POST /actions/save - the navbar's Save button, and the only path that ever writes the
+   * session's tree to its .skein file (see setActiveSession's onSave doc comment). No fields to
+   * read; still drains the body per the usual keep-alive reasoning.
+   */
+  private async handleSave(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+    if (!this.activeSession || !this.saveHandler) {
+      res.writeHead(400);
+      res.end();
+      return;
+    }
+
+    await readRequestBody(req);
+
+    try {
+      await this.saveHandler();
+    } catch (error) {
+      console.error('Failed to save session:', error);
+      res.writeHead(500);
+      res.end();
+      return;
+    }
+
+    res.writeHead(204);
+    res.end();
+  }
+
+  /**
+   * POST /actions/close-menus - no body. Backs main.js's click-outside-the-open-dropdown
+   * listener: native <details> has no built-in dismiss-on-outside-click, so that's plain JS
+   * calling this to keep the server (session.ts's graphMenuId/transcriptMenuId, the source of
+   * truth for the native `open` attribute) in sync with what the click already closed visually.
+   */
+  private async handleCloseMenus(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+    if (!this.activeSession) {
+      res.writeHead(400);
+      res.end();
+      return;
+    }
+
+    await readRequestBody(req);
+    this.activeSession.closeAllMenus();
+
     res.writeHead(204);
     res.end();
   }
@@ -305,7 +552,10 @@ export class SkeinService {
 
     const info = this.currentDisplayInfo();
     const tree = this.activeSession?.getTree();
-    const html = info && tree ? renderApp(info, tree) : NO_ACTIVE_SESSION_FRAGMENT;
+    const html =
+      info && tree
+        ? renderApp(info, tree, this.activeSession!.getGraphMenuId(), this.activeSession!.getTranscriptMenuId())
+        : NO_ACTIVE_SESSION_FRAGMENT;
     const dataLines = html
       .split('\n')
       .map((line) => `data: elements ${line}`)

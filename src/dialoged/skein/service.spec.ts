@@ -12,11 +12,46 @@ const MEDIA_ROOT = path.join(__dirname, '..', '..', '..', 'media');
  * necessary here, matching how process.spec.ts's tests elsewhere in this suite mock rather than
  * spawn a real interpreter.
  */
-function createFakeSession(tree: SkeinTree, options: { runCommand?: (command: string) => void | Promise<void> } = {}) {
+function createFakeSession(
+  tree: SkeinTree,
+  options: {
+    runCommand?: (command: string) => void | Promise<void>;
+    replayToKnot?: (id: number) => void | Promise<void>;
+    replayAll?: () => void | Promise<void>;
+  } = {}
+) {
   const listeners: Array<() => void> = [];
   const runCommandCalls: string[] = [];
+  const calls = {
+    setActiveKnot: [] as number[],
+    openGraphMenu: [] as number[],
+    openTranscriptMenu: [] as number[],
+    blessKnot: [] as number[],
+    blessChanges: [] as number[],
+    toggleLock: [] as number[],
+    setLabel: [] as [number, string | null][],
+    deleteKnot: [] as number[],
+    spliceKnot: [] as number[],
+    replayToKnot: [] as number[],
+    replayAllCount: 0,
+    closeAllMenusCount: 0
+  };
+  const emit = () => listeners.forEach((fn) => fn());
+
+  // Mirrors session.ts's own graphMenuId/transcriptMenuId: every mutating action (including
+  // plain navigation) closes both, matching the real closeMenus() called from setActiveKnot and
+  // every other mutator.
+  let graphMenuId: number | null = null;
+  let transcriptMenuId: number | null = null;
+  const closeMenus = () => {
+    graphMenuId = null;
+    transcriptMenuId = null;
+  };
+
   return {
     getTree: () => tree,
+    getGraphMenuId: () => graphMenuId,
+    getTranscriptMenuId: () => transcriptMenuId,
     onChange: (fn: () => void) => listeners.push(fn),
     offChange: (fn: () => void) => {
       const index = listeners.indexOf(fn);
@@ -24,14 +59,80 @@ function createFakeSession(tree: SkeinTree, options: { runCommand?: (command: st
         listeners.splice(index, 1);
       }
     },
-    emitChange: () => listeners.forEach((fn) => fn()),
+    emitChange: emit,
     runCommandCalls,
+    calls,
     // Mirrors the real SkeinSession.runCommand's contract: mutates (here, just records the
     // call) and emits 'change' at the end, which is what triggers the content broadcast.
     runCommand: async (command: string) => {
       runCommandCalls.push(command);
       await options.runCommand?.(command);
-      listeners.forEach((fn) => fn());
+      emit();
+    },
+    setActiveKnot: (id: number) => {
+      calls.setActiveKnot.push(id);
+      closeMenus();
+      emit();
+    },
+    openGraphMenu: (id: number) => {
+      calls.openGraphMenu.push(id);
+      transcriptMenuId = null;
+      graphMenuId = id;
+      emit();
+    },
+    openTranscriptMenu: (id: number) => {
+      calls.openTranscriptMenu.push(id);
+      graphMenuId = null;
+      transcriptMenuId = id;
+      emit();
+    },
+    closeAllMenus: () => {
+      calls.closeAllMenusCount++;
+      if (graphMenuId === null && transcriptMenuId === null) return;
+      closeMenus();
+      emit();
+    },
+    blessKnot: (id: number) => {
+      calls.blessKnot.push(id);
+      closeMenus();
+      emit();
+    },
+    blessChanges: (id: number) => {
+      calls.blessChanges.push(id);
+      closeMenus();
+      emit();
+    },
+    toggleLock: (id: number) => {
+      calls.toggleLock.push(id);
+      closeMenus();
+      emit();
+    },
+    setLabel: (id: number, label: string | null) => {
+      calls.setLabel.push([id, label]);
+      closeMenus();
+      emit();
+    },
+    deleteKnot: (id: number) => {
+      calls.deleteKnot.push(id);
+      closeMenus();
+      emit();
+    },
+    spliceKnot: (id: number) => {
+      calls.spliceKnot.push(id);
+      closeMenus();
+      emit();
+    },
+    replayToKnot: async (id: number) => {
+      calls.replayToKnot.push(id);
+      await options.replayToKnot?.(id);
+      closeMenus();
+      emit();
+    },
+    replayAll: async () => {
+      calls.replayAllCount++;
+      await options.replayAll?.();
+      closeMenus();
+      emit();
     }
   };
 }
@@ -266,6 +367,314 @@ describe('SkeinService', () => {
       } finally {
         req.destroy();
       }
+    });
+  });
+
+  describe('POST /actions/select-knot', () => {
+    it('400s when no session is active', async () => {
+      const res = await post(`http://localhost:${service.getPort()}/actions/select-knot`, { knotId: 1 });
+      expect(res.status).toBe(400);
+    });
+
+    it('400s when knotId is missing or not a number', async () => {
+      const tree = SkeinTree.newTree('dgdebug', 1);
+      const fake = createFakeSession(tree);
+      service.setActiveSession(fake as unknown as SkeinSession, 'default');
+
+      const res = await post(`http://localhost:${service.getPort()}/actions/select-knot`, { knotId: 'nope' });
+      expect(res.status).toBe(400);
+    });
+
+    it('calls setActiveKnot and returns 204', async () => {
+      const tree = SkeinTree.newTree('dgdebug', 1);
+      const fake = createFakeSession(tree);
+      service.setActiveSession(fake as unknown as SkeinSession, 'default');
+
+      const res = await post(`http://localhost:${service.getPort()}/actions/select-knot`, { knotId: 1 });
+
+      expect(res.status).toBe(204);
+      expect(fake.calls.setActiveKnot).toEqual([1]);
+    });
+
+    it('broadcasts the focus/reset execute-script after selecting - the user is likely about to type', async () => {
+      const tree = SkeinTree.newTree('dgdebug', 1);
+      const fake = createFakeSession(tree);
+      service.setActiveSession(fake as unknown as SkeinSession, 'default');
+
+      const chunks: string[] = [];
+      const req = http.get(`http://localhost:${service.getPort()}/events`, (res) => {
+        res.on('data', (chunk) => chunks.push(chunk.toString()));
+      });
+      try {
+        await waitFor(() => chunks.length > 0);
+        chunks.length = 0;
+
+        await post(`http://localhost:${service.getPort()}/actions/select-knot`, { knotId: 1 });
+
+        await waitFor(() => chunks.join('').includes('resetAndFocusCommandInput'));
+      } finally {
+        req.destroy();
+      }
+    });
+
+    it("closes any other knot's open menu - plain navigation means the user is done with it", async () => {
+      const tree = SkeinTree.newTree('dgdebug', 1).addChild(0, 'look', { text: 'a', inputType: 'line' });
+      const fake = createFakeSession(tree);
+      service.setActiveSession(fake as unknown as SkeinSession, 'default');
+
+      await post(`http://localhost:${service.getPort()}/actions/open-graph-menu`, { knotId: 1 });
+      let res = await get(`http://localhost:${service.getPort()}/`);
+      expect(res.body).toContain('<details class="dropdown dropdown-right font-sans" open style="anchor-name: --knot-menu-graph-1">');
+
+      await post(`http://localhost:${service.getPort()}/actions/select-knot`, { knotId: 0 });
+      res = await get(`http://localhost:${service.getPort()}/`);
+      expect(res.body).not.toContain('<details class="dropdown dropdown-right font-sans" open style="anchor-name: --knot-menu-graph-1">');
+    });
+  });
+
+  describe('POST /actions/open-graph-menu, open-transcript-menu', () => {
+    for (const [route, callKey] of [
+      ['open-graph-menu', 'openGraphMenu'],
+      ['open-transcript-menu', 'openTranscriptMenu']
+    ] as const) {
+      it(`${route}: 400s with no session, else calls session.${callKey} and returns 204`, async () => {
+        const noSessionRes = await post(`http://localhost:${service.getPort()}/actions/${route}`, { knotId: 1 });
+        expect(noSessionRes.status).toBe(400);
+
+        const tree = SkeinTree.newTree('dgdebug', 1).addChild(0, 'look', { text: 'a', inputType: 'line' });
+        const fake = createFakeSession(tree);
+        service.setActiveSession(fake as unknown as SkeinSession, 'default');
+
+        const res = await post(`http://localhost:${service.getPort()}/actions/${route}`, { knotId: 1 });
+
+        expect(res.status).toBe(204);
+        expect(fake.calls[callKey]).toEqual([1]);
+      });
+
+      it(`${route}: 400s when knotId is missing or not a number`, async () => {
+        const tree = SkeinTree.newTree('dgdebug', 1);
+        const fake = createFakeSession(tree);
+        service.setActiveSession(fake as unknown as SkeinSession, 'default');
+
+        const res = await post(`http://localhost:${service.getPort()}/actions/${route}`, { knotId: 'nope' });
+        expect(res.status).toBe(400);
+      });
+
+      it(`${route}: 500s when the session method throws`, async () => {
+        const tree = SkeinTree.newTree('dgdebug', 1);
+        const fake = { ...createFakeSession(tree), [callKey]: () => { throw new Error('no such knot'); } };
+        service.setActiveSession(fake as unknown as SkeinSession, 'default');
+
+        const res = await post(`http://localhost:${service.getPort()}/actions/${route}`, { knotId: 999 });
+        expect(res.status).toBe(500);
+      });
+    }
+
+    it('opening the graph pane\'s menu does not open the transcript\'s, and vice versa', async () => {
+      const tree = SkeinTree.newTree('dgdebug', 1).addChild(0, 'look', { text: 'a', inputType: 'line' });
+      const fake = createFakeSession(tree);
+      service.setActiveSession(fake as unknown as SkeinSession, 'default');
+
+      await post(`http://localhost:${service.getPort()}/actions/open-graph-menu`, { knotId: 1 });
+      expect(fake.getGraphMenuId()).toBe(1);
+      expect(fake.getTranscriptMenuId()).toBeNull();
+
+      await post(`http://localhost:${service.getPort()}/actions/open-transcript-menu`, { knotId: 1 });
+      expect(fake.getGraphMenuId()).toBeNull();
+      expect(fake.getTranscriptMenuId()).toBe(1);
+    });
+  });
+
+  describe('POST /actions/bless-knot, bless-changes, toggle-lock, delete-knot, splice-knot, replay-to', () => {
+    const routes: [string, keyof ReturnType<typeof createFakeSession>['calls']][] = [
+      ['bless-knot', 'blessKnot'],
+      ['bless-changes', 'blessChanges'],
+      ['toggle-lock', 'toggleLock'],
+      ['delete-knot', 'deleteKnot'],
+      ['splice-knot', 'spliceKnot'],
+      ['replay-to', 'replayToKnot']
+    ];
+
+    for (const [route, callKey] of routes) {
+      it(`${route}: 400s with no session, else calls session.${callKey} with the knot id and returns 204`, async () => {
+        const noSessionRes = await post(`http://localhost:${service.getPort()}/actions/${route}`, { knotId: 1 });
+        expect(noSessionRes.status).toBe(400);
+
+        const tree = SkeinTree.newTree('dgdebug', 1).addChild(0, 'look', { text: 'a', inputType: 'line' });
+        const fake = createFakeSession(tree);
+        service.setActiveSession(fake as unknown as SkeinSession, 'default');
+
+        const res = await post(`http://localhost:${service.getPort()}/actions/${route}`, { knotId: 1 });
+
+        expect(res.status).toBe(204);
+        expect(fake.calls[callKey]).toEqual([1]);
+      });
+    }
+
+    it('500s when the session method throws', async () => {
+      const tree = SkeinTree.newTree('dgdebug', 1);
+      const fake = {
+        ...createFakeSession(tree),
+        blessKnot: () => {
+          throw new Error('nope');
+        }
+      };
+      service.setActiveSession(fake as unknown as SkeinSession, 'default');
+
+      const res = await post(`http://localhost:${service.getPort()}/actions/bless-knot`, { knotId: 0 });
+      expect(res.status).toBe(500);
+    });
+
+    it("closes an open knot menu after a successful action - the user is done with it once they've used it", async () => {
+      const tree = SkeinTree.newTree('dgdebug', 1).addChild(0, 'look', { text: 'a', inputType: 'line' });
+      const fake = createFakeSession(tree);
+      service.setActiveSession(fake as unknown as SkeinSession, 'default');
+
+      await post(`http://localhost:${service.getPort()}/actions/open-graph-menu`, { knotId: 1 });
+      await post(`http://localhost:${service.getPort()}/actions/toggle-lock`, { knotId: 1 });
+
+      const page = await get(`http://localhost:${service.getPort()}/`);
+      expect(page.body).not.toContain('<details class="dropdown dropdown-right font-sans" open style="anchor-name: --knot-menu-graph-1">');
+    });
+  });
+
+  describe('POST /actions/set-label', () => {
+    it('400s when no session is active', async () => {
+      const res = await post(`http://localhost:${service.getPort()}/actions/set-label`, { knotId: 1, label: 'x' });
+      expect(res.status).toBe(400);
+    });
+
+    it('sets a trimmed label and returns 204', async () => {
+      const tree = SkeinTree.newTree('dgdebug', 1).addChild(0, 'look', { text: 'a', inputType: 'line' });
+      const fake = createFakeSession(tree);
+      service.setActiveSession(fake as unknown as SkeinSession, 'default');
+
+      const res = await post(`http://localhost:${service.getPort()}/actions/set-label`, {
+        knotId: 1,
+        label: '  checkpoint  '
+      });
+
+      expect(res.status).toBe(204);
+      expect(fake.calls.setLabel).toEqual([[1, 'checkpoint']]);
+    });
+
+    it('treats a blank label as clearing it (null)', async () => {
+      const tree = SkeinTree.newTree('dgdebug', 1).addChild(0, 'look', { text: 'a', inputType: 'line' });
+      const fake = createFakeSession(tree);
+      service.setActiveSession(fake as unknown as SkeinSession, 'default');
+
+      await post(`http://localhost:${service.getPort()}/actions/set-label`, { knotId: 1, label: '   ' });
+
+      expect(fake.calls.setLabel).toEqual([[1, null]]);
+    });
+  });
+
+  describe('POST /actions/replay-all', () => {
+    it('400s when no session is active', async () => {
+      const res = await post(`http://localhost:${service.getPort()}/actions/replay-all`, {});
+      expect(res.status).toBe(400);
+    });
+
+    it('calls session.replayAll and returns 204, with no knotId required', async () => {
+      const tree = SkeinTree.newTree('dgdebug', 1);
+      const fake = createFakeSession(tree);
+      service.setActiveSession(fake as unknown as SkeinSession, 'default');
+
+      const res = await post(`http://localhost:${service.getPort()}/actions/replay-all`, {});
+
+      expect(res.status).toBe(204);
+      expect(fake.calls.replayAllCount).toBe(1);
+    });
+
+    it('500s when replayAll rejects', async () => {
+      const tree = SkeinTree.newTree('dgdebug', 1);
+      const fake = createFakeSession(tree, {
+        replayAll: () => {
+          throw new Error('process died');
+        }
+      });
+      service.setActiveSession(fake as unknown as SkeinSession, 'default');
+
+      const res = await post(`http://localhost:${service.getPort()}/actions/replay-all`, {});
+      expect(res.status).toBe(500);
+    });
+  });
+
+  describe('POST /actions/save', () => {
+    it('400s when no session is active', async () => {
+      const res = await post(`http://localhost:${service.getPort()}/actions/save`, {});
+      expect(res.status).toBe(400);
+    });
+
+    it('400s when the active session has no onSave handler (setActiveSession called without one)', async () => {
+      const tree = SkeinTree.newTree('dgdebug', 1);
+      const fake = createFakeSession(tree);
+      service.setActiveSession(fake as unknown as SkeinSession, 'default'); // no third arg
+
+      const res = await post(`http://localhost:${service.getPort()}/actions/save`, {});
+      expect(res.status).toBe(400);
+    });
+
+    it('calls the onSave handler and returns 204 - the only path that ever persists', async () => {
+      const tree = SkeinTree.newTree('dgdebug', 1);
+      const fake = createFakeSession(tree);
+      let saveCalls = 0;
+      service.setActiveSession(fake as unknown as SkeinSession, 'default', async () => {
+        saveCalls++;
+      });
+
+      const res = await post(`http://localhost:${service.getPort()}/actions/save`, {});
+
+      expect(res.status).toBe(204);
+      expect(saveCalls).toBe(1);
+    });
+
+    it('500s when the save handler rejects', async () => {
+      const tree = SkeinTree.newTree('dgdebug', 1);
+      const fake = createFakeSession(tree);
+      service.setActiveSession(fake as unknown as SkeinSession, 'default', async () => {
+        throw new Error('disk full');
+      });
+
+      const res = await post(`http://localhost:${service.getPort()}/actions/save`, {});
+      expect(res.status).toBe(500);
+    });
+
+    it('forgets the previous save handler once a different (or no) session becomes active', async () => {
+      const tree = SkeinTree.newTree('dgdebug', 1);
+      const fake = createFakeSession(tree);
+      let saveCalls = 0;
+      service.setActiveSession(fake as unknown as SkeinSession, 'default', async () => {
+        saveCalls++;
+      });
+      service.setActiveSession(undefined, undefined);
+
+      const res = await post(`http://localhost:${service.getPort()}/actions/save`, {});
+
+      expect(res.status).toBe(400);
+      expect(saveCalls).toBe(0);
+    });
+  });
+
+  describe('POST /actions/close-menus', () => {
+    it('400s when no session is active', async () => {
+      const res = await post(`http://localhost:${service.getPort()}/actions/close-menus`, {});
+      expect(res.status).toBe(400);
+    });
+
+    it('closes both open menus and returns 204', async () => {
+      const tree = SkeinTree.newTree('dgdebug', 1).addChild(0, 'look', { text: 'a', inputType: 'line' });
+      const fake = createFakeSession(tree);
+      service.setActiveSession(fake as unknown as SkeinSession, 'default');
+      fake.openGraphMenu(1);
+      fake.openTranscriptMenu(1);
+
+      const res = await post(`http://localhost:${service.getPort()}/actions/close-menus`, {});
+
+      expect(res.status).toBe(204);
+      expect(fake.calls.closeAllMenusCount).toBe(1);
+      expect(fake.getGraphMenuId()).toBeNull();
+      expect(fake.getTranscriptMenuId()).toBeNull();
     });
   });
 

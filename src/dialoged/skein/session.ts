@@ -48,6 +48,20 @@ export class SkeinSession {
   private dynamicState: DynamicState | null = null;
   private dynamicChanges: DynamicChanges | null = null;
   private readonly changeEmitter = new EventEmitter();
+  // Where the actual interpreter process currently is, as opposed to tree.getActiveKnotId() -
+  // which is also the currently *displayed*/navigated-to knot, and can diverge from this once
+  // clicking a knot elsewhere in the tree is possible. Purely an optimization for runCommand to
+  // know whether it needs to replay first, not a correctness gate - jumping around the tree and
+  // typing a new command from an earlier knot is normal, everyday use (dgdebug restarts and
+  // replays fast), so the replay it triggers is silent, not an error.
+  private processPositionId: number = 0;
+  // Which knot has its actions menu expanded, tracked separately per pane - the graph pane and
+  // the transcript can show the same knot at different tree positions (or, on the transcript,
+  // not at all if it's off the active spine), so a single shared id would open both panes' menus
+  // together whenever they happened to agree on the active knot. Both close on any mutating
+  // action or plain navigation (setActiveKnot) - see closeMenus.
+  private graphMenuId: number | null = null;
+  private transcriptMenuId: number | null = null;
 
   constructor(config: SessionConfig) {
     this.id = this.generateId();
@@ -88,21 +102,9 @@ export class SkeinSession {
     }
 
     try {
-      this.process = new SkeinProcess(this.buildProcessConfig());
-
-      await this.process.start();
+      await this.launchProcessAndCaptureBanner();
       this.isRunning = true;
-
-      // Capture the interpreter's real startup banner as knot 0's response, replacing
-      // SkeinTree.newTree's generic "Welcome to the game." placeholder - io.ts's tag-line
-      // parser already separates the prompt from the content, so (unlike the placeholder)
-      // this doesn't carry a trailing "> " into the displayed text. updateKnotResponse only
-      // ever sets the *unblessed* response, so blessKnot immediately promotes it - knot 0
-      // has no prior history to diff against, it should just start out 'valid'.
-      const banner = await this.process.readResponse();
-      this.tree = this.tree
-        .updateKnotResponse(0, { text: banner.response, inputType: banner.promptType })
-        .blessKnot(0);
+      this.processPositionId = 0;
 
       console.log(`Session ${this.id} started successfully`);
       this.changeEmitter.emit('change');
@@ -110,6 +112,25 @@ export class SkeinSession {
       console.error('Failed to start session:', error);
       throw error;
     }
+  }
+
+  /**
+   * Spawns a fresh interpreter process and captures its startup banner as knot 0's response,
+   * replacing SkeinTree.newTree's generic "Welcome to the game." placeholder - io.ts's tag-line
+   * parser already separates the prompt from the content, so (unlike the placeholder) this
+   * doesn't carry a trailing "> " into the displayed text. updateKnotResponse only ever sets the
+   * *unblessed* response, so blessKnot immediately promotes it - knot 0 has no prior history to
+   * diff against, it should just start out 'valid'. Shared by start() and replayTo(), which both
+   * need a brand-new process positioned at knot 0 before proceeding.
+   */
+  private async launchProcessAndCaptureBanner(): Promise<void> {
+    this.process = new SkeinProcess(this.buildProcessConfig());
+    await this.process.start();
+
+    const banner = await this.process.readResponse();
+    this.tree = this.tree
+      .updateKnotResponse(0, { text: banner.response, inputType: banner.promptType })
+      .blessKnot(0);
   }
 
   /**
@@ -144,9 +165,22 @@ export class SkeinSession {
       throw new Error('No active knot to run the command from');
     }
 
+    // processPositionId tracking is purely an optimization, not a correctness gate: jumping
+    // around the tree and adding new commands from an earlier knot is normal, everyday use, not
+    // an error condition - dgdebug starts and replays fast enough that this is cheap. When the
+    // active knot isn't where the process currently is, replay there first (silently - the user
+    // already made the only decision that matters, typing a new command), then proceed exactly
+    // as if the process had been there all along.
+    if (parentId !== this.processPositionId) {
+      await this.replayTo(parentId);
+    }
+
     try {
-      this.process.sendCommand(command);
-      const response = await this.process.readResponse();
+      // Captured as a local: replayTo above may have swapped in a new SkeinProcess instance, and
+      // narrowing from the guard at the top of this method doesn't survive that reassignment.
+      const process = this.process!;
+      process.sendCommand(command);
+      const response = await process.readResponse();
       const newResponse = { text: response.response, inputType: response.promptType };
 
       // Re-running the same command from the same knot reuses the existing child (updating its
@@ -164,6 +198,7 @@ export class SkeinSession {
         activeKnotId = this.tree.getDerivedKnot(parentId)!.selectedChild!;
       }
       this.tree = this.tree.setActiveKnotId(activeKnotId);
+      this.processPositionId = activeKnotId;
 
       await this.refreshDynamicState();
 
@@ -173,6 +208,226 @@ export class SkeinSession {
       console.error('Failed to execute command:', error);
       throw error;
     }
+  }
+
+  /**
+   * Restarts the interpreter process from scratch and resends every command from root to
+   * targetId in order, recording each step's response via updateKnotResponse - which also
+   * re-validates it (a replayed response that no longer matches what's blessed there flips the
+   * knot to 'error', catching source edits that changed earlier output). This is the one real
+   * primitive behind Replay All, Replay to Here (context menu), and runCommand's automatic
+   * catch-up when the active knot isn't where the process actually is - dgdebug has no way to
+   * rewind, only restart-and-replay, matching dialog-tool's own do-replay-to!.
+   */
+  private async replayTo(targetId: number): Promise<void> {
+    if (!this.process) {
+      throw new Error('Session not running');
+    }
+
+    await this.process.terminate();
+    await this.launchProcessAndCaptureBanner();
+
+    for (const { id, command } of this.tree.commandPath(targetId)) {
+      this.process!.sendCommand(command);
+      const response = await this.process!.readResponse();
+      this.tree = this.tree.updateKnotResponse(id, { text: response.response, inputType: response.promptType });
+    }
+
+    this.processPositionId = targetId;
+    this.tree = this.tree.setActiveKnotId(targetId);
+    this.closeMenus();
+    await this.refreshDynamicState();
+    this.changeEmitter.emit('change');
+  }
+
+  /**
+   * Re-runs every command on the active spine against a fresh process - the navbar's "Replay
+   * All". Since dgdebug re-reads its source files on every launch, this doubles as picking up
+   * any edits made to the project's .dg files since the process last started.
+   */
+  public async replayAll(): Promise<void> {
+    const activeKnotId = this.tree.getActiveKnotId();
+    if (activeKnotId === null) {
+      throw new Error('No active knot to replay to');
+    }
+    await this.replayTo(activeKnotId);
+  }
+
+  /**
+   * Context menu's "Replay to Here" - the same replayTo primitive as replayAll, just targeting
+   * whichever single knot the menu was opened on rather than the active spine's leaf.
+   */
+  public async replayToKnot(id: number): Promise<void> {
+    await this.replayTo(id);
+  }
+
+  /**
+   * Makes id the active (displayed/navigated-to) knot - a pure tree mutation, no process
+   * interaction. Backs both graph/transcript click-navigation and the actions menu's "New
+   * Child" (which then just relies on the command input + runCommand's replay-if-stale guard
+   * for the actual new command).
+   */
+  public setActiveKnot(id: number): void {
+    if (!this.tree.getKnot(id)) {
+      throw new Error(`Knot ${id} not found`);
+    }
+    this.tree = this.tree.setActiveKnotId(id);
+    this.closeMenus();
+    this.changeEmitter.emit('change');
+  }
+
+  /**
+   * Opens the tree/graph pane's actions menu for id - a right-click or the "..." trigger on a
+   * node. Deliberately does NOT change the active knot: only a plain left-click on the knot
+   * itself (setActiveKnot) does that. Opening a menu and navigating are independent actions - you
+   * can right-click a knot you're not "on" to inspect/act on it without disturbing where you
+   * actually are. Tracked separately from the transcript's menu (see graphMenuId's doc comment)
+   * so opening one pane's menu never opens the other's.
+   */
+  public openGraphMenu(id: number): void {
+    if (!this.tree.getKnot(id)) {
+      throw new Error(`Knot ${id} not found`);
+    }
+    this.transcriptMenuId = null;
+    this.graphMenuId = id;
+    this.changeEmitter.emit('change');
+  }
+
+  /** The transcript's equivalent of openGraphMenu - see its doc comment. */
+  public openTranscriptMenu(id: number): void {
+    if (!this.tree.getKnot(id)) {
+      throw new Error(`Knot ${id} not found`);
+    }
+    this.graphMenuId = null;
+    this.transcriptMenuId = id;
+    this.changeEmitter.emit('change');
+  }
+
+  /** Which knot has the tree/graph pane's actions menu open, if any. */
+  public getGraphMenuId(): number | null {
+    return this.graphMenuId;
+  }
+
+  /** Which knot has the transcript's actions menu open, if any. */
+  public getTranscriptMenuId(): number | null {
+    return this.transcriptMenuId;
+  }
+
+  /**
+   * Closes both panes' menus - called by every mutating action (the user is done with the menu
+   * once they've used it) and by plain navigation (setActiveKnot), so navigating away from a
+   * knot with an open menu closes it too.
+   */
+  private closeMenus(): void {
+    this.graphMenuId = null;
+    this.transcriptMenuId = null;
+  }
+
+  /**
+   * Public entry point for closing both menus without any other side effect - backs clicking
+   * outside the open dropdown (native <details> has no built-in dismiss-on-outside-click the way
+   * the Popover API would, so main.js's click listener calls this explicitly). A no-op (no
+   * emit, no broadcast) when nothing is open, so clicks elsewhere on the page while no menu is
+   * showing don't cost a wasted render.
+   */
+  public closeAllMenus(): void {
+    if (this.graphMenuId === null && this.transcriptMenuId === null) {
+      return;
+    }
+    this.closeMenus();
+    this.changeEmitter.emit('change');
+  }
+
+  /** Actions menu's "Bless Knot". */
+  public blessKnot(id: number): void {
+    this.tree = this.tree.blessKnot(id);
+    this.closeMenus();
+    this.changeEmitter.emit('change');
+  }
+
+  /** Navbar's "Bless Changes" (the whole active spine) and, from the actions menu, a single knot's path. */
+  public blessChanges(id: number): void {
+    this.tree = this.tree.blessTranscript(id);
+    this.closeMenus();
+    this.changeEmitter.emit('change');
+  }
+
+  /** Actions menu's "Toggle Lock". Root can't be locked/unlocked - mirrors app.clj's root? guard. */
+  public toggleLock(id: number): void {
+    if (id === 0) {
+      throw new Error('The root knot cannot be locked');
+    }
+    const knot = this.tree.getKnot(id);
+    if (!knot) {
+      throw new Error(`Knot ${id} not found`);
+    }
+    this.tree = this.tree.setLockStatus(id, !knot.locked);
+    this.closeMenus();
+    this.changeEmitter.emit('change');
+  }
+
+  /** Actions menu's "Edit Label...". Root's label isn't user-editable - mirrors app.clj's root? guard. */
+  public setLabel(id: number, label: string | null): void {
+    if (id === 0) {
+      throw new Error('The root knot\'s label cannot be changed');
+    }
+    this.tree = this.tree.setLabel(id, label);
+    this.closeMenus();
+    this.changeEmitter.emit('change');
+  }
+
+  /**
+   * Actions menu's "Delete". Root can't be deleted. If the active knot is id or a descendant of
+   * it (about to be removed along with the rest of the subtree), moves the active knot up to id's
+   * parent first, since it can no longer point at anything inside the deleted subtree.
+   */
+  public deleteKnot(id: number): void {
+    if (id === 0) {
+      throw new Error('The root knot cannot be deleted');
+    }
+    const knot = this.tree.getKnot(id);
+    if (!knot) {
+      throw new Error(`Knot ${id} not found`);
+    }
+    if (this.isKnotOrDescendantActive(id)) {
+      this.tree = this.tree.setActiveKnotId(knot.parentId);
+    }
+    this.tree = this.tree.deleteKnot(id);
+    this.closeMenus();
+    this.changeEmitter.emit('change');
+  }
+
+  /**
+   * Actions menu's "Splice Out". Root can't be spliced. Unlike delete, only id itself goes away
+   * (its children are reparented in place), so the active knot only needs reassigning when it's
+   * exactly id, not when it's merely a descendant.
+   */
+  public spliceKnot(id: number): void {
+    if (id === 0) {
+      throw new Error('The root knot cannot be spliced out');
+    }
+    const knot = this.tree.getKnot(id);
+    if (!knot) {
+      throw new Error(`Knot ${id} not found`);
+    }
+    if (this.tree.getActiveKnotId() === id) {
+      this.tree = this.tree.setActiveKnotId(knot.parentId);
+    }
+    this.tree = this.tree.spliceKnot(id);
+    this.closeMenus();
+    this.changeEmitter.emit('change');
+  }
+
+  /** Walks up from the current active knot to see if it's id itself or one of its descendants. */
+  private isKnotOrDescendantActive(id: number): boolean {
+    let currentId = this.tree.getActiveKnotId();
+    while (currentId !== null) {
+      if (currentId === id) {
+        return true;
+      }
+      currentId = this.tree.getKnot(currentId)?.parentId ?? null;
+    }
+    return false;
   }
 
   /**
@@ -250,6 +505,16 @@ export class SkeinSession {
    */
   public getTree(): SkeinTree {
     return this.tree;
+  }
+
+  /**
+   * Where the real interpreter process currently is, as distinct from tree.getActiveKnotId()
+   * (the displayed/navigated-to knot, which the user can move around freely without touching the
+   * process at all). The renderer uses a mismatch here to show a "Replay to Here" prompt instead
+   * of the command input - see renderCommandInput.
+   */
+  public getProcessPositionId(): number {
+    return this.processPositionId;
   }
 
   /**

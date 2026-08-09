@@ -39,6 +39,10 @@
         "title": "Dialog IDE: Stop Skein"
       },
       {
+        "command": "dialog-ide.saveSkein",
+        "title": "Dialog IDE: Save Skein"
+      },
+      {
         "command": "dialog-ide.debugInTerminal",
         "title": "Dialog IDE: Debug in Terminal"
       }
@@ -46,7 +50,9 @@
   },
   "scripts": {
     "vscode:prepublish": "npm run build",
-    "build": "tsc",
+    "build": "npm run build:css && tsc",
+    "build:css": "tailwindcss -i styles/input.css -o media/style.css",
+    "watch:css": "tailwindcss -i styles/input.css -o media/style.css --watch",
     "watch": "tsc -w",
     "test": "jest",
     "clean": "rm -rf dist"
@@ -60,9 +66,11 @@
   "author": "Howard Lewis Ship",
   "license": "MIT",
   "devDependencies": {
+    "@tailwindcss/cli": "^4.3.3",
     "@types/jest": "^30.0.0",
     "@types/node": "^20.0.0",
     "@types/vscode": "^1.85.0",
+    "daisyui": "^5.7.16",
     "jest": "^30.4.2",
     "ts-jest": "^29.4.12",
     "typescript": "^5.0.0"

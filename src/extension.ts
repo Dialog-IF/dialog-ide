@@ -67,6 +67,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       withErrorHandling(() => newSkeinSession(resolveProjectRoot(getWorkspaceRoot())))
     ),
     vscode.commands.registerCommand('dialog-ide.stopSkein', withErrorHandling(stopSkeinCommand)),
+    vscode.commands.registerCommand('dialog-ide.saveSkein', withErrorHandling(saveActiveSession)),
     vscode.commands.registerCommand(
       'dialog-ide.debugInTerminal',
       withErrorHandling(() => debugInTerminal(resolveProjectRoot(getWorkspaceRoot())))
@@ -241,6 +242,23 @@ async function stopSkeinCommand(): Promise<void> {
 }
 
 /**
+ * Explicit save - the only way a session's tree is ever written to its .skein file. Matches
+ * dialog-tool's own model (an explicit Save action, not autosave-on-stop): stopActiveSession
+ * never persists on its own, so switching/stopping sessions without saving first discards
+ * in-memory changes, same as dialog-tool. Reachable from the Command Palette and from the
+ * webview's navbar Save button (service.ts's POST /actions/save, wired via the onSave callback
+ * passed to skeinService.setActiveSession).
+ */
+async function saveActiveSession(): Promise<void> {
+  if (!activeSession || !activeSessionId || !activeProjectRoot) {
+    vscode.window.showInformationMessage('No skein session is running.');
+    return;
+  }
+  await new PersistenceManager(activeProjectRoot).saveSession(activeSession.getTree(), activeSessionId);
+  vscode.window.showInformationMessage(`Saved ${activeSessionId}.skein`);
+}
+
+/**
  * Opens a real, unmanaged interactive dgdebug session in a VS Code terminal - not tied to any
  * tracked skein session or tree, matching dialog-tool's own `dgt debug` command. No --tag-lines,
  * since nothing here needs to parse the output - VS Code's terminal owns a real PTY and dgdebug
@@ -274,7 +292,7 @@ async function confirmStopIfRunning(): Promise<boolean> {
   }
 
   const choice = await vscode.window.showWarningMessage(
-    `A skein session ("${activeSessionId}.skein") is already running. Stop it and continue?`,
+    `A skein session ("${activeSessionId}.skein") is already running. Stopping it discards any unsaved changes - save first if you want to keep them. Stop and continue?`,
     { modal: true },
     'Stop and Continue'
   );
@@ -287,37 +305,29 @@ async function confirmStopIfRunning(): Promise<boolean> {
 }
 
 /**
- * save defaults to true (Stop Skein, "Stop and Continue", and normal extension shutdown all
- * persist). Closing the panel's tab passes save: false - for now, that just discards the
- * session rather than persisting, until the close-behavior prompt (see backlog) exists to ask
- * the user which they want.
+ * Never persists - matches dialog-tool's own model, where stopping/replacing a session doesn't
+ * imply the user wanted to save it. saveActiveSession is the only path that writes to the
+ * .skein file; call it explicitly first if the in-memory tree should survive this stop.
  */
-async function stopActiveSession(options: { save?: boolean } = {}): Promise<void> {
-  const { save = true } = options;
-  if (!activeSession || !activeSessionId || !activeProjectRoot) {
+async function stopActiveSession(): Promise<void> {
+  if (!activeSession) {
     return;
   }
 
-  try {
-    if (save) {
-      await new PersistenceManager(activeProjectRoot).saveSession(activeSession.getTree(), activeSessionId);
-    }
-  } finally {
-    await activeSession.stop();
-    activeSession = undefined;
-    activeSessionId = undefined;
-    activeProjectRoot = undefined;
-    skeinService?.setActiveSession(undefined, undefined);
-    refreshStatusBar();
-    refreshSkeinPanel();
-  }
+  await activeSession.stop();
+  activeSession = undefined;
+  activeSessionId = undefined;
+  activeProjectRoot = undefined;
+  skeinService?.setActiveSession(undefined, undefined);
+  refreshStatusBar();
+  refreshSkeinPanel();
 }
 
 function setActiveSession(session: SkeinSession, sessionId: string, projectRoot: string): void {
   activeSession = session;
   activeSessionId = sessionId;
   activeProjectRoot = projectRoot;
-  skeinService?.setActiveSession(session, sessionId);
+  skeinService?.setActiveSession(session, sessionId, saveActiveSession);
   refreshStatusBar();
   ensureSkeinPanel();
   refreshSkeinPanel();
@@ -345,7 +355,7 @@ function ensureSkeinPanel(): vscode.WebviewPanel {
 
   skeinPanel.onDidDispose(() => {
     skeinPanel = undefined;
-    stopActiveSession({ save: false }).catch((error) => {
+    stopActiveSession().catch((error) => {
       vscode.window.showErrorMessage(error instanceof Error ? error.message : String(error));
     });
   });

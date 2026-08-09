@@ -357,6 +357,27 @@ describe('SkeinTree.findChildId', () => {
   });
 });
 
+describe('SkeinTree.commandPath', () => {
+  it('returns the command path from root to id, excluding root', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1)
+      .addChild(0, 'look', { text: 'a', inputType: 'line' })
+      .addChild(1, 'take orb', { text: 'b', inputType: 'line' });
+    expect(tree.commandPath(2)).toEqual([
+      { id: 1, command: 'look' },
+      { id: 2, command: 'take orb' }
+    ]);
+  });
+
+  it('returns an empty array for the root itself', () => {
+    expect(SkeinTree.newTree('dgdebug', 1).commandPath(0)).toEqual([]);
+  });
+
+  it('throws for an unknown id', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1);
+    expect(() => tree.commandPath(999)).toThrow();
+  });
+});
+
 describe('SkeinTree.fromKnots', () => {
   function knot(overrides: Partial<WireKnot> & { id: number }): WireKnot {
     return {

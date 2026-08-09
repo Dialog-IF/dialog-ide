@@ -5,7 +5,30 @@
       "type": "npm",
       "script": "watch",
       "problemMatcher": "$tsc-watch",
+      "isBackground": true
+    },
+    {
+      "type": "npm",
+      "script": "watch:css",
       "isBackground": true,
+      "problemMatcher": {
+        "owner": "css",
+        "fileLocation": "absolute",
+        "pattern": {
+          "regexp": "^(never-matches)$",
+          "file": 1
+        },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": "tailwindcss v",
+          "endsPattern": "Done in"
+        }
+      }
+    },
+    {
+      "label": "watch",
+      "dependsOn": ["npm: watch", "npm: watch:css"],
+      "dependsOrder": "parallel",
       "group": {
         "kind": "build",
         "isDefault": true
