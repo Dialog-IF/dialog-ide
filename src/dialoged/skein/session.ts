@@ -147,16 +147,23 @@ export class SkeinSession {
     try {
       this.process.sendCommand(command);
       const response = await this.process.readResponse();
+      const newResponse = { text: response.response, inputType: response.promptType };
 
-      this.tree = this.tree.addChild(parentId, command, {
-        text: response.response,
-        inputType: response.promptType
-      });
-
-      // addChild always makes the new knot its parent's selectedChild, so this is the id we
-      // just created without needing addChild to hand it back explicitly.
-      const newKnotId = this.tree.getDerivedKnot(parentId)!.selectedChild!;
-      this.tree = this.tree.setActiveKnotId(newKnotId);
+      // Re-running the same command from the same knot reuses the existing child (updating its
+      // response - unblessed unless the new text happens to match what's already blessed there,
+      // per computeKnotState's own text-equality check) rather than creating a duplicate knot.
+      const existingChildId = this.tree.findChildId(parentId, command);
+      let activeKnotId: number;
+      if (existingChildId !== null) {
+        this.tree = this.tree.updateKnotResponse(existingChildId, newResponse);
+        activeKnotId = existingChildId;
+      } else {
+        this.tree = this.tree.addChild(parentId, command, newResponse);
+        // addChild always makes the new knot its parent's selectedChild, so this is the id we
+        // just created without needing addChild to hand it back explicitly.
+        activeKnotId = this.tree.getDerivedKnot(parentId)!.selectedChild!;
+      }
+      this.tree = this.tree.setActiveKnotId(activeKnotId);
 
       await this.refreshDynamicState();
 

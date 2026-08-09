@@ -418,8 +418,6 @@ function getWebviewHtml(active: ActiveSessionDisplay | undefined): string {
 <body>
   <h2>Dialog Skein</h2>
   ${status}
-  <p>Read-only transcript for now - sending commands, undo/redo, bless, and everything else
-     from the real skein UI lands in a later pass.</p>
   ${iframe}
 </body>
 </html>`;

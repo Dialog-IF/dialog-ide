@@ -15,6 +15,7 @@ jest.mock('./process', () => ({
 
 import * as path from 'path';
 import { SkeinSession, SessionConfig } from './session';
+import { SkeinTree } from './tree';
 
 const BANNER_RESPONSE = { command: '', response: 'Welcome to the game.\n', promptType: 'line' as const };
 
@@ -113,6 +114,48 @@ describe('SkeinSession', () => {
       const tree = session.getTree();
       expect(tree.getActiveKnotId()).toBe(2);
       expect(tree.getKnot(2)!.parentId).toBe(1);
+    });
+
+    // Reuse only matters when the active knot already has a child for the command about to run -
+    // not naturally reachable via runCommand alone yet (each call advances the active knot, and
+    // there's no click-navigation back to an earlier knot yet), so these seed a loaded tree that
+    // already has the child in place, via createLoaded, rather than driving it through runCommand.
+    it('reuses the existing child knot when the same command is run again from the same parent, rather than duplicating it', async () => {
+      const seeded = SkeinTree.newTree('dgdebug', 1)
+        .addChild(0, 'look', { text: 'Room A.\n', inputType: 'line' })
+        .setActiveKnotId(0);
+      mockReadResponse
+        .mockResolvedValueOnce(BANNER_RESPONSE)
+        .mockResolvedValueOnce({ command: 'look', response: 'Room A.\n', promptType: 'line' })
+        .mockResolvedValueOnce(dynamicResponse([]));
+      const session = SkeinSession.createLoaded(seeded, DGDEBUG_CONFIG);
+      await session.start();
+
+      await session.runCommand('look');
+
+      const tree = session.getTree();
+      expect(tree.getActiveKnotId()).toBe(1);
+      expect(tree.getAllKnots()).toHaveLength(2); // root + the one reused knot, not a new one
+    });
+
+    it('updates the reused knot\'s response text when the re-run command produces different output', async () => {
+      const seeded = SkeinTree.newTree('dgdebug', 1)
+        .addChild(0, 'look', { text: 'Room A.\n', inputType: 'line' })
+        .setActiveKnotId(0);
+      mockReadResponse
+        .mockResolvedValueOnce(BANNER_RESPONSE)
+        .mockResolvedValueOnce({ command: 'look', response: 'Room A, but darker now.\n', promptType: 'line' })
+        .mockResolvedValueOnce(dynamicResponse([]));
+      const session = SkeinSession.createLoaded(seeded, DGDEBUG_CONFIG);
+      await session.start();
+
+      await session.runCommand('look');
+
+      // updateKnotResponse only ever sets the *unblessed* text (see tree.spec.ts for the full
+      // blessed/unblessed status semantics) - this just confirms reuse actually flows the new
+      // response through, rather than leaving the reused knot's content stale.
+      const knot1 = session.getTree().getDerivedKnot(1)!;
+      expect(knot1.unblessedResponse).toBe('Room A, but darker now.\n');
     });
 
     it('queries @dynamic after each command for dgdebug and exposes the parsed state', async () => {

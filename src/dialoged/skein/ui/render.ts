@@ -180,6 +180,42 @@ function renderKnot(tree: SkeinTree, knot: DerivedKnot, activeKnotId: number | n
 </div>`;
 }
 
+/**
+ * What kind of input the active knot currently expects next - same current-response-or-
+ * unblessed pattern reachedViaKeystroke uses for a knot's parent, applied to the active knot
+ * itself. Defaults to 'line' when there's no active knot or no response info yet.
+ */
+function activeInputType(tree: SkeinTree): 'line' | 'key' {
+  const activeId = tree.getActiveKnotId();
+  const knot = activeId !== null ? tree.getKnot(activeId) : null;
+  const currentResponse = knot?.response ?? knot?.unblessedResponse;
+  return currentResponse?.inputType ?? 'line';
+}
+
+/**
+ * The command input, rendered right after the transcript - matches dialog-tool's
+ * command-input.clj placement and markup (minus the keystroke variant, deferred - see the
+ * Command Input plan). Submits on the input's native "change" event (fires on Enter/blur),
+ * matching dialog-tool's own data-on:change. data-init="el.focus()" covers the initial page
+ * load; after each submission, service.ts's execute-script broadcast (main.js's
+ * sk.resetAndFocusCommandInput) clears and refocuses it - Datastar's morph preserves this
+ * element's identity across patches (same id), so focus survives ordinary re-renders on its own.
+ */
+function renderCommandInput(tree: SkeinTree): string {
+  if (activeInputType(tree) === 'key') {
+    return `<div class="mt-4 mb-8 text-sm text-base-content/60">Keystroke input isn't supported yet.</div>`;
+  }
+
+  return `<div class="flex items-center gap-2 mt-4 mb-8">
+  <span class="text-gray-400" aria-hidden="true">&gt;</span>
+  <input id="new-command-input" type="text" name="command" aria-label="Enter command"
+         placeholder="Enter command..."
+         class="flex-1 rounded-md border-base-300 shadow-sm focus:border-primary focus:ring-primary sm:text-sm p-2 border"
+         data-bind="newCommand" data-init="el.focus()"
+         data-on:change="@post('/actions/send-command')" />
+</div>`;
+}
+
 export function renderNavbar(info: SessionDisplayInfo, tree: SkeinTree): string {
   const t = totals(tree);
   return `<nav class="bg-base-100 text-base-content border-base-200 divide-base-200 px-2 sm:px-4 py-2.5 w-full border-b">
@@ -211,6 +247,7 @@ export function renderApp(info: SessionDisplayInfo, tree: SkeinTree): string {
   ${renderNavbar(info, tree)}
   <div class="flex-1 min-w-0 px-2">
     ${renderKnotList(tree)}
+    ${renderCommandInput(tree)}
   </div>
 </div>`;
 }
@@ -226,6 +263,7 @@ export function renderPage(info: SessionDisplayInfo | undefined, tree: SkeinTree
 <title>Dialog Skein</title>
 <link rel="stylesheet" href="/style.css" />
 <script type="module" src="/js/datastar.js"></script>
+<script type="module" src="/js/main.js"></script>
 </head>
 <body data-init="@get('/events', {openWhenHidden: true})">
 ${body}

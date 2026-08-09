@@ -334,6 +334,29 @@ describe('SkeinTree.getDerivedKnot', () => {
   });
 });
 
+describe('SkeinTree.findChildId', () => {
+  it('finds an existing child by exact command match', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1)
+      .addChild(0, 'look', { text: 'a', inputType: 'line' })
+      .addChild(0, 'inventory', { text: 'b', inputType: 'line' });
+    expect(tree.findChildId(0, 'look')).toBe(1);
+    expect(tree.findChildId(0, 'inventory')).toBe(2);
+  });
+
+  it('returns null when no child matches the command', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1).addChild(0, 'look', { text: 'a', inputType: 'line' });
+    expect(tree.findChildId(0, 'xyzzy')).toBeNull();
+  });
+
+  it('returns null for a knot with no children', () => {
+    expect(SkeinTree.newTree('dgdebug', 1).findChildId(0, 'look')).toBeNull();
+  });
+
+  it('returns null for an unknown parent id', () => {
+    expect(SkeinTree.newTree('dgdebug', 1).findChildId(999, 'look')).toBeNull();
+  });
+});
+
 describe('SkeinTree.fromKnots', () => {
   function knot(overrides: Partial<WireKnot> & { id: number }): WireKnot {
     return {

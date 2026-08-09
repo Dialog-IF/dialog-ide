@@ -12,8 +12,9 @@ const MEDIA_ROOT = path.join(__dirname, '..', '..', '..', 'media');
  * necessary here, matching how process.spec.ts's tests elsewhere in this suite mock rather than
  * spawn a real interpreter.
  */
-function createFakeSession(tree: SkeinTree) {
+function createFakeSession(tree: SkeinTree, options: { runCommand?: (command: string) => void | Promise<void> } = {}) {
   const listeners: Array<() => void> = [];
+  const runCommandCalls: string[] = [];
   return {
     getTree: () => tree,
     onChange: (fn: () => void) => listeners.push(fn),
@@ -23,7 +24,15 @@ function createFakeSession(tree: SkeinTree) {
         listeners.splice(index, 1);
       }
     },
-    emitChange: () => listeners.forEach((fn) => fn())
+    emitChange: () => listeners.forEach((fn) => fn()),
+    runCommandCalls,
+    // Mirrors the real SkeinSession.runCommand's contract: mutates (here, just records the
+    // call) and emits 'change' at the end, which is what triggers the content broadcast.
+    runCommand: async (command: string) => {
+      runCommandCalls.push(command);
+      await options.runCommand?.(command);
+      listeners.forEach((fn) => fn());
+    }
   };
 }
 
@@ -48,6 +57,24 @@ function get(url: string): Promise<{ status: number; headers: http.IncomingHttpH
         );
       })
       .on('error', reject);
+  });
+}
+
+function post(url: string, body: unknown): Promise<{ status: number; body: string }> {
+  return new Promise((resolve, reject) => {
+    const data = JSON.stringify(body);
+    const req = http.request(
+      url,
+      { method: 'POST', headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(data) } },
+      (res) => {
+        const chunks: Buffer[] = [];
+        res.on('data', (chunk) => chunks.push(chunk));
+        res.on('end', () => resolve({ status: res.statusCode ?? 0, body: Buffer.concat(chunks).toString() }));
+      }
+    );
+    req.on('error', reject);
+    req.write(data);
+    req.end();
   });
 }
 
@@ -84,6 +111,24 @@ describe('SkeinService', () => {
   });
 
   describe('GET /events', () => {
+    it('sends the focus/reset execute-script on connect, so the command input is focused on first load without relying on cross-frame focus tricks', async () => {
+      const tree = SkeinTree.newTree('dgdebug', 1);
+      const fake = createFakeSession(tree);
+      service.setActiveSession(fake as unknown as SkeinSession, 'default');
+
+      const chunks: string[] = [];
+      const req = http.get(`http://localhost:${service.getPort()}/events`, (res) => {
+        res.on('data', (chunk) => chunks.push(chunk.toString()));
+      });
+      try {
+        await waitFor(() => chunks.join('').includes('resetAndFocusCommandInput'));
+        const payload = chunks.join('');
+        expect(payload).toContain('data-effect="el.remove()"');
+      } finally {
+        req.destroy();
+      }
+    });
+
     it('pushes a datastar-patch-elements event when the active session changes', async () => {
       const tree = SkeinTree.newTree('dgdebug', 1);
       const fake = createFakeSession(tree);
@@ -135,6 +180,95 @@ describe('SkeinService', () => {
     });
   });
 
+  describe('POST /actions/send-command', () => {
+    it('400s when no session is active', async () => {
+      const res = await post(`http://localhost:${service.getPort()}/actions/send-command`, { newCommand: 'look' });
+      expect(res.status).toBe(400);
+    });
+
+    it('runs the normalized command against the active session and returns 204', async () => {
+      const tree = SkeinTree.newTree('dgdebug', 1);
+      const fake = createFakeSession(tree);
+      service.setActiveSession(fake as unknown as SkeinSession, 'default');
+
+      const res = await post(`http://localhost:${service.getPort()}/actions/send-command`, {
+        newCommand: '  take   orb  '
+      });
+
+      expect(res.status).toBe(204);
+      expect(fake.runCommandCalls).toEqual(['take orb']);
+    });
+
+    it('no-ops (204, no runCommand call) for a blank command', async () => {
+      const tree = SkeinTree.newTree('dgdebug', 1);
+      const fake = createFakeSession(tree);
+      service.setActiveSession(fake as unknown as SkeinSession, 'default');
+
+      const res = await post(`http://localhost:${service.getPort()}/actions/send-command`, { newCommand: '   ' });
+
+      expect(res.status).toBe(204);
+      expect(fake.runCommandCalls).toEqual([]);
+    });
+
+    it('500s when the session fails to run the command, without broadcasting the focus script', async () => {
+      const tree = SkeinTree.newTree('dgdebug', 1);
+      const fake = createFakeSession(tree, {
+        runCommand: () => {
+          throw new Error('process died');
+        }
+      });
+      service.setActiveSession(fake as unknown as SkeinSession, 'default');
+
+      const chunks: string[] = [];
+      const req = http.get(`http://localhost:${service.getPort()}/events`, (res) => {
+        res.on('data', (chunk) => chunks.push(chunk.toString()));
+      });
+      try {
+        await waitFor(() => chunks.length > 0);
+        chunks.length = 0;
+
+        const res = await post(`http://localhost:${service.getPort()}/actions/send-command`, {
+          newCommand: 'look'
+        });
+        expect(res.status).toBe(500);
+
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        expect(chunks.join('')).not.toContain('resetAndFocusCommandInput');
+      } finally {
+        req.destroy();
+      }
+    });
+
+    it('broadcasts a self-removing execute-script event to focus/reset the input after a successful command', async () => {
+      const tree = SkeinTree.newTree('dgdebug', 1);
+      const fake = createFakeSession(tree);
+      service.setActiveSession(fake as unknown as SkeinSession, 'default');
+
+      const chunks: string[] = [];
+      const req = http.get(`http://localhost:${service.getPort()}/events`, (res) => {
+        res.on('data', (chunk) => chunks.push(chunk.toString()));
+      });
+      try {
+        await waitFor(() => chunks.length > 0);
+        chunks.length = 0;
+
+        await post(`http://localhost:${service.getPort()}/actions/send-command`, { newCommand: 'look' });
+
+        await waitFor(() => chunks.join('').includes('resetAndFocusCommandInput'));
+        const payload = chunks.join('');
+        // Content patch (from runCommand's emitted 'change') arrives before the script patch.
+        expect(payload.indexOf('data: elements <div id="skein-app">')).toBeLessThan(
+          payload.indexOf('resetAndFocusCommandInput')
+        );
+        expect(payload).toContain('data: mode append');
+        expect(payload).toContain('data: selector body');
+        expect(payload).toContain('data-effect="el.remove()"');
+      } finally {
+        req.destroy();
+      }
+    });
+  });
+
   describe('static asset routes', () => {
     it('serves the vendored style.css', async () => {
       const res = await get(`http://localhost:${service.getPort()}/style.css`);
@@ -148,6 +282,13 @@ describe('SkeinService', () => {
       expect(res.status).toBe(200);
       expect(res.headers['content-type']).toContain('text/javascript');
       expect(res.body).toContain('Datastar');
+    });
+
+    it('serves the client main.js', async () => {
+      const res = await get(`http://localhost:${service.getPort()}/js/main.js`);
+      expect(res.status).toBe(200);
+      expect(res.headers['content-type']).toContain('text/javascript');
+      expect(res.body).toContain('resetAndFocusCommandInput');
     });
 
     it('serves a vendored icon by name', async () => {

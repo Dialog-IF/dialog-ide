@@ -418,6 +418,24 @@ export class SkeinTree {
   }
 
   /**
+   * Finds an existing child of parentId whose command matches exactly, or null if none does -
+   * mirrors dialog-tool's tree/find-child-id. Used to reuse a knot when the same command is run
+   * again from the same parent, rather than creating a duplicate.
+   */
+  public findChildId(parentId: number, command: string): number | null {
+    const parentState = this.knotStates.get(parentId);
+    if (!parentState) {
+      return null;
+    }
+    for (const childId of parentState.children) {
+      if (this.knots.get(childId)?.command === command) {
+        return childId;
+      }
+    }
+    return null;
+  }
+
+  /**
    * Get all knots in the tree
    */
   public getAllKnots(): WireKnot[] {

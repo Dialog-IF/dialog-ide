@@ -183,6 +183,23 @@ describe('renderApp', () => {
     expect(html).toContain('default.skein');
     expect(html).toContain('id="knot-0"');
   });
+
+  it('renders the command input, focused and submitting to the send-command action, when the active knot expects a line', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1); // root is 'line'
+    const html = renderApp(INFO, tree);
+    expect(html).toContain('id="new-command-input"');
+    expect(html).toContain('data-init="el.focus()"');
+    expect(html).toContain(`data-on:change="@post('/actions/send-command')"`);
+  });
+
+  it('shows a disabled placeholder instead of the input when the active knot expects a keystroke', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1)
+      .addChild(0, 'start combat', { text: 'Press any key...\n', inputType: 'key' })
+      .setActiveKnotId(1);
+    const html = renderApp(INFO, tree);
+    expect(html).not.toContain('id="new-command-input"');
+    expect(html).toContain("Keystroke input isn't supported yet");
+  });
 });
 
 describe('renderPage', () => {
@@ -192,6 +209,7 @@ describe('renderPage', () => {
     expect(html).toContain(`data-init="@get('/events', {openWhenHidden: true})"`);
     expect(html).toContain('<link rel="stylesheet" href="/style.css" />');
     expect(html).toContain('<script type="module" src="/js/datastar.js"></script>');
+    expect(html).toContain('<script type="module" src="/js/main.js"></script>');
   });
 
   it('shows a placeholder when no session is active', () => {

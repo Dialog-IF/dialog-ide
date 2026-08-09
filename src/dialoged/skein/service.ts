@@ -36,6 +36,20 @@ const STATIC_CONTENT_TYPES: Record<string, string> = {
 
 const NO_ACTIVE_SESSION_FRAGMENT = '<div id="skein-app" class="p-4">No skein session running.</div>';
 
+function readRequestBody(req: http.IncomingMessage): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    req.on('data', (chunk) => chunks.push(chunk));
+    req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+    req.on('error', reject);
+  });
+}
+
+/** Trims and collapses internal whitespace, matching dialog-tool's own normalize-input. */
+function normalizeCommand(text: string): string {
+  return text.trim().replace(/\s+/g, ' ');
+}
+
 /**
  * Class for managing the web service interface
  */
@@ -172,6 +186,11 @@ export class SkeinService {
       return;
     }
 
+    if (req.method === 'POST' && url.pathname === '/actions/send-command') {
+      await this.handleSendCommand(req, res);
+      return;
+    }
+
     if (url.pathname === '/style.css') {
       await this.serveStaticFile(res, path.join(this.config.mediaRoot, 'style.css'));
       return;
@@ -179,6 +198,11 @@ export class SkeinService {
 
     if (url.pathname === '/js/datastar.js') {
       await this.serveStaticFile(res, path.join(this.config.mediaRoot, 'js', 'datastar.js'));
+      return;
+    }
+
+    if (url.pathname === '/js/main.js') {
+      await this.serveStaticFile(res, path.join(this.config.mediaRoot, 'js', 'main.js'));
       return;
     }
 
@@ -190,6 +214,55 @@ export class SkeinService {
     }
 
     res.writeHead(404);
+    res.end();
+  }
+
+  /**
+   * POST /actions/send-command - the one action route this pass needs. Datastar's @post()
+   * sends the page's current signals as a JSON body; the only signal on this page is
+   * newCommand (see render.ts's renderCommandInput). Runs the command against the active
+   * session (its existing onChange -> broadcast wiring pushes the updated transcript), then
+   * broadcasts an execute-script event to clear/refocus the input - see the Command Input plan
+   * for why that's a separate SSE event rather than something the content patch can carry.
+   * Returns a bare 204: the real UI update travels over the SSE channel, not this response.
+   */
+  private async handleSendCommand(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+    if (!this.activeSession) {
+      res.writeHead(400);
+      res.end();
+      return;
+    }
+
+    const body = await readRequestBody(req);
+    let signals: unknown;
+    try {
+      signals = body ? JSON.parse(body) : {};
+    } catch {
+      signals = {};
+    }
+    const rawCommand =
+      typeof signals === 'object' && signals !== null && 'newCommand' in signals
+        ? (signals as { newCommand: unknown }).newCommand
+        : '';
+    const command = normalizeCommand(typeof rawCommand === 'string' ? rawCommand : '');
+
+    if (command === '') {
+      res.writeHead(204);
+      res.end();
+      return;
+    }
+
+    try {
+      await this.activeSession.runCommand(command);
+    } catch (error) {
+      console.error('Failed to run command:', error);
+      res.writeHead(500);
+      res.end();
+      return;
+    }
+
+    this.broadcastScript('sk.resetAndFocusCommandInput()');
+    res.writeHead(204);
     res.end();
   }
 
@@ -205,6 +278,13 @@ export class SkeinService {
 
     // Covers the race between the initial GET / render and this connection opening.
     this.sendPatch(res);
+    // Also focuses the command input on first load - triggered here (the page's own script
+    // reacting to its own server over its own already-open connection) rather than via a
+    // cross-frame contentWindow.focus()/postMessage from the embedding webview, which turned
+    // out not to reliably move focus into a nested cross-origin iframe. A no-op via
+    // resetAndFocusCommandInput's own null-check when there's no input to focus (no session, or
+    // a keystroke-prompt placeholder instead).
+    this.sendScript(res, 'sk.resetAndFocusCommandInput()');
   }
 
   private broadcast(): void {
@@ -232,6 +312,30 @@ export class SkeinService {
       .join('\n');
 
     res.write(`event: datastar-patch-elements\n${dataLines}\n\n`);
+  }
+
+  private broadcastScript(js: string): void {
+    for (const client of this.sseClients) {
+      this.sendScript(client, js);
+    }
+  }
+
+  /**
+   * A self-removing <script> appended to <body> - genuine Datastar behavior (not hyper-specific):
+   * `data-effect` runs once the element connects, then it removes itself. Wire format confirmed
+   * from hyper's own effects.clj (format-execute-script-event) - see the Command Input plan.
+   */
+  private sendScript(res: http.ServerResponse, js: string): void {
+    if (res.writableEnded) {
+      return;
+    }
+
+    res.write(
+      'event: datastar-patch-elements\n' +
+        'data: mode append\n' +
+        'data: selector body\n' +
+        `data: elements <script data-effect="el.remove()">${js}</script>\n\n`
+    );
   }
 
   private async serveStaticFile(res: http.ServerResponse, filePath: string): Promise<void> {
