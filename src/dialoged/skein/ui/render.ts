@@ -10,6 +10,7 @@
 
 import { EngineType } from '../process';
 import { DerivedKnot, KnotStatus, SkeinTree } from '../tree';
+import { ansiToHtml, ansiToMarkers } from './ansi';
 import { DiffSegment, diffText } from './diff';
 
 export interface SessionDisplayInfo {
@@ -33,17 +34,6 @@ function escapeHtml(text: string): string {
     .replace(/'/g, '&#39;');
 }
 
-// eslint-disable-next-line no-control-regex
-const ANSI_ESCAPE_RE = /\x1b\[[0-9;]*[a-zA-Z]/g;
-
-/**
- * Plain-text fallback for this pass - dialog-tool's full ANSI-to-HTML color-preserving
- * rendering (ansi.clj) is deferred to a later phase; text is diffed/displayed plain.
- */
-function stripAnsi(text: string): string {
-  return text.replace(ANSI_ESCAPE_RE, '');
-}
-
 /**
  * Makes whitespace visible within an added/removed diff segment, matching dialog-tool's
  * app.clj visible-whitespace: spaces become a middle-dot + zero-width space (so the browser
@@ -61,14 +51,20 @@ const DIFF_SEGMENT_CLASS: Record<'added' | 'removed', string> = {
 
 /**
  * Renders a knot's current text as a diff between its blessed response and any pending
- * unblessed one - a never-blessed knot (no response yet) shows fully as "added" (diffed
- * against nothing), a settled knot with no pending change shows plain, and a knot whose
- * response changed shows a real word-level diff (dialog-tool's render-diff/diff-text).
+ * unblessed one, matching dialog-tool's render-diff exactly: with nothing pending, the settled
+ * response renders with real ANSI styling (bold, color...); with something pending (whether or
+ * not there's a blessed response to compare against - a never-blessed knot has none, and diffs
+ * as fully "added"), both sides are first converted to ANSI markers ("[B]...[/B]") since the
+ * diff spans would override real styling anyway, then diffed word-by-word.
  */
 function renderDiff(response: string | null, unblessedResponse: string | null): string {
+  if (unblessedResponse === null) {
+    return response !== null ? ansiToHtml(response) : '';
+  }
+
   const segments: DiffSegment[] = diffText(
-    response !== null ? stripAnsi(response) : null,
-    unblessedResponse !== null ? stripAnsi(unblessedResponse) : null
+    response !== null ? ansiToMarkers(response) : null,
+    ansiToMarkers(unblessedResponse)
   );
 
   return segments

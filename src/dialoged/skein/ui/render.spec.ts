@@ -52,13 +52,23 @@ describe('renderKnotList', () => {
     expect(knot1Section).toContain('icon-arrow-right');
   });
 
-  it('escapes HTML and strips ANSI escape codes from response text', () => {
+  it('escapes HTML and converts ANSI bold to a [B]...[/B] marker within a diff (never-blessed knot)', () => {
     const tree = SkeinTree.newTree('dgdebug', 1)
       .addChild(0, 'look', { text: '\x1b[1mBold <b>text</b> & stuff\x1b[0m\n', inputType: 'line' })
       .setActiveKnotId(1);
     const html = renderKnotList(tree);
-    expect(html).toContain(visible('Bold &lt;b&gt;text&lt;/b&gt; &amp; stuff\n'));
+    expect(html).toContain(visible('[B]Bold &lt;b&gt;text&lt;/b&gt; &amp; stuff[/B]\n'));
     expect(html).not.toContain('\x1b[1m');
+  });
+
+  it('renders real ANSI bold as a styled span for a settled/blessed knot (no diff)', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1)
+      .addChild(0, 'look', { text: '\x1b[1mBold text\x1b[0m\n', inputType: 'line' })
+      .blessKnot(1)
+      .setActiveKnotId(1);
+    const html = renderKnotList(tree);
+    const knot1Section = html.split('id="knot-1"')[1];
+    expect(knot1Section).toContain('<span class="ansi-bold">Bold text</span>');
   });
 
   it('shows a lock icon and label badge for locked/labeled knots', () => {
