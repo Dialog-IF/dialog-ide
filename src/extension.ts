@@ -286,13 +286,22 @@ async function confirmStopIfRunning(): Promise<boolean> {
   return true;
 }
 
-async function stopActiveSession(): Promise<void> {
+/**
+ * save defaults to true (Stop Skein, "Stop and Continue", and normal extension shutdown all
+ * persist). Closing the panel's tab passes save: false - for now, that just discards the
+ * session rather than persisting, until the close-behavior prompt (see backlog) exists to ask
+ * the user which they want.
+ */
+async function stopActiveSession(options: { save?: boolean } = {}): Promise<void> {
+  const { save = true } = options;
   if (!activeSession || !activeSessionId || !activeProjectRoot) {
     return;
   }
 
   try {
-    await new PersistenceManager(activeProjectRoot).saveSession(activeSession.getTree(), activeSessionId);
+    if (save) {
+      await new PersistenceManager(activeProjectRoot).saveSession(activeSession.getTree(), activeSessionId);
+    }
   } finally {
     await activeSession.stop();
     activeSession = undefined;
@@ -336,6 +345,9 @@ function ensureSkeinPanel(): vscode.WebviewPanel {
 
   skeinPanel.onDidDispose(() => {
     skeinPanel = undefined;
+    stopActiveSession({ save: false }).catch((error) => {
+      vscode.window.showErrorMessage(error instanceof Error ? error.message : String(error));
+    });
   });
 
   return skeinPanel;

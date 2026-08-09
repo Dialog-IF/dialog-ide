@@ -3,6 +3,13 @@ import { renderApp, renderKnotList, renderNavbar, renderPage, SessionDisplayInfo
 
 const INFO: SessionDisplayInfo = { sessionId: 'default', engine: 'dgdebug', seed: 25002 };
 
+// Mirrors render.ts's visibleWhitespace (applied within added/removed diff spans): a space
+// becomes a middle-dot (U+00B7) + zero-width space (U+200B), a newline becomes "↵" (U+21B5) +
+// the real newline.
+function visible(text: string): string {
+  return text.replace(/ /g, '·​').replace(/\n/g, '↵\n');
+}
+
 describe('renderNavbar', () => {
   it('shows the session id, engine, and seed', () => {
     const tree = SkeinTree.newTree('dgdebug', 25002);
@@ -33,7 +40,7 @@ describe('renderKnotList', () => {
     const html = renderKnotList(tree);
     expect(html).toContain('id="knot-0"');
     expect(html).toContain('id="knot-1"');
-    expect(html).toContain('You see nothing.');
+    expect(html).toContain(visible('You see nothing.\n'));
   });
 
   it('marks the active knot with the arrow icon', () => {
@@ -50,7 +57,7 @@ describe('renderKnotList', () => {
       .addChild(0, 'look', { text: '\x1b[1mBold <b>text</b> & stuff\x1b[0m\n', inputType: 'line' })
       .setActiveKnotId(1);
     const html = renderKnotList(tree);
-    expect(html).toContain('Bold &lt;b&gt;text&lt;/b&gt; &amp; stuff');
+    expect(html).toContain(visible('Bold &lt;b&gt;text&lt;/b&gt; &amp; stuff\n'));
     expect(html).not.toContain('\x1b[1m');
   });
 
@@ -97,6 +104,56 @@ describe('renderKnotList', () => {
     expect(knot1Section).toContain('border-error');
   });
 
+  it('renders a real word-level diff for a knot whose response changed - added/removed spans, unchanged text plain', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1)
+      .addChild(0, 'take orb', { text: 'You take the White Orb.\n', inputType: 'line' })
+      .blessKnot(1)
+      .updateKnotResponse(1, { text: 'You take the Blue Orb.\n', inputType: 'line' })
+      .setActiveKnotId(1);
+    const html = renderKnotList(tree);
+    const knot1Section = html.split('id="knot-1"')[1];
+
+    // Unchanged text renders plain (no span) - only the changed word gets diff styling.
+    expect(knot1Section).toContain('You take the ');
+    expect(knot1Section).toContain(`<span class="text-error font-bold line-through">${visible('White')}</span>`);
+    expect(knot1Section).toContain(`<span class="text-info font-bold">${visible('Blue')}</span>`);
+    expect(knot1Section).toContain(' Orb.');
+  });
+
+  it('renders several knots down the active spine, each with its own diff state', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1)
+      .addChild(0, 'look', { text: 'You are in a room.\n', inputType: 'line' })
+      .blessKnot(1)
+      .addChild(1, 'take orb', { text: 'You take the orb.\n', inputType: 'line' })
+      .blessKnot(2)
+      .updateKnotResponse(2, { text: 'You grab the orb.\n', inputType: 'line' }) // now diverges - 'error'
+      .addChild(2, 'inventory', { text: 'You are carrying: the orb.\n', inputType: 'line' }) // never blessed - 'new'
+      .setActiveKnotId(3);
+
+    const html = renderKnotList(tree);
+    expect(html).toContain('id="knot-0"');
+    expect(html).toContain('id="knot-1"');
+    expect(html).toContain('id="knot-2"');
+    expect(html).toContain('id="knot-3"');
+
+    const knot1Section = html.split('id="knot-1"')[1].split('id="knot-2"')[0];
+    // Settled/blessed with no pending change - plain text, no diff span, no visible-whitespace
+    // transform (that's only meaningful within an actual diff).
+    expect(knot1Section).toContain('You are in a room.\n');
+    expect(knot1Section).not.toContain('text-info font-bold');
+
+    const knot2Section = html.split('id="knot-2"')[1].split('id="knot-3"')[0];
+    expect(knot2Section).toContain('border-error');
+    expect(knot2Section).toContain(`<span class="text-error font-bold line-through">${visible('take')}</span>`);
+    expect(knot2Section).toContain(`<span class="text-info font-bold">${visible('grab')}</span>`);
+
+    const knot3Section = html.split('id="knot-3"')[1];
+    expect(knot3Section).toContain('border-warning'); // never-blessed - 'new'
+    expect(knot3Section).toContain(
+      `<span class="text-info font-bold">${visible('You are carrying: the orb.\n')}</span>`
+    );
+  });
+
   it('shows a never-blessed knot as fully "added" text (a diff against empty), matching dialog-tool', () => {
     const tree = SkeinTree.newTree('dgdebug', 1)
       .addChild(0, 'look', { text: 'You see nothing.\n', inputType: 'line' })
@@ -104,7 +161,7 @@ describe('renderKnotList', () => {
     const html = renderKnotList(tree);
     const knot1Section = html.split('id="knot-1"')[1];
     expect(knot1Section).toContain('icon-warning');
-    expect(knot1Section).toContain('<span class="text-info font-bold">You see nothing.\n</span>');
+    expect(knot1Section).toContain(`<span class="text-info font-bold">${visible('You see nothing.\n')}</span>`);
   });
 });
 

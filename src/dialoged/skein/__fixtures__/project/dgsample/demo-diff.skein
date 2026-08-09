@@ -1,0 +1,42 @@
+seed: 42
+engine: :dgdebug
+--------------------------------------------------------------------------------
+id: 0
+label: START
+--------------------------------------------------------------------------------
+The Featureless Space
+An interactive fiction by The Intrepid Author.
+Release 0. Serial number DEBUG.
+Dialog Interactive Debugger (dgdebug) version 1c/02. Library version 1.2.3. Debugging extension 1.2.2-dev.
+
+Endless Featureless Space
+You are in an endless, featureless space. Just what will you create within it? Floating nearby is a small white orb.
+
+--------------------------------------------------------------------------------
+id: 1
+parent-id: 0
+command: look
+--------------------------------------------------------------------------------
+> look
+You are in a small room. There is a white orb here.
+
+--------------------------------------------------------------------------------
+id: 2
+parent-id: 1
+command: take orb
+--------------------------------------------------------------------------------
+> take orb
+You take the orb.
+
+<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+> take orb
+You grab the orb.
+
+--------------------------------------------------------------------------------
+id: 3
+parent-id: 2
+command: inventory
+--------------------------------------------------------------------------------
+<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+> inventory
+You are carrying: the orb.

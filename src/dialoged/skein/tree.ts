@@ -619,7 +619,17 @@ export class SkeinTree {
       knotStates = SkeinTree.propagateTreeState(knots, knotStates, leafId);
     }
 
-    return new SkeinTree(engine, seed, knots, knotStates, 0);
+    // Mirrors dialog-tool's init-tree (called after every rebuild-from-file): the active knot
+    // starts at the leaf of the selected spine, not root - found by walking selectedChild
+    // downward from root until a knot with no selected child (a leaf along that spine).
+    let activeKnotId = 0;
+    let cursor: number | null = 0;
+    while (cursor !== null) {
+      activeKnotId = cursor;
+      cursor = knotStates.get(cursor)?.selectedChild ?? null;
+    }
+
+    return new SkeinTree(engine, seed, knots, knotStates, activeKnotId);
   }
 
   /**

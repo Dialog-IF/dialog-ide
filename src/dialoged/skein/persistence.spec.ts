@@ -18,6 +18,15 @@ describe('serializeTree / deserializeTree', () => {
     expect(reloaded.getSeed()).toBe(42);
   });
 
+  it('sets the reloaded tree\'s active knot to the leaf of the saved spine, not root (regression - a loaded multi-knot skein was only showing knot 0)', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1)
+      .addChild(0, 'look', { text: 'a room\n', inputType: 'line' })
+      .addChild(1, 'take orb', { text: 'you take it\n', inputType: 'line' })
+      .setActiveKnotId(2);
+    const reloaded = deserializeTree(serializeTree(tree));
+    expect(reloaded.getActiveKnotId()).toBe(2);
+  });
+
   it('writes engine with a leading colon (Clojure keyword form) for dialog-tool compatibility', () => {
     const tree = SkeinTree.newTree('dgdebug', 1);
     expect(serializeTree(tree)).toContain('engine: :dgdebug');

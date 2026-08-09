@@ -10,6 +10,7 @@
 
 import { EngineType } from '../process';
 import { DerivedKnot, KnotStatus, SkeinTree } from '../tree';
+import { DiffSegment, diffText } from './diff';
 
 export interface SessionDisplayInfo {
   sessionId: string;
@@ -36,11 +37,49 @@ function escapeHtml(text: string): string {
 const ANSI_ESCAPE_RE = /\x1b\[[0-9;]*[a-zA-Z]/g;
 
 /**
- * Plain-text fallback for this pass - dialog-tool's full ANSI-to-HTML color/diff rendering
- * (ansi.clj, diff.clj) is deferred to a later phase.
+ * Plain-text fallback for this pass - dialog-tool's full ANSI-to-HTML color-preserving
+ * rendering (ansi.clj) is deferred to a later phase; text is diffed/displayed plain.
  */
 function stripAnsi(text: string): string {
   return text.replace(ANSI_ESCAPE_RE, '');
+}
+
+/**
+ * Makes whitespace visible within an added/removed diff segment, matching dialog-tool's
+ * app.clj visible-whitespace: spaces become a middle-dot + zero-width space (so the browser
+ * still gets a soft-wrap point), newlines become "↵" followed by the real newline. Applied only
+ * within diff spans, not to unchanged text, same as dialog-tool.
+ */
+function visibleWhitespace(text: string): string {
+  return text.replace(/ /g, '·​').replace(/\n/g, '↵\n');
+}
+
+const DIFF_SEGMENT_CLASS: Record<'added' | 'removed', string> = {
+  added: 'text-info font-bold',
+  removed: 'text-error font-bold line-through'
+};
+
+/**
+ * Renders a knot's current text as a diff between its blessed response and any pending
+ * unblessed one - a never-blessed knot (no response yet) shows fully as "added" (diffed
+ * against nothing), a settled knot with no pending change shows plain, and a knot whose
+ * response changed shows a real word-level diff (dialog-tool's render-diff/diff-text).
+ */
+function renderDiff(response: string | null, unblessedResponse: string | null): string {
+  const segments: DiffSegment[] = diffText(
+    response !== null ? stripAnsi(response) : null,
+    unblessedResponse !== null ? stripAnsi(unblessedResponse) : null
+  );
+
+  return segments
+    .map((segment) => {
+      const escaped = escapeHtml(segment.value);
+      if (segment.type === 'unchanged') {
+        return escaped;
+      }
+      return `<span class="${DIFF_SEGMENT_CLASS[segment.type]}">${visibleWhitespace(escaped)}</span>`;
+    })
+    .join('');
 }
 
 /**
@@ -124,17 +163,9 @@ function renderKnot(tree: SkeinTree, knot: DerivedKnot, activeKnotId: number | n
       : '';
 
   const monoClass = knot.state !== 'valid' ? ' font-mono' : '';
-  // A never-blessed knot has an empty `response` and its text in `unblessedResponse` (see
-  // tree.ts's addChild) - show whichever is present rather than only the blessed one, since
-  // bless is deferred and most live knots won't have a blessed response yet. dialog-tool's
-  // render-diff treats a brand-new knot as a diff against "" - the whole response renders as
-  // "added" text (text-info font-bold) rather than plain text. A genuine diff between two
-  // non-empty texts (a blessed response that changed) is real diff.ts/ansi.ts work, deferred.
-  const currentText = knot.response || knot.unblessedResponse || '';
-  const escapedText = escapeHtml(stripAnsi(currentText));
-  const responseText = !knot.response && knot.unblessedResponse
-    ? `<span class="text-info font-bold">${escapedText}</span>`
-    : escapedText;
+  // knot.response is '' (not blessed yet, see tree.ts's addChild) rather than genuinely null -
+  // normalize to null so renderDiff can tell "never blessed" apart from "blessed as empty text".
+  const responseText = renderDiff(knot.response || null, knot.unblessedResponse);
 
   // The response container below is whitespace-pre-wrap (needed to preserve the game's real
   // newlines), so its content must be built with no stray template-literal indentation/blank

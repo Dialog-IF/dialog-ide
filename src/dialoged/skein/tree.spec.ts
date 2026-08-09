@@ -379,9 +379,29 @@ describe('SkeinTree.fromKnots', () => {
     expect(tree.getDerivedKnot(1)?.state).toBe('new');
   });
 
-  it('defaults activeKnotId to the root', () => {
+  it('defaults activeKnotId to the root when the root has no children', () => {
     const tree = SkeinTree.fromKnots('dgdebug', 1, [knot({ id: 0, label: 'START' })]);
     expect(tree.getActiveKnotId()).toBe(0);
+  });
+
+  it('sets activeKnotId to the leaf of the selected spine, not root, when the tree has multiple knots (regression - a loaded skein with several knots was only showing knot 0 in the transcript)', () => {
+    const tree = SkeinTree.fromKnots('dgdebug', 1, [
+      knot({ id: 0, label: 'START' }),
+      knot({ id: 1, parentId: 0, command: 'look' }),
+      knot({ id: 2, parentId: 1, command: 'take orb' }),
+      knot({ id: 3, parentId: 2, command: 'inventory' })
+    ]);
+    expect(tree.getActiveKnotId()).toBe(3);
+  });
+
+  it('follows selectedChild (first child in ascending id order) at each level, not just the last-processed knot', () => {
+    const tree = SkeinTree.fromKnots('dgdebug', 1, [
+      knot({ id: 0, label: 'START' }),
+      knot({ id: 1, parentId: 0, command: 'look' }), // selectedChild of 0 (lower id than 5)
+      knot({ id: 5, parentId: 0, command: 'inventory' }),
+      knot({ id: 2, parentId: 1, command: 'take orb' }) // selectedChild of 1, and a leaf
+    ]);
+    expect(tree.getActiveKnotId()).toBe(2);
   });
 
   it('propagates treeState bottom-up across multiple levels, not just from each knot\'s own state', () => {
