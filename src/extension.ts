@@ -30,6 +30,22 @@ import {
   sessionConfigFromTree,
   toSessionId
 } from './session-runner';
+import { ProgressHost } from './dialoged/skein/progress';
+
+/**
+ * The one real ProgressHost implementation - see progress.ts's doc comment for why session.ts
+ * takes this as an injected interface instead of importing 'vscode' directly. Structurally,
+ * vscode.window.withProgress's own progress/token parameters already satisfy ProgressReporter/
+ * CancellationToken, so no adapter is needed beyond picking a location.
+ */
+const vscodeProgressHost: ProgressHost = {
+  async withProgress(options, task) {
+    return vscode.window.withProgress(
+      { location: vscode.ProgressLocation.Notification, title: options.title, cancellable: options.cancellable },
+      (progress, token) => task(progress, token)
+    );
+  }
+};
 
 let skeinService: SkeinService | undefined;
 let skeinPanel: vscode.WebviewPanel | undefined;
@@ -141,11 +157,25 @@ async function runLoadedSession(projectRoot: string, sessionId: string): Promise
 
   const manager = new PersistenceManager(projectRoot);
   const tree = await manager.loadSession(sessionId);
-  const session = SkeinSession.createLoaded(tree, sessionConfigFromTree(tree, projectRoot));
+  const session = SkeinSession.createLoaded(tree, sessionConfigFromTree(tree, projectRoot), vscodeProgressHost);
   await session.start();
 
+  // Wire up the panel/status bar before replaying so the loaded transcript is on screen right
+  // away, with the replay's progress notification and subsequent SSE updates layering on top of
+  // an already-visible window - rather than leaving the user staring at nothing (or the previous
+  // session) until the replay finishes.
   setActiveSession(session, sessionId, projectRoot);
   vscode.window.showInformationMessage(`Running ${sessionId}.skein (${tree.getEngine()})`);
+
+  // start() only ever validates knot 0's banner - the process otherwise sits at the root even
+  // though the transcript immediately shows the loaded active spine, so without this the process
+  // wouldn't actually catch up until the user manually clicked Replay All or typed a command. Skip
+  // it entirely when the loaded skein never went past the root - nothing to replay, and replayAll
+  // would otherwise force a pointless extra process restart.
+  const activeKnotId = session.getTree().getActiveKnotId();
+  if (activeKnotId !== null && activeKnotId !== 0) {
+    await session.replayAll();
+  }
 }
 
 /**
@@ -203,7 +233,7 @@ async function newSkeinSession(projectRoot: string): Promise<void> {
     );
   }
 
-  const session = SkeinSession.createNew({ engine: engineChoice.engine, seed, projectRoot });
+  const session = SkeinSession.createNew({ engine: engineChoice.engine, seed, projectRoot }, vscodeProgressHost);
   await session.start();
   await manager.saveSession(session.getTree(), sessionId);
 

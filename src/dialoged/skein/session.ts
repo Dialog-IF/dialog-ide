@@ -8,6 +8,7 @@ import { SkeinProcess, ProcessConfig, EngineType } from './process';
 import { SkeinTree } from './tree';
 import { DynamicProcessor, DynamicState, DynamicChanges } from './dynamic';
 import { readProject, expandSources } from './project';
+import { ProgressHost, ProgressReporter, CancellationToken, noopProgressHost } from './progress';
 
 const DYNAMIC_COMMAND = '@dynamic';
 // dialog-tool's start-debug-process! filters sources by :target :dgdebug when launching the
@@ -69,12 +70,18 @@ export class SkeinSession {
   // from a .skein file, exactly like every other knot - the live banner should be diffed
   // against it like anything else, not silently overwritten-and-blessed.
   private hasLoadedHistory = false;
+  // Where to route Replay All's progress/cancellation - noopProgressHost (a plain immediate call,
+  // no real dialog) everywhere except extension.ts's real sessions, which inject the
+  // vscode.window.withProgress-backed host. See progress.ts's doc comment for why this is a
+  // dialoged-specific interface rather than an import of 'vscode' itself.
+  private readonly progressHost: ProgressHost;
 
-  constructor(config: SessionConfig) {
+  constructor(config: SessionConfig, progressHost: ProgressHost = noopProgressHost) {
     this.id = this.generateId();
     this.config = config;
     this.tree = SkeinTree.newTree(config.engine, config.seed);
     this.dynamicProcessor = new DynamicProcessor();
+    this.progressHost = progressHost;
   }
 
   /**
@@ -87,15 +94,15 @@ export class SkeinSession {
   /**
    * Create a new session with fresh tree
    */
-  public static createNew(config: SessionConfig): SkeinSession {
-    return new SkeinSession(config);
+  public static createNew(config: SessionConfig, progressHost?: ProgressHost): SkeinSession {
+    return new SkeinSession(config, progressHost);
   }
 
   /**
    * Create a session from an existing tree
    */
-  public static createLoaded(tree: SkeinTree, config: SessionConfig): SkeinSession {
-    const session = new SkeinSession(config);
+  public static createLoaded(tree: SkeinTree, config: SessionConfig, progressHost?: ProgressHost): SkeinSession {
+    const session = new SkeinSession(config, progressHost);
     session.tree = tree;
     session.hasLoadedHistory = true;
     return session;
@@ -235,8 +242,20 @@ export class SkeinSession {
    * primitive behind Replay All, Replay to Here (context menu), and runCommand's automatic
    * catch-up when the active knot isn't where the process actually is - dgdebug has no way to
    * rewind, only restart-and-replay, matching dialog-tool's own do-replay-to!.
+   *
+   * progress/token are only ever supplied by replayAll (via progressHost.withProgress) - runCommand's
+   * silent catch-up and replayToKnot's single-step jump are both too quick to warrant a dialog, and
+   * stay plain fire-and-forget calls. When cancellation lands mid-loop, replay stops after the
+   * in-flight command's response is recorded rather than mid-command (dgdebug has no way to abort a
+   * command once sent) and lands the active knot on the last knot actually replayed, not the
+   * original target - a truncated-but-consistent replay, never a knot showing a response that was
+   * never actually sent to the process.
    */
-  private async replayTo(targetId: number): Promise<void> {
+  private async replayTo(
+    targetId: number,
+    progress?: ProgressReporter,
+    token?: CancellationToken
+  ): Promise<void> {
     if (!this.process) {
       throw new Error('Session not running');
     }
@@ -244,14 +263,21 @@ export class SkeinSession {
     await this.process.terminate();
     await this.launchProcessAndCaptureBanner(false);
 
-    for (const { id, command } of this.tree.commandPath(targetId)) {
+    const path = this.tree.commandPath(targetId);
+    let reachedId = 0;
+    for (const { id, command } of path) {
+      if (token?.isCancellationRequested) {
+        break;
+      }
+      progress?.report({ message: command, increment: 100 / path.length });
       this.process!.sendCommand(command);
       const response = await this.process!.readResponse();
       this.tree = this.tree.updateKnotResponse(id, { text: response.response, inputType: response.promptType });
+      reachedId = id;
     }
 
-    this.processPositionId = targetId;
-    this.tree = this.tree.setActiveKnotId(targetId);
+    this.processPositionId = reachedId;
+    this.tree = this.tree.setActiveKnotId(reachedId);
     this.closeMenus();
     await this.refreshDynamicState();
     this.changeEmitter.emit('change');
@@ -260,14 +286,19 @@ export class SkeinSession {
   /**
    * Re-runs every command on the active spine against a fresh process - the navbar's "Replay
    * All". Since dgdebug re-reads its source files on every launch, this doubles as picking up
-   * any edits made to the project's .dg files since the process last started.
+   * any edits made to the project's .dg files since the process last started. Wrapped in
+   * progressHost.withProgress so a real session (see extension.ts's vscodeProgressHost) shows a
+   * cancellable native progress notification; tests and every other call site get
+   * noopProgressHost's immediate no-dialog pass-through instead.
    */
   public async replayAll(): Promise<void> {
     const activeKnotId = this.tree.getActiveKnotId();
     if (activeKnotId === null) {
       throw new Error('No active knot to replay to');
     }
-    await this.replayTo(activeKnotId);
+    await this.progressHost.withProgress({ title: 'Replaying all commands...', cancellable: true }, (progress, token) =>
+      this.replayTo(activeKnotId, progress, token)
+    );
   }
 
   /**

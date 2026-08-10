@@ -16,6 +16,34 @@ jest.mock('./process', () => ({
 import * as path from 'path';
 import { SkeinSession, SessionConfig } from './session';
 import { SkeinTree } from './tree';
+import { ProgressHost } from './progress';
+
+/**
+ * A controllable ProgressHost double for replayAll's progress/cancellation tests - runs the task
+ * synchronously (like noopProgressHost), but records every withProgress() call's options and
+ * every progress.report() update, and lets a test flip the token's isCancellationRequested
+ * partway through by passing cancelAfterReports.
+ */
+function fakeProgressHost(cancelAfterReports?: number) {
+  const withProgressCalls: { title: string; cancellable: boolean }[] = [];
+  const reports: { message?: string; increment?: number }[] = [];
+  const host: ProgressHost = {
+    async withProgress(options, task) {
+      withProgressCalls.push(options);
+      const token = { isCancellationRequested: false };
+      const progress = {
+        report: (update: { message?: string; increment?: number }) => {
+          reports.push(update);
+          if (cancelAfterReports !== undefined && reports.length >= cancelAfterReports) {
+            token.isCancellationRequested = true;
+          }
+        }
+      };
+      return task(progress, token);
+    }
+  };
+  return { host, withProgressCalls, reports };
+}
 
 const BANNER_RESPONSE = { command: '', response: 'Welcome to the game.\n', promptType: 'line' as const };
 
@@ -338,6 +366,54 @@ describe('SkeinSession', () => {
       const knot0 = session.getTree().getDerivedKnot(0)!;
       expect(knot0.unblessedResponse).toBe('Welcome to the game, changed.\n');
       expect(knot0.state).toBe('error'); // differs from the blessed 'Welcome to the game. > '
+    });
+  });
+
+  describe('replayAll progress/cancellation', () => {
+    function seededTwoStepTree() {
+      return SkeinTree.newTree('dgdebug', 1)
+        .addChild(0, 'look', { text: 'Room A.\n', inputType: 'line' })
+        .addChild(1, 'take orb', { text: 'Got it.\n', inputType: 'line' })
+        .setActiveKnotId(2);
+    }
+
+    it('reports each replayed command through the injected progress host, as a cancellable notification', async () => {
+      mockReadResponse
+        .mockResolvedValueOnce(BANNER_RESPONSE) // session.start()
+        .mockResolvedValueOnce(BANNER_RESPONSE) // replay's relaunch
+        .mockResolvedValueOnce({ command: 'look', response: 'Room A.\n', promptType: 'line' })
+        .mockResolvedValueOnce({ command: 'take orb', response: 'Got it.\n', promptType: 'line' })
+        .mockResolvedValueOnce(dynamicResponse([]));
+      const { host, withProgressCalls, reports } = fakeProgressHost();
+      const session = SkeinSession.createLoaded(seededTwoStepTree(), DGDEBUG_CONFIG, host);
+      await session.start();
+
+      await session.replayAll();
+
+      expect(withProgressCalls).toEqual([{ title: 'Replaying all commands...', cancellable: true }]);
+      expect(reports).toEqual([
+        { message: 'look', increment: 50 },
+        { message: 'take orb', increment: 50 }
+      ]);
+    });
+
+    it('stops replaying and lands the active knot on the last completed step once the token cancels mid-replay', async () => {
+      mockReadResponse
+        .mockResolvedValueOnce(BANNER_RESPONSE) // session.start()
+        .mockResolvedValueOnce(BANNER_RESPONSE) // replay's relaunch
+        .mockResolvedValueOnce({ command: 'look', response: 'Room A.\n', promptType: 'line' })
+        .mockResolvedValueOnce(dynamicResponse([]));
+      const { host } = fakeProgressHost(1); // cancel right after the first command's progress is reported
+      const session = SkeinSession.createLoaded(seededTwoStepTree(), DGDEBUG_CONFIG, host);
+      await session.start();
+
+      await session.replayAll();
+
+      // refreshDynamicState still runs once the (truncated) loop exits, sending its own '@dynamic'
+      // command - so 'look' plus that, but never 'take orb'.
+      expect(mockSendCommand).toHaveBeenNthCalledWith(1, 'look');
+      expect(mockSendCommand).not.toHaveBeenCalledWith('take orb');
+      expect(session.getTree().getActiveKnotId()).toBe(1); // not 2, the original target
     });
   });
 

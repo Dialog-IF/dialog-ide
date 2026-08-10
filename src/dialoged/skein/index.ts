@@ -10,3 +10,4 @@ export * from './dynamic';
 export * from './persistence';
 export * from './io';
 export * from './project';
+export * from './progress';
