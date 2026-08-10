@@ -303,7 +303,7 @@ export function renderNavbar(info: SessionDisplayInfo, tree: SkeinTree): string 
       <button type="button" class="btn btn-primary" data-on:click="@post('/actions/save')" title="Save this skein to its file - the only thing that ever writes to disk (⌘S)">
         <div class="icon icon-save" aria-hidden="true"></div><span class="hidden lg:inline">Save</span>
       </button>
-      <button type="button" class="btn btn-primary" data-on:click="@post('/actions/replay-all')" title="Re-run every command on the active spine against a fresh process (⌥⇧R)">
+      <button type="button" class="btn btn-primary" data-on:click="@post('/actions/replay-all')" title="Re-run every command on every path in the tree against a fresh process (⌥⇧R)">
         <div class="icon icon-play" aria-hidden="true"></div><span class="hidden lg:inline">Replay All</span>
       </button>
       <button type="button" class="btn btn-primary" data-on:click="$knotId = ${spineLeafId}; @post('/actions/bless-changes')" title="Bless every changed knot visible in the transcript (the active spine) (⌥⇧B)">

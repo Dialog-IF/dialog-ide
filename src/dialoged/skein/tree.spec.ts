@@ -74,6 +74,15 @@ describe('SkeinTree.updateKnotCommandAndResponse', () => {
     const tree = SkeinTree.newTree('dgdebug', 1);
     expect(() => tree.updateKnotCommandAndResponse(999, 'x', { text: 'a', inputType: 'line' })).toThrow();
   });
+
+  it('clears unblessedResponse instead of duplicating it when the new response matches the blessed one', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1)
+      .addChild(0, 'look', { text: 'a', inputType: 'line' })
+      .blessKnot(1)
+      .updateKnotCommandAndResponse(1, 'look', { text: 'a', inputType: 'line' });
+    expect(tree.getKnot(1)!.response).toEqual({ text: 'a', inputType: 'line' });
+    expect(tree.getKnot(1)!.unblessedResponse).toBeNull();
+  });
 });
 
 describe('SkeinTree.updateKnotResponse', () => {
@@ -84,6 +93,23 @@ describe('SkeinTree.updateKnotResponse', () => {
     const knot = updated.getKnot(1)!;
     expect(knot.command).toBe('look');
     expect(knot.unblessedResponse).toEqual({ text: 'b', inputType: 'line' });
+  });
+
+  it('clears unblessedResponse instead of duplicating it when a replay reproduces the blessed response', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1)
+      .addChild(0, 'look', { text: 'a', inputType: 'line' })
+      .blessKnot(1)
+      .updateKnotResponse(1, { text: 'a', inputType: 'line' });
+    expect(tree.getKnot(1)!.response).toEqual({ text: 'a', inputType: 'line' });
+    expect(tree.getKnot(1)!.unblessedResponse).toBeNull();
+  });
+
+  it('still records a mismatching response as pending unblessedResponse', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1)
+      .addChild(0, 'look', { text: 'a', inputType: 'line' })
+      .blessKnot(1)
+      .updateKnotResponse(1, { text: 'a', inputType: 'key' });
+    expect(tree.getKnot(1)!.unblessedResponse).toEqual({ text: 'a', inputType: 'key' });
   });
 });
 

@@ -153,9 +153,12 @@ async function runLoadedSession(projectRoot: string, sessionId: string): Promise
 
   // start() only ever validates knot 0's banner - the process otherwise sits at the root even
   // though the transcript immediately shows the loaded active spine, so without this the process
-  // wouldn't actually catch up until the user manually clicked Replay All or typed a command. Skip
-  // it entirely when the loaded skein never went past the root - nothing to replay, and replayAll
-  // would otherwise force a pointless extra process restart.
+  // wouldn't actually catch up until the user manually clicked Replay All or typed a command. This
+  // is a full replayAll (every leaf in the tree, not just the active spine) - a fresh load is
+  // exactly when picking up .dg source edits across every explored branch matters most, before the
+  // user has looked at any of them. Skip it entirely when the loaded skein never went past the
+  // root - nothing to replay, and replayAll would otherwise force a pointless extra process
+  // restart.
   const activeKnotId = session.getTree().getActiveKnotId();
   if (activeKnotId !== null && activeKnotId !== 0) {
     await session.replayAll();

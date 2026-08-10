@@ -774,7 +774,7 @@ describe('SkeinService', () => {
         await post(`http://localhost:${service.getPort()}/actions/replay-all`, {});
 
         await waitFor(() => chunks.join('').includes('sk.showFlash'));
-        expect(chunks.join('')).toContain(`sk.showFlash(${JSON.stringify('Replayed all commands')})`);
+        expect(chunks.join('')).toContain(`sk.showFlash(${JSON.stringify('Replayed all paths')})`);
       } finally {
         req.destroy();
       }

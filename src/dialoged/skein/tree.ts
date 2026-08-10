@@ -20,6 +20,27 @@ export class LabelConflictError extends Error {
 }
 
 /**
+ * Whether a freshly-captured response is identical to a knot's already-blessed response, in
+ * which case there's nothing pending to diff or persist as unblessedResponse - see
+ * responseAfterUpdate.
+ */
+function responsesMatch(blessed: Response | null, fresh: Response): boolean {
+  return blessed !== null && blessed.text === fresh.text && blessed.inputType === fresh.inputType;
+}
+
+/**
+ * What a knot's unblessedResponse should become after a fresh response comes in (replay, or a
+ * command/response edit). When the fresh text matches what's already blessed there's nothing to
+ * mark pending - collapsing back to null avoids a redundant duplicate that render.ts's
+ * renderDiff would otherwise treat as "has a pending diff" (rendering ANSI as [B]-style markers
+ * instead of real styled HTML) and that persistence.ts's serializeKnot would write to the
+ * .skein file even though it never differs from the blessed response.
+ */
+function responseAfterUpdate(existing: WireKnot, fresh: Response): Response | null {
+  return responsesMatch(existing.response, fresh) ? null : fresh;
+}
+
+/**
  * A knot's own status, or (for treeState) the greatest status among a knot and its
  * descendants. Ordering: error > new > valid.
  */
@@ -206,7 +227,7 @@ export class SkeinTree {
     const updatedKnot: WireKnot = {
       ...knot,
       command,
-      unblessedResponse: response
+      unblessedResponse: responseAfterUpdate(knot, response)
     };
 
     const knots = this.knots.set(id, updatedKnot);
@@ -226,7 +247,7 @@ export class SkeinTree {
 
     const updatedKnot: WireKnot = {
       ...knot,
-      unblessedResponse: response
+      unblessedResponse: responseAfterUpdate(knot, response)
     };
 
     const knots = this.knots.set(id, updatedKnot);
@@ -753,11 +774,12 @@ export class SkeinTree {
   /**
    * The leaf of the currently selected spine - root, then following selectedChild all the way
    * down. This is "the whole spine" render.ts's selectedKnots renders into the transcript, and
-   * what the navbar's Replay All / Bless Transcript operate on - deliberately NOT activeKnotId,
-   * which (since selectKnot) can be any knot navigated to partway up that same spine. Using
-   * activeKnotId for either of those would silently stop short at wherever the user last clicked,
-   * even though the transcript itself keeps showing everything past it (see selectKnot's doc
-   * comment) - this is what those two operations actually mean by "the active spine".
+   * what Bless Transcript operates on, and what SkeinSession.replayAll restores the view to once
+   * every leaf in the tree has been replayed - deliberately NOT activeKnotId, which (since
+   * selectKnot) can be any knot navigated to partway up that same spine. Using activeKnotId for
+   * any of those would silently stop short at wherever the user last clicked, even though the
+   * transcript itself keeps showing everything past it (see selectKnot's doc comment) - this is
+   * what those operations actually mean by "the active spine".
    */
   public getSelectedLeafId(): number {
     let currentId = 0;
@@ -768,6 +790,21 @@ export class SkeinTree {
       }
       currentId = state.selectedChild;
     }
+  }
+
+  /**
+   * Every leaf id in the tree - knots with no children - not just the currently selected spine's
+   * one leaf (see getSelectedLeafId). Ascending id order, so SkeinSession.replayAll's replay
+   * order is deterministic and matches the order knots were created in. Used to implement
+   * "replay all paths" (technical-design.md's toolbar spec), as distinct from replaying just the
+   * one path currently shown in the transcript.
+   */
+  public getLeafIds(): number[] {
+    return this.knotStates
+      .filter((state) => state.children.length === 0)
+      .keySeq()
+      .toArray()
+      .sort((a, b) => a - b);
   }
 
   /**

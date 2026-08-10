@@ -31,7 +31,7 @@ describe('renderNavbar', () => {
     expect(html).toContain('aria-label="0 error knots"');
   });
 
-  it('wires Replay All to a plain @post(), no signal needed - the server targets the active spine itself', () => {
+  it('wires Replay All to a plain @post(), no signal needed - the server targets every leaf itself', () => {
     const tree = SkeinTree.newTree('dgdebug', 1);
     const html = renderNavbar(INFO, tree);
     expect(html).toContain(`data-on:click="@post('/actions/replay-all')"`);

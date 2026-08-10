@@ -506,8 +506,8 @@ export class SkeinService implements ProgressHost {
   }
 
   /**
-   * POST /actions/replay-all - the navbar's Replay All. No knotId: session.replayAll() always
-   * targets the active spine's own leaf.
+   * POST /actions/replay-all - the navbar's Replay All. No knotId: session.replayAll() replays
+   * every leaf in the tree, then restores whichever spine was active beforehand.
    */
   private async handleReplayAll(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
     if (!this.activeSession) {
@@ -529,7 +529,7 @@ export class SkeinService implements ProgressHost {
       return;
     }
 
-    this.broadcastFlash('Replayed all commands');
+    this.broadcastFlash('Replayed all paths');
     res.writeHead(204);
     res.end();
   }

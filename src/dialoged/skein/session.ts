@@ -268,11 +268,17 @@ export class SkeinSession {
    * command once sent) and lands the active knot on the last knot actually replayed, not the
    * original target - a truncated-but-consistent replay, never a knot showing a response that was
    * never actually sent to the process.
+   *
+   * totalSteps overrides the command count used as progress's percentage denominator - replayAll
+   * passes the sum of every leaf's path length so the bar reflects the whole multi-leaf pass
+   * instead of resetting to 0-100% on each leaf; everyone else (replayToKnot, runCommand's silent
+   * catch-up) leaves it unset and gets this call's own path.length, as before.
    */
   private async replayTo(
     targetId: number,
     progress?: ProgressReporter,
-    token?: CancellationToken
+    token?: CancellationToken,
+    totalSteps?: number
   ): Promise<void> {
     if (!this.process) {
       throw new Error('Session not running');
@@ -282,12 +288,15 @@ export class SkeinSession {
     await this.launchProcessAndCaptureBanner(false);
 
     const path = this.tree.commandPath(targetId);
+    const progressDivisor = totalSteps ?? path.length;
     let reachedId = 0;
     for (const { id, command } of path) {
       if (token?.isCancellationRequested) {
         break;
       }
-      progress?.report({ message: command, increment: 100 / path.length });
+      if (progressDivisor > 0) {
+        progress?.report({ message: command, increment: 100 / progressDivisor });
+      }
       this.process!.sendCommand(command);
       const response = await this.process!.readResponse();
       this.tree = this.tree.updateKnotResponse(id, { text: response.response, inputType: response.promptType });
@@ -302,21 +311,44 @@ export class SkeinSession {
   }
 
   /**
-   * Re-runs every command on the selected spine against a fresh process - the navbar's "Replay
-   * All". Targets tree.getSelectedLeafId(), not getActiveKnotId(): activeKnotId can be any knot
-   * navigated to partway up the spine (see tree.ts's selectKnot), and the transcript keeps
-   * showing everything past it regardless - "replay everything visible" means the leaf, not
-   * wherever the user last clicked. Since dgdebug re-reads its source files on every launch, this
-   * doubles as picking up any edits made to the project's .dg files since the process last
-   * started. Wrapped in progressHost.withProgress so a real session (see extension.ts's
+   * Re-runs every command along every path in the tree - the navbar's "Replay All", implementing
+   * technical-design.md's "replay all paths" (as opposed to just "replay current path"). Each
+   * leaf (tree.getLeafIds(), ascending id order) gets its own full restart-and-replay-from-root -
+   * dgdebug has no way to rewind, and, matching how every other replay in this codebase already
+   * works, there's no cross-leaf reuse of shared prefixes either. Since dgdebug re-reads its
+   * source files on every launch, this doubles as picking up any edits made to the project's .dg
+   * files since the process last started, across every branch, not just the one visible in the
+   * transcript.
+   *
+   * Each leaf's own replayTo call ends by pointing that leaf's whole root-to-here path's
+   * selectedChild pointers at itself (see replayTo/selectKnot) - so whichever leaf is replayed
+   * last "wins" any shared ancestor's selectedChild, and the transcript would end up showing
+   * whatever branch that happened to be rather than the one the user actually had open. Replaying
+   * the originally-active spine's own leaf last avoids that: it always wins, so the view never
+   * jumps just because other branches also got re-validated along the way. (When there's only one
+   * leaf - the common case, no forks yet - this reduces to exactly the single-spine replay this
+   * method used to be.)
+   *
+   * Wrapped in progressHost.withProgress so a real session (see extension.ts's
    * vscodeProgressHost) shows a cancellable native progress notification; tests and every other
    * call site get noopProgressHost's immediate no-dialog pass-through instead.
    */
   public async replayAll(): Promise<void> {
-    const leafId = this.tree.getSelectedLeafId();
-    await this.progressHost.withProgress({ title: 'Replaying all commands...', cancellable: true }, (progress, token) =>
-      this.replayTo(leafId, progress, token)
-    );
+    const originalLeafId = this.tree.getSelectedLeafId();
+    const orderedLeafIds = [
+      ...this.tree.getLeafIds().filter((id) => id !== originalLeafId),
+      originalLeafId
+    ];
+    const totalSteps = orderedLeafIds.reduce((sum, id) => sum + this.tree.commandPath(id).length, 0);
+
+    await this.progressHost.withProgress({ title: 'Replaying all paths...', cancellable: true }, async (progress, token) => {
+      for (const leafId of orderedLeafIds) {
+        if (token.isCancellationRequested) {
+          break;
+        }
+        await this.replayTo(leafId, progress, token, totalSteps);
+      }
+    });
   }
 
   /**

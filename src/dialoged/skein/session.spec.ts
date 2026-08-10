@@ -415,7 +415,7 @@ describe('SkeinSession', () => {
 
       await session.replayAll();
 
-      expect(withProgressCalls).toEqual([{ title: 'Replaying all commands...', cancellable: true }]);
+      expect(withProgressCalls).toEqual([{ title: 'Replaying all paths...', cancellable: true }]);
       expect(reports).toEqual([
         { message: 'look', increment: 50 },
         { message: 'take orb', increment: 50 }
@@ -439,6 +439,48 @@ describe('SkeinSession', () => {
       expect(mockSendCommand).toHaveBeenNthCalledWith(1, 'look');
       expect(mockSendCommand).not.toHaveBeenCalledWith('take orb');
       expect(session.getTree().getActiveKnotId()).toBe(1); // not 2, the original target
+    });
+  });
+
+  describe('replayAll across a forked tree', () => {
+    it('replays every leaf, not just the active spine, and restores the active spine afterwards', async () => {
+      // root -(look)-> 1 -(take orb)-> 2
+      //                 \-(inventory)-> 3
+      // addChild always makes the newest child selected, so building 3 after 2 leaves 3 as the
+      // tree's "first" spine on load - selectKnot(2) below moves the active spine back onto 2,
+      // which replayAll must still land back on once both leaves have been replayed.
+      const seeded = SkeinTree.newTree('dgdebug', 1)
+        .addChild(0, 'look', { text: 'Room A.\n', inputType: 'line' })
+        .addChild(1, 'take orb', { text: 'Got it.\n', inputType: 'line' })
+        .addChild(1, 'inventory', { text: 'Empty-handed.\n', inputType: 'line' })
+        .blessKnot(3)
+        .selectKnot(2);
+      mockReadResponse
+        .mockResolvedValueOnce(BANNER_RESPONSE) // session.start()
+        // leaf 3 ('inventory') is replayed first - it isn't the active spine, so it goes first.
+        .mockResolvedValueOnce(BANNER_RESPONSE) // relaunch
+        .mockResolvedValueOnce({ command: 'look', response: 'Room A.\n', promptType: 'line' })
+        .mockResolvedValueOnce({ command: 'inventory', response: 'Empty-handed.\n', promptType: 'line' })
+        .mockResolvedValueOnce(dynamicResponse([]))
+        // leaf 2 ('take orb') is replayed last, since it's the originally-active spine.
+        .mockResolvedValueOnce(BANNER_RESPONSE) // relaunch
+        .mockResolvedValueOnce({ command: 'look', response: 'Room A.\n', promptType: 'line' })
+        .mockResolvedValueOnce({ command: 'take orb', response: 'Got it.\n', promptType: 'line' })
+        .mockResolvedValueOnce(dynamicResponse([]));
+      const session = SkeinSession.createLoaded(seeded, DGDEBUG_CONFIG);
+      await session.start();
+
+      await session.replayAll();
+
+      expect(mockTerminate).toHaveBeenCalledTimes(2); // one restart per leaf
+      expect(mockSendCommand.mock.calls.map((call) => call[0])).toEqual([
+        'look', 'inventory', '@dynamic',
+        'look', 'take orb', '@dynamic'
+      ]);
+      const tree = session.getTree();
+      expect(tree.getDerivedKnot(3)!.state).toBe('valid'); // the non-active branch got re-validated too
+      expect(tree.getActiveKnotId()).toBe(2); // active spine restored, not left on leaf 3
+      expect(tree.getSelectedLeafId()).toBe(2);
     });
   });
 
