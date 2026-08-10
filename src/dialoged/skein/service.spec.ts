@@ -391,6 +391,9 @@ describe('SkeinService', () => {
         expect(payload).toContain('data: mode append');
         expect(payload).toContain('data: selector body');
         expect(payload).toContain('data-effect="el.remove()"');
+        // Bare call, not scrolled to a specific knot - correct here since the just-run command's
+        // new response is always the newest thing on screen, right above the input already.
+        expect(payload).toContain('resetAndFocusCommandInput()');
       } finally {
         req.destroy();
       }
@@ -423,7 +426,13 @@ describe('SkeinService', () => {
       expect(fake.calls.setActiveKnot).toEqual([1]);
     });
 
-    it('broadcasts the focus/reset execute-script after selecting - the user is likely about to type', async () => {
+    // Regression: this used to broadcast a bare resetAndFocusCommandInput() (scrolling only the
+    // command input into view), which happened to land on the right knot only when the clicked
+    // knot was already the transcript's leaf - clicking any ancestor scrolled straight past it to
+    // the bottom instead, since the transcript keeps showing the whole spine regardless of which
+    // knot on it was selected (tree.ts's selectKnot never truncates it). Passing the knotId lets
+    // main.js scroll that knot's own row into view instead.
+    it("broadcasts the focus/reset execute-script with the selected knot's id, so it scrolls to that knot", async () => {
       const tree = SkeinTree.newTree('dgdebug', 1);
       const fake = createFakeSession(tree);
       service.setActiveSession(fake as unknown as SkeinSession, 'default');
@@ -439,6 +448,7 @@ describe('SkeinService', () => {
         await post(`http://localhost:${service.getPort()}/actions/select-knot`, { knotId: 1 });
 
         await waitFor(() => chunks.join('').includes('resetAndFocusCommandInput'));
+        expect(chunks.join('')).toContain('resetAndFocusCommandInput(1)');
       } finally {
         req.destroy();
       }
@@ -486,7 +496,7 @@ describe('SkeinService', () => {
       expect(fake.calls.setActiveKnot).toEqual([]);
     });
 
-    it('broadcasts the focus/reset execute-script after - the user is about to type the new command', async () => {
+    it("broadcasts the focus/reset execute-script with the target knot's id - the user is about to type the new command", async () => {
       const tree = SkeinTree.newTree('dgdebug', 1);
       const fake = createFakeSession(tree);
       service.setActiveSession(fake as unknown as SkeinSession, 'default');
@@ -502,6 +512,7 @@ describe('SkeinService', () => {
         await post(`http://localhost:${service.getPort()}/actions/new-child`, { knotId: 1 });
 
         await waitFor(() => chunks.join('').includes('resetAndFocusCommandInput'));
+        expect(chunks.join('')).toContain('resetAndFocusCommandInput(1)');
       } finally {
         req.destroy();
       }

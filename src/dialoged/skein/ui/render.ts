@@ -233,9 +233,13 @@ function activeInputType(tree: SkeinTree): 'line' | 'key' {
  * matching dialog-tool's own data-on:change. data-init="el.focus(); el.scrollIntoView(...)" covers
  * the initial page load - a long transcript can otherwise leave the input below the fold, focused
  * but not visible; after each submission, service.ts's execute-script broadcast (main.js's
- * sk.resetAndFocusCommandInput) clears, refocuses, and re-scrolls it the same way - Datastar's
- * morph preserves this element's identity across patches (same id), so focus survives ordinary
- * re-renders on its own.
+ * sk.resetAndFocusCommandInput) clears and refocuses it the same way. Re-scrolling the *input*
+ * into view is only right when a just-run command's response is the newest thing on screen
+ * (right above it) - select-knot/new-child instead pass their own knotId through so it scrolls
+ * that knot's transcript row into view (see resetAndFocusCommandInput's own doc comment), since
+ * the transcript keeps showing the whole spine regardless of which knot on it was clicked.
+ * Datastar's morph preserves this element's identity across patches (same id), so focus survives
+ * ordinary re-renders on its own.
  *
  * Always shown (for a 'line'-expecting active knot), regardless of whether the active knot is
  * where the process actually is - "time travel" (jumping to an earlier knot and typing a

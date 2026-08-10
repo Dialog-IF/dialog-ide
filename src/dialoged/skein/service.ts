@@ -451,7 +451,14 @@ export class SkeinService implements ProgressHost {
       this.broadcastFlash(options.flashMessage);
     }
     if (options.focusAfter) {
-      this.broadcastScript('sk.resetAndFocusCommandInput()');
+      // Passing knotId (unlike handleSendCommand/handleSseConnect's own bare calls below) tells
+      // main.js's resetAndFocusCommandInput to scroll *that* knot's transcript row into view
+      // instead of always the command input - see its own doc comment for why select-knot and
+      // new-child both need this: the transcript keeps showing the whole spine root-to-leaf
+      // regardless of which knot was clicked (tree.ts's selectKnot never truncates it), so
+      // scrolling to the input alone only happened to land on the right knot when it was already
+      // the leaf - clicking any ancestor scrolled straight past it to the bottom instead.
+      this.broadcastScript(`sk.resetAndFocusCommandInput(${knotId})`);
     }
     res.writeHead(204);
     res.end();

@@ -3,14 +3,53 @@
 // the server-rendered markup (see render.ts/tree-pane.ts) - this file only holds what Datastar
 // has no opinion about: focus management, SVG drawing, drag math, and popover positioning.
 window.sk = {
-  resetAndFocusCommandInput() {
-    const el = document.getElementById('new-command-input');
-    if (el) {
-      el.value = '';
-      el.dispatchEvent(new Event('input', { bubbles: true }));
-      el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-      el.focus({ preventScroll: true });
-    }
+  // scrollToKnotId (service.ts's select-knot/new-child broadcasts) scrolls that knot's own
+  // transcript row into view instead of the command input - the transcript always shows the
+  // whole spine root-to-leaf regardless of which knot on it was clicked (tree.ts's selectKnot
+  // never truncates it), so scrolling to the input alone only happened to land on the right knot
+  // when it was already the leaf; clicking any ancestor scrolled straight past it to the bottom.
+  // Omitted (handleSendCommand/handleSseConnect's own bare calls) falls back to the input itself -
+  // correct there since a just-run command's new response is always the last thing shown, right
+  // above it.
+  //
+  // Only focuses the input when the target is the spine's actual leaf (or unspecified) - there's
+  // nothing to type into anyway unless you're actually looking at the spine's end.
+  resetAndFocusCommandInput(scrollToKnotId) {
+    // Deferred, not run inline: this executes from a dynamically-appended <script> patch
+    // (service.ts's sendScript), which can run before Datastar has fully finished settling the
+    // *separate*, immediately-preceding content patch in the same SSE stream - the two are
+    // independent datastar-patch-elements events, not one atomic update. A single
+    // requestAnimationFrame (the fix used elsewhere in this file, e.g. initTreeGraph's own
+    // MutationObserver-triggered drawTreeArrows) was NOT enough here and left scrollIntoView a
+    // silent no-op - confirmed by direct comparison against a real running instance of this page,
+    // embedded the same way extension.ts's outer webview embeds it (an iframe next to a
+    // position:sticky sibling, the tree pane): identical code, only the delay changed, and only a
+    // real ~150ms setTimeout reliably let whatever else still needed to settle finish first. A
+    // plain rAF, and even rAF-then-rAF, both still landed too early in testing.
+    setTimeout(() => {
+      const el = document.getElementById('new-command-input');
+      const isLeaf = scrollToKnotId == null || scrollToKnotId === spineLeafId();
+      if (el) {
+        el.value = '';
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+      const knotEl = scrollToKnotId != null && document.getElementById(`knot-${scrollToKnotId}`);
+      if (knotEl) {
+        // block: 'center', not 'nearest' - also verified empirically: 'nearest' and 'end' silently
+        // no-op for a transcript row in this layout, while 'start' and 'center' reliably scroll.
+        // 'center' keeps some surrounding context visible instead of jamming the knot against the
+        // very top edge.
+        knotEl.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      } else {
+        // No specific knot (or it wasn't found) - fall back to the input itself, where 'nearest'
+        // has always worked reliably (it's the last element in the column, so "nearest" and
+        // "aligned to the bottom" naturally coincide).
+        el?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      }
+      if (isLeaf) {
+        el?.focus({ preventScroll: true });
+      }
+    }, 150);
   },
 
   // An acknowledging flash (service.ts's broadcastFlash) - ported near-verbatim from dialog-tool's
@@ -174,6 +213,12 @@ window.sk = {
   // touches #skein-app.
   showLabelModal(knotId, currentLabel) {
     this.hideLabelModal();
+    // The trigger is a menu item inside an open dropdown - that dropdown's content is a native
+    // Popover (see knot-menu.ts's own doc comment on why), which renders in the browser's top
+    // layer, *above* this modal's plain fixed/z-50 overlay regardless of z-index. Left open, it
+    // would keep visually covering the modal until some unrelated click closed it. closeAllDropdowns
+    // (below) is the same close-and-sync-with-server logic the outside-click listener already uses.
+    closeAllDropdowns();
 
     const overlay = document.createElement('div');
     overlay.id = 'label-modal';
@@ -266,6 +311,13 @@ window.sk = {
       } else if (e.key === 'Enter') {
         e.preventDefault();
         submit();
+      } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'a') {
+        // Native Cmd/Ctrl+A select-all doesn't reach the input reliably inside a VS Code webview
+        // (the same class of platform quirk documented elsewhere in this file - see the keydown
+        // accelerator listener below on why Option+letter needs evt.code instead of evt.key), so
+        // this does it explicitly rather than relying on the browser default.
+        e.preventDefault();
+        input.select();
       }
     });
 
@@ -483,14 +535,12 @@ window.sk = {
   // below is what actually provides the outside-click-to-close a user expects.
 };
 
-// Clicking outside the open dropdown closes it. Skips anything inside a .dropdown entirely - a
-// click on a trigger (opening a different knot's menu) or a menu item is already handled by its
-// own data-on:click, including closing this one server-side as a side effect (every mutating
-// action and plain navigation already calls session.closeAllMenus() - see session.ts). Removing
-// `open`/hiding the popover here first gives instant visual feedback; the fetch just keeps the
-// server in sync so a later, unrelated SSE patch doesn't re-open it.
-document.addEventListener('click', (evt) => {
-  if (evt.target.closest('.dropdown')) return;
+// Closes every open per-knot dropdown, both visually (removing `open`/hiding the Popover, for
+// instant feedback) and server-side (POST /actions/close-menus keeps session.ts's graphMenuId/
+// transcriptMenuId in sync, so a later unrelated SSE patch doesn't re-open it). Shared by the
+// outside-click listener below and sk.showLabelModal, which needs the same cleanup when its
+// trigger was a menu item inside a still-open dropdown.
+function closeAllDropdowns() {
   const openMenus = document.querySelectorAll('details.dropdown[open]');
   if (openMenus.length === 0) return;
   openMenus.forEach((details) => {
@@ -498,6 +548,15 @@ document.addEventListener('click', (evt) => {
     details.querySelector('[popover]')?.togglePopover(false);
   });
   fetch('/actions/close-menus', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+}
+
+// Clicking outside the open dropdown closes it. Skips anything inside a .dropdown entirely - a
+// click on a trigger (opening a different knot's menu) or a menu item is already handled by its
+// own data-on:click, including closing this one server-side as a side effect (every mutating
+// action and plain navigation already calls session.closeAllMenus() - see session.ts).
+document.addEventListener('click', (evt) => {
+  if (evt.target.closest('.dropdown')) return;
+  closeAllDropdowns();
 });
 
 // ---------------------------------------------------------------------------
