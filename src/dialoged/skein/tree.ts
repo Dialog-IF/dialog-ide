@@ -6,6 +6,20 @@
 import { Map, Set } from 'immutable';
 
 /**
+ * Thrown by setLabel when the requested label is already used by a different knot - labels are
+ * tree-unique (see technical-design.md's Data Model section). A distinct class, not a plain
+ * Error, so callers (service.ts's handleSetLabel) can tell a rejected-but-expected conflict apart
+ * from a genuine bug and respond with a message the UI can actually show the user, rather than a
+ * generic 500.
+ */
+export class LabelConflictError extends Error {
+  constructor(label: string) {
+    super(`Label "${label}" is already used by another knot.`);
+    this.name = 'LabelConflictError';
+  }
+}
+
+/**
  * A knot's own status, or (for treeState) the greatest status among a knot and its
  * descendants. Ordering: error > new > valid.
  */
@@ -391,12 +405,21 @@ export class SkeinTree {
   }
 
   /**
-   * Set label for a knot - returns a new SkeinTree instance
+   * Set label for a knot - returns a new SkeinTree instance. Labels are tree-unique: a non-null
+   * label already carried by a *different* knot throws LabelConflictError rather than silently
+   * stealing it. null (clearing a label) is always allowed regardless of how many other knots are
+   * also unlabeled - only actual non-blank labels need to be distinct.
    */
   public setLabel(id: number, label: string | null): SkeinTree {
     const knot = this.knots.get(id);
     if (!knot) {
       throw new Error(`Knot ${id} not found`);
+    }
+    if (label !== null) {
+      const existing = this.findByLabel(label);
+      if (existing && existing.id !== id) {
+        throw new LabelConflictError(label);
+      }
     }
 
     const updatedKnot: WireKnot = {
@@ -405,6 +428,16 @@ export class SkeinTree {
     };
 
     return new SkeinTree(this.engine, this.seed, this.knots.set(id, updatedKnot), this.knotStates, this.activeKnotId, this.collapsedKnotIds);
+  }
+
+  /** The knot currently carrying the given non-null label, if any - setLabel's uniqueness check. */
+  private findByLabel(label: string): WireKnot | null {
+    for (const knot of this.knots.valueSeq()) {
+      if (knot.label === label) {
+        return knot;
+      }
+    }
+    return null;
   }
 
   /**
@@ -803,6 +836,28 @@ export class SkeinTree {
       currentId = childId;
     }
     return new SkeinTree(this.engine, this.seed, this.knots, knotStates, this.activeKnotId, this.collapsedKnotIds);
+  }
+
+  /**
+   * Prepares to add a new child under id - the actions menu's "New Child" action, distinct from
+   * selectKnot's plain click-to-navigate (which auto-extends into whatever's already explored
+   * past the clicked knot - see its own doc comment). Re-points selectedChild along the path from
+   * root down to id (selectPath, the same first step selectKnot takes) so the transcript reaches
+   * id even when id sits in a different branch than what's currently displayed, but then
+   * explicitly clears id's own selectedChild instead of extending into an existing child chain -
+   * the transcript stops exactly at id, with nothing shown past it, so the command input reads as
+   * "type the next thing from here" rather than silently reusing whatever was already explored
+   * underneath.
+   */
+  public selectForNewChild(id: number): SkeinTree {
+    if (!this.knots.get(id)) {
+      throw new Error(`Knot ${id} not found`);
+    }
+    const afterPath = this.selectPath(id);
+    const state = afterPath.knotStates.get(id)!;
+    const knotStates =
+      state.selectedChild === null ? afterPath.knotStates : afterPath.knotStates.set(id, { ...state, selectedChild: null });
+    return new SkeinTree(this.engine, this.seed, this.knots, knotStates, id, this.collapsedKnotIds);
   }
 
   /**

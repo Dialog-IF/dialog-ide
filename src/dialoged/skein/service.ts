@@ -7,7 +7,7 @@ import * as http from 'http';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { SkeinSession } from './session';
-import { SkeinTree } from './tree';
+import { LabelConflictError, SkeinTree } from './tree';
 import { renderApp, renderPage, SessionDisplayInfo } from './ui/render';
 import { ProgressHost, ProgressReporter, CancellationToken } from './progress';
 
@@ -240,12 +240,19 @@ export class SkeinService implements ProgressHost {
     }
 
     if (req.method === 'POST' && url.pathname === '/actions/select-knot') {
-      // Also used for the actions menu's "New Child" - selecting a knot and then relying on the
-      // command input's own replay-if-stale guard (session.ts's runCommand) for the actual new
-      // command, so it needs no route of its own.
       await this.handleKnotAction(req, res, (session, knotId) => session.setActiveKnot(knotId), {
         focusAfter: true
       });
+      return;
+    }
+
+    if (req.method === 'POST' && url.pathname === '/actions/new-child') {
+      // The actions menu's "New Child" (and main.js's Option+A) - distinct from plain select-knot:
+      // session.newChild clears the target's own selectedChild so the transcript stops there,
+      // ready for a genuinely new command, rather than auto-showing whatever's already explored
+      // past it. Relies on the command input's own replay-if-stale guard (session.ts's runCommand)
+      // for the actual new command, so it needs no route of its own beyond focusing the input.
+      await this.handleKnotAction(req, res, (session, knotId) => session.newChild(knotId), { focusAfter: true });
       return;
     }
 
@@ -400,9 +407,10 @@ export class SkeinService implements ProgressHost {
   }
 
   /**
-   * Shared plumbing for the actions-menu / navbar knot actions (select-knot, open-graph-menu,
-   * open-transcript-menu, bless-knot, bless-changes, toggle-lock, toggle-tree-node, delete-knot,
-   * splice-knot, replay-to): parses {knotId} from the JSON body, requires an active session, runs fn, and
+   * Shared plumbing for the actions-menu / navbar knot actions (select-knot, new-child,
+   * open-graph-menu, open-transcript-menu, bless-knot, bless-changes, toggle-lock,
+   * toggle-tree-node, delete-knot, splice-knot, replay-to): parses {knotId} from the JSON body,
+   * requires an active session, runs fn, and
    * responds 204/400/500 - the same shape as handleSendCommand. session.ts's own methods already
    * manage graphMenuId/transcriptMenuId (opening or closing them) as part of the same state
    * update that emits 'change', so there's nothing left for this to do about menu state - one
@@ -449,7 +457,12 @@ export class SkeinService implements ProgressHost {
     res.end();
   }
 
-  /** POST /actions/set-label - {knotId, label}; a blank/missing label clears it (setLabel(id, null)). */
+  /**
+   * POST /actions/set-label - {knotId, label}; a blank/missing label clears it (setLabel(id,
+   * null)). A duplicate label is an expected, user-facing rejection (labels are tree-unique - see
+   * tree.ts's LabelConflictError), not a bug: 409 with a JSON {error} body the label modal reads
+   * and displays inline, distinct from the generic 500 every other unexpected failure gets.
+   */
   private async handleSetLabel(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
     if (!this.activeSession) {
       res.writeHead(400);
@@ -470,6 +483,11 @@ export class SkeinService implements ProgressHost {
     try {
       this.activeSession.setLabel(knotId, label);
     } catch (error) {
+      if (error instanceof LabelConflictError) {
+        res.writeHead(409, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ error: error.message }));
+        return;
+      }
       console.error('Failed to set label:', error);
       res.writeHead(500);
       res.end();

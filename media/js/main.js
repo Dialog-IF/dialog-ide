@@ -162,6 +162,121 @@ window.sk = {
     if (el) el.remove();
   },
 
+  // A real modal (OK/Cancel, Escape-to-cancel) for editing a knot's label - replaces an earlier
+  // window.prompt()-based attempt, which VS Code's webview sandbox (no allow-modals) silently
+  // swallows entirely. Built the same way as showProgress above: plain DOM construction, not
+  // server-rendered Datastar markup, since there's no session-level "which modal is open" state
+  // worth tracking server-side for something this transient. Submitting POSTs to /actions/set-label
+  // directly; a 409 (tree.ts's LabelConflictError - labels are tree-unique) shows its message
+  // inline via the alert-error block and leaves the modal open with the input focused for another
+  // try, rather than closing on failure. Success (204) relies on the session's own 'change'
+  // broadcast to re-render the knot's label chip - this modal only ever closes itself, never
+  // touches #skein-app.
+  showLabelModal(knotId, currentLabel) {
+    this.hideLabelModal();
+
+    const overlay = document.createElement('div');
+    overlay.id = 'label-modal';
+    overlay.className = 'fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-grayscale';
+
+    const panel = document.createElement('div');
+    panel.className = 'bg-base-100 rounded-lg shadow-xl max-w-full min-w-md mx-4';
+    panel.setAttribute('role', 'dialog');
+    panel.setAttribute('aria-modal', 'true');
+    panel.setAttribute('tabindex', '-1');
+
+    const header = document.createElement('div');
+    header.className = 'px-6 py-4 border-b border-base-200';
+    const heading = document.createElement('h3');
+    heading.className = 'text-lg font-medium text-base-content';
+    heading.textContent = 'Edit Label';
+    header.appendChild(heading);
+
+    const body = document.createElement('div');
+    body.className = 'px-6 py-4';
+
+    const errorEl = document.createElement('div');
+    errorEl.className = 'alert alert-error text-sm mb-3 hidden';
+    errorEl.setAttribute('role', 'alert');
+    errorEl.setAttribute('aria-live', 'assertive');
+    body.appendChild(errorEl);
+
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'input input-bordered w-full';
+    input.value = currentLabel || '';
+    input.placeholder = 'Label (blank to clear)';
+    input.setAttribute('aria-label', 'Label');
+    body.appendChild(input);
+
+    const buttonRow = document.createElement('div');
+    buttonRow.className = 'flex justify-end gap-2 mt-4';
+
+    const cancelBtn = document.createElement('button');
+    cancelBtn.type = 'button';
+    cancelBtn.className = 'btn btn-neutral';
+    cancelBtn.textContent = 'Cancel';
+    cancelBtn.addEventListener('click', () => this.hideLabelModal());
+
+    const okBtn = document.createElement('button');
+    okBtn.type = 'button';
+    okBtn.className = 'btn btn-primary';
+    okBtn.textContent = 'OK';
+    const submit = async () => {
+      errorEl.classList.add('hidden');
+      let res;
+      try {
+        res = await fetch('/actions/set-label', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ knotId, label: input.value })
+        });
+      } catch {
+        errorEl.textContent = 'Failed to reach the server.';
+        errorEl.classList.remove('hidden');
+        return;
+      }
+      if (res.status === 204) {
+        this.hideLabelModal();
+        return;
+      }
+      if (res.status === 409) {
+        const body = await res.json().catch(() => ({}));
+        errorEl.textContent = body.error || 'That label is already in use.';
+      } else {
+        errorEl.textContent = 'Failed to save label.';
+      }
+      errorEl.classList.remove('hidden');
+      input.focus();
+      input.select();
+    };
+    okBtn.addEventListener('click', submit);
+
+    buttonRow.append(cancelBtn, okBtn);
+    body.appendChild(buttonRow);
+
+    panel.append(header, body);
+    overlay.appendChild(panel);
+    document.body.appendChild(overlay);
+
+    panel.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        this.hideLabelModal();
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        submit();
+      }
+    });
+
+    input.focus();
+    input.select();
+  },
+
+  hideLabelModal() {
+    document.getElementById('label-modal')?.remove();
+  },
+
   // ---------------------------------------------------------------------------
   // Tree/graph pane: SVG connector lines + drag-to-pan.
   // Ported from dialog-tool's own main.js (initTreeGraph/drawTreeArrows) - same element ids
@@ -385,16 +500,103 @@ document.addEventListener('click', (evt) => {
   fetch('/actions/close-menus', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
 });
 
-// Cmd+Z / Shift+Cmd+Z (Ctrl+Z on non-Mac) - undo/redo over session.ts's structural-edit stack
-// (bless, delete, splice, label/lock, running a new command). Intentionally global, not scoped to
-// "focus is outside a text field": the command input auto-refocuses after nearly every action
-// (sk.resetAndFocusCommandInput), so excluding INPUT/TEXTAREA focus would make the shortcut fire
-// almost never. There's nothing meaningful for the browser's own per-field undo to do here anyway
-// (the input's value is cleared via a plain JS assignment after each submit, not real typed
-// history), so this always wins over native field-undo and calls preventDefault to suppress it.
+// ---------------------------------------------------------------------------
+// Keyboard accelerators - mirrors dialog-tool's own Cmd/Option-based scheme (doc/skein.md),
+// adapted to dialog-ide's actual routes. One capturing document-level keydown listener,
+// intentionally global rather than scoped to "focus is outside a text field": the command input
+// auto-refocuses after nearly every action (sk.resetAndFocusCommandInput), so excluding INPUT/
+// TEXTAREA focus would make every shortcut below fire almost never, and none of these modifier
+// combos (Cmd, Option) are part of normal command typing anyway - same reasoning undo/redo
+// already used. Suppressed while the progress modal is up (a replay is already in flight; its own
+// Cancel button is the only control that makes sense then).
+//
+// Knot-scoped shortcuts (Option+letter, no Shift) act on whichever knot is currently active, not
+// whichever knot's menu happens to be open/hovered - read from #tree-pane's data-active-knot, the
+// same attribute drawTreeArrows already relies on. Root-only guards (id 0 can't be locked,
+// labeled, or deleted) mirror knot-menu.ts's own menuItemClass(isRoot) disabling - skipping
+// server-side here rather than letting session.ts throw into an unhandled 500.
+
+function postAction(path, body) {
+  fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body ?? {}) });
+}
+
+function activeKnotId() {
+  const raw = document.getElementById('tree-pane')?.getAttribute('data-active-knot');
+  return raw ? Number(raw) : null;
+}
+
+function spineLeafId() {
+  const raw = document.querySelector('nav')?.getAttribute('data-spine-leaf-id');
+  return raw ? Number(raw) : null;
+}
+
+// ⌥L's target: the knot's current label, read off the "Edit Label" menu button's own
+// data-current-label attribute (knot-menu.ts) rather than requiring the dropdown to be open -
+// that attribute exists in the DOM regardless of the <details>'s open/closed state.
+function currentLabelOf(knotId) {
+  return document.querySelector(`#knot-${knotId} [data-current-label]`)?.dataset.currentLabel ?? '';
+}
+
 document.addEventListener('keydown', (evt) => {
-  if (!(evt.metaKey || evt.ctrlKey) || evt.key.toLowerCase() !== 'z') return;
-  evt.preventDefault();
-  const path = evt.shiftKey ? '/actions/redo' : '/actions/undo';
-  fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+  if (document.getElementById('progress-modal') || document.getElementById('label-modal')) return;
+
+  const mod = evt.metaKey || evt.ctrlKey;
+  const opt = evt.altKey;
+  // Cmd/Ctrl never recompose a letter key, so evt.key (plain 's'/'z') is fine for the mod branch
+  // below. Option does recompose it on macOS - Option+R types "®", not "r" - so evt.key would
+  // never match the letters below and the shortcut would silently fall through to inserting that
+  // composed character into whatever's focused instead of calling preventDefault(). evt.code (the
+  // physical key position, e.g. "KeyR") is layout/composition-independent and unaffected by
+  // Option, so every opt-branch check below matches on that instead.
+  const key = evt.key.toLowerCase();
+  const code = evt.code;
+
+  // Tree-wide.
+  if (mod && !opt && key === 's') {
+    evt.preventDefault();
+    postAction('/actions/save');
+    return;
+  }
+  if (mod && !opt && key === 'z') {
+    evt.preventDefault();
+    postAction(evt.shiftKey ? '/actions/redo' : '/actions/undo');
+    return;
+  }
+  if (opt && evt.shiftKey && code === 'KeyR') {
+    evt.preventDefault();
+    postAction('/actions/replay-all');
+    return;
+  }
+  if (opt && evt.shiftKey && code === 'KeyB') {
+    evt.preventDefault();
+    const knotId = spineLeafId();
+    if (knotId !== null) postAction('/actions/bless-changes', { knotId });
+    return;
+  }
+
+  // Knot-scoped - act on the active knot.
+  if (opt && !evt.shiftKey) {
+    const knotId = activeKnotId();
+    if (knotId === null) return;
+
+    if (code === 'KeyB') {
+      evt.preventDefault();
+      postAction('/actions/bless-knot', { knotId });
+    } else if (code === 'KeyR') {
+      evt.preventDefault();
+      postAction('/actions/replay-to', { knotId });
+    } else if (code === 'KeyA') {
+      evt.preventDefault();
+      postAction('/actions/new-child', { knotId });
+    } else if (code === 'KeyK' && knotId !== 0) {
+      evt.preventDefault();
+      postAction('/actions/toggle-lock', { knotId });
+    } else if (code === 'KeyD' && knotId !== 0) {
+      evt.preventDefault();
+      postAction('/actions/delete-knot', { knotId });
+    } else if (code === 'KeyL' && knotId !== 0) {
+      evt.preventDefault();
+      sk.showLabelModal(knotId, currentLabelOf(knotId));
+    }
+  }
 });

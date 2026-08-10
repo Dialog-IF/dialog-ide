@@ -63,6 +63,20 @@ describe('renderNavbar', () => {
     expect(html).toContain(`$knotId = 2; @post('/actions/bless-changes')`);
   });
 
+  // main.js's Option+Shift+B accelerator has no server-rendered button of its own to read a
+  // baked-in knot id from (unlike the click-driven Bless Transcript button above) - it reads this
+  // attribute directly instead, so it needs to reflect the same spine-leaf target, not activeKnotId.
+  it('exposes the spine leaf id as a data attribute for the keyboard accelerator to read', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1)
+      .addChild(0, 'look', { text: 'Room A.\n', inputType: 'line' })
+      .addChild(1, 'take orb', { text: 'Got it.\n', inputType: 'line' })
+      .selectKnot(1);
+
+    const html = renderNavbar(INFO, tree);
+
+    expect(html).toContain('data-spine-leaf-id="2"');
+  });
+
   it('styles Save, Replay All, and Bless Transcript identically as bordered primary buttons, not a dropdown', () => {
     const tree = SkeinTree.newTree('dgdebug', 1);
     const html = renderNavbar(INFO, tree);
@@ -133,6 +147,29 @@ describe('renderKnotList', () => {
     expect(knot1Section).toContain('icon-arrow-right');
   });
 
+  // main.js's Option+letter accelerators always act on the active knot, regardless of which
+  // knot's menu is open/hovered - a shortcut hint on every knot's copy of this menu would
+  // misleadingly suggest otherwise, so knot-menu.ts's renderKnotMenu only adds it for the one
+  // that's actually active.
+  it("shows keyboard-shortcut hints only on the active knot's own menu items", () => {
+    const tree = SkeinTree.newTree('dgdebug', 1)
+      .addChild(0, 'look', { text: 'a', inputType: 'line' })
+      .addChild(0, 'inventory', { text: 'b', inputType: 'line' })
+      .selectKnot(1);
+    const html = renderKnotList(tree);
+
+    // '<div class="flex flex-row" id="knot-' (the exact per-row wrapper render.ts emits), not the
+    // bare 'id="knot-' boundary other tests in this file use - that shorter form also matches the
+    // menu popover's own id="knot-menu-transcript-N" and would truncate the section before any of
+    // its menu items.
+    const rowBoundary = '<div class="flex flex-row" id="knot-';
+    const knot1Section = html.split('id="knot-1"')[1].split(rowBoundary)[0];
+    expect(knot1Section).toContain('title="Delete (⌥D)"');
+
+    const knot0Section = html.split('id="knot-0"')[1].split(rowBoundary)[0];
+    expect(knot0Section).not.toContain('title=');
+  });
+
   it('wires the row to select the knot on click, with no right-click affordance, both plain Datastar @post - and renders that knot\'s menu inline, closed by default', () => {
     const tree = SkeinTree.newTree('dgdebug', 1)
       .addChild(0, 'look', { text: 'a', inputType: 'line' })
@@ -143,6 +180,28 @@ describe('renderKnotList', () => {
     expect(knot1Section).not.toContain('data-on:contextmenu');
     expect(knot1Section).toContain('<details class="dropdown dropdown-left font-sans" style="anchor-name: --knot-menu-transcript-1">'); // present, but not open
     expect(knot1Section).not.toContain('<details class="dropdown dropdown-left font-sans" open style="anchor-name: --knot-menu-transcript-1">');
+  });
+
+  it("wires the menu's New Child item to its own route, distinct from plain select-knot navigation", () => {
+    const tree = SkeinTree.newTree('dgdebug', 1).addChild(0, 'look', { text: 'a', inputType: 'line' });
+    const html = renderKnotList(tree);
+    const knot1Section = html.split('id="knot-1"')[1].split('<div class="flex flex-row" id="knot-')[0];
+    expect(knot1Section).toContain(`data-on:click="$knotId = 1; @post('/actions/new-child')"`);
+  });
+
+  // Regression: window.prompt() is silently swallowed inside a VS Code webview (sandboxed without
+  // allow-modals), so Edit Label used to appear to do nothing there even though it worked fine in
+  // a plain browser tab. An inline input, submitted on its own change event (same pattern as the
+  // main command input), doesn't depend on any dialog API.
+  it("wires Edit Label to the modal (not prompt()), carrying the knot's current label", () => {
+    const tree = SkeinTree.newTree('dgdebug', 1)
+      .addChild(0, 'look', { text: 'a', inputType: 'line' })
+      .setLabel(1, 'checkpoint');
+    const html = renderKnotList(tree);
+    const knot1Section = html.split('id="knot-1"')[1].split('<div class="flex flex-row" id="knot-')[0];
+    expect(knot1Section).not.toContain('prompt(');
+    expect(knot1Section).toContain('data-current-label="checkpoint"');
+    expect(knot1Section).toContain('data-on:click="sk.showLabelModal(1, el.dataset.currentLabel)"');
   });
 
   it('opens knot 1\'s menu (and only knot 1\'s) when menuKnotId matches it', () => {
@@ -355,7 +414,11 @@ describe('renderPage', () => {
     expect(html).toContain('No skein session running');
   });
 
-  it('renders each knot\'s actions menu inline, declaratively wired, with no confirm() gates anywhere', () => {
+  // No confirm()/prompt(): both are silently swallowed inside a VS Code webview (sandboxed
+  // without allow-modals - see knot-menu.ts's Edit Label input, which replaced a prompt() call
+  // for exactly this reason), so relying on either here would look like a dead button in the
+  // real extension even though it'd work fine in a plain browser tab.
+  it('renders each knot\'s actions menu inline, declaratively wired, with no confirm()/prompt() gates anywhere', () => {
     const html = renderPage(INFO, SkeinTree.newTree('dgdebug', 1));
     expect(html).toContain('class="dropdown dropdown-right font-sans"');
     expect(html).toContain(`data-on:click="$knotId = 0; @post('/actions/bless-knot')"`);
@@ -363,6 +426,7 @@ describe('renderPage', () => {
     expect(html).toContain(`data-on:click="$knotId = 0; @post('/actions/splice-knot')"`);
     expect(html).toContain(`data-on:click="$knotId = 0; @post('/actions/delete-knot')"`);
     expect(html).not.toContain('confirm(');
+    expect(html).not.toContain('prompt(');
   });
 
   it('opens the requested knot\'s menu (native <details open>) when graphMenuId is passed through', () => {

@@ -346,6 +346,21 @@ export class SkeinSession {
   }
 
   /**
+   * Actions menu's "New Child" - makes id the active knot and clears its own selectedChild (via
+   * tree.selectForNewChild), unlike setActiveKnot's selectKnot which would auto-extend into
+   * whatever's already explored past id. The transcript stops exactly at id, ready for the
+   * command input to create a genuinely new child, regardless of whether id already has one.
+   */
+  public newChild(id: number): void {
+    if (!this.tree.getKnot(id)) {
+      throw new Error(`Knot ${id} not found`);
+    }
+    this.tree = this.tree.selectForNewChild(id);
+    this.closeMenus();
+    this.changeEmitter.emit('change');
+  }
+
+  /**
    * Opens (or, if id's menu is already open, closes - a real toggle) the tree/graph pane's
    * actions menu for id - the "..." trigger on a node. Deliberately does NOT change the active
    * knot: only a plain left-click on the knot itself (setActiveKnot) does that. Opening a menu
@@ -462,8 +477,12 @@ export class SkeinSession {
     if (id === 0) {
       throw new Error('The root knot\'s label cannot be changed');
     }
+    // Computed before pushUndoSnapshot, not after: tree.setLabel throws LabelConflictError for a
+    // duplicate without touching this.tree, so a rejected label must not push a snapshot either -
+    // there was no real edit to undo back to.
+    const updated = this.tree.setLabel(id, label);
     this.pushUndoSnapshot();
-    this.tree = this.tree.setLabel(id, label);
+    this.tree = updated;
     this.closeMenus();
     this.changeEmitter.emit('change');
   }

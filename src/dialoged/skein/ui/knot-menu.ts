@@ -89,6 +89,15 @@
  * relying on some ancestor never being mono) keeps the menu's own font independent of whatever
  * happens to contain it.
  */
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 function menuItemClass(disabled: boolean): string {
   return disabled ? ' class="menu-disabled"' : '';
 }
@@ -104,11 +113,25 @@ const PANE_CONFIG: Record<KnotMenuOpenRoute, { pane: string; directionClass: str
   '/actions/open-transcript-menu': { pane: 'transcript', directionClass: 'dropdown-left' }
 };
 
-export function renderKnotMenu(id: number, hasUnblessed: boolean, isOpen: boolean, openRoute: KnotMenuOpenRoute): string {
+/**
+ * hint(label, key) - the keyboard-shortcut title suffix for a menu item, shown only when isActive
+ * (main.js's Option+letter accelerators always act on the active knot - see its own doc comment -
+ * so a hint on every knot's copy of this menu, active or not, would misleadingly imply the
+ * shortcut acts on whichever knot's menu happens to be open).
+ */
+export function renderKnotMenu(
+  id: number,
+  hasUnblessed: boolean,
+  isOpen: boolean,
+  openRoute: KnotMenuOpenRoute,
+  isActive: boolean = false,
+  currentLabel: string | null = null
+): string {
   const isRoot = id === 0;
   const { pane, directionClass } = PANE_CONFIG[openRoute];
   const anchorName = `--knot-menu-${pane}-${id}`;
   const popoverId = `knot-menu-${pane}-${id}`;
+  const hint = (label: string, key: string): string => (isActive ? ` title="${label} (${key})"` : '');
 
   return `<details class="dropdown ${directionClass} font-sans"${isOpen ? ' open' : ''} style="anchor-name: ${anchorName}">
   <summary tabindex="0" role="button" class="btn btn-xs btn-ghost py-0 px-0.5 min-h-0 h-4 w-4 leading-none"
@@ -119,13 +142,15 @@ export function renderKnotMenu(id: number, hasUnblessed: boolean, isOpen: boolea
     style="position-anchor: ${anchorName}"
     data-effect="el.togglePopover(${isOpen})"
     data-on:click__stop="void 0">
-    <li${menuItemClass(!hasUnblessed)}><button type="button" role="menuitem"${menuItemAttrs(!hasUnblessed)} data-on:click="$knotId = ${id}; @post('/actions/bless-knot')">Bless Knot</button></li>
-    <li><button type="button" role="menuitem" data-on:click="$knotId = ${id}; @post('/actions/select-knot')">New Child</button></li>
-    <li><button type="button" role="menuitem" data-on:click="$knotId = ${id}; @post('/actions/replay-to')">Replay to Here</button></li>
-    <li${menuItemClass(isRoot)}><button type="button" role="menuitem"${menuItemAttrs(isRoot)} data-on:click="const l = prompt('Label for this knot (blank to clear):', ''); if (l !== null) { \$knotId = ${id}; \$label = l; @post('/actions/set-label') }">Edit Label&hellip;</button></li>
-    <li${menuItemClass(isRoot)}><button type="button" role="menuitem"${menuItemAttrs(isRoot)} data-on:click="$knotId = ${id}; @post('/actions/toggle-lock')">Toggle Lock</button></li>
+    <li${menuItemClass(!hasUnblessed)}><button type="button" role="menuitem"${hint('Bless Knot', '⌥B')}${menuItemAttrs(!hasUnblessed)} data-on:click="$knotId = ${id}; @post('/actions/bless-knot')">Bless Knot</button></li>
+    <li><button type="button" role="menuitem"${hint('New Child', '⌥A')} data-on:click="$knotId = ${id}; @post('/actions/new-child')">New Child</button></li>
+    <li><button type="button" role="menuitem"${hint('Replay to Here', '⌥R')} data-on:click="$knotId = ${id}; @post('/actions/replay-to')">Replay to Here</button></li>
+    <li${menuItemClass(isRoot)}><button type="button" role="menuitem"${hint('Edit Label', '⌥L')}${menuItemAttrs(isRoot)}
+      data-current-label="${escapeHtml(currentLabel ?? '')}"
+      data-on:click="sk.showLabelModal(${id}, el.dataset.currentLabel)">Edit Label&hellip;</button></li>
+    <li${menuItemClass(isRoot)}><button type="button" role="menuitem"${hint('Toggle Lock', '⌥K')}${menuItemAttrs(isRoot)} data-on:click="$knotId = ${id}; @post('/actions/toggle-lock')">Toggle Lock</button></li>
     <li${menuItemClass(isRoot)}><button type="button" role="menuitem"${menuItemAttrs(isRoot)} data-on:click="$knotId = ${id}; @post('/actions/splice-knot')">Splice Out</button></li>
-    <li${menuItemClass(isRoot)}><button type="button" role="menuitem"${menuItemAttrs(isRoot)} data-on:click="$knotId = ${id}; @post('/actions/delete-knot')">Delete</button></li>
+    <li${menuItemClass(isRoot)}><button type="button" role="menuitem"${hint('Delete', '⌥D')}${menuItemAttrs(isRoot)} data-on:click="$knotId = ${id}; @post('/actions/delete-knot')">Delete</button></li>
   </ul>
 </details>`;
 }

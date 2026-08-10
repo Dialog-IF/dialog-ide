@@ -15,7 +15,7 @@ jest.mock('./process', () => ({
 
 import * as path from 'path';
 import { SkeinSession, SessionConfig } from './session';
-import { SkeinTree } from './tree';
+import { LabelConflictError, SkeinTree } from './tree';
 import { ProgressHost } from './progress';
 
 /**
@@ -489,6 +489,64 @@ describe('SkeinSession', () => {
     });
   });
 
+  describe('newChild', () => {
+    it('activates the knot without touching the process, same as setActiveKnot', async () => {
+      const session = await startedSessionWith(
+        SkeinTree.newTree('dgdebug', 1).addChild(0, 'look', { text: 'a', inputType: 'line' })
+      );
+
+      session.newChild(1);
+
+      expect(session.getTree().getActiveKnotId()).toBe(1);
+      expect(mockTerminate).not.toHaveBeenCalled();
+      expect(session.getProcessPositionId()).toBe(0);
+    });
+
+    // The behavior distinguishing this from setActiveKnot: see tree.spec.ts's
+    // SkeinTree.selectForNewChild tests for the full rationale.
+    it("clears the knot's own selectedChild, unlike setActiveKnot", async () => {
+      const session = await startedSessionWith(
+        SkeinTree.newTree('dgdebug', 1)
+          .addChild(0, 'look', { text: 'a', inputType: 'line' }) // knot 1
+          .addChild(1, 'take orb', { text: 'b', inputType: 'line' }) // knot 2, knot 1's only child
+      );
+
+      session.newChild(1);
+
+      expect(session.getTree().getDerivedKnot(1)!.selectedChild).toBeNull();
+    });
+
+    it('emits a change event', async () => {
+      const session = await startedSessionWith(
+        SkeinTree.newTree('dgdebug', 1).addChild(0, 'look', { text: 'a', inputType: 'line' })
+      );
+      const onChange = jest.fn();
+      session.onChange(onChange);
+
+      session.newChild(1);
+
+      expect(onChange).toHaveBeenCalledTimes(1);
+    });
+
+    it('throws for an unknown knot id', async () => {
+      const session = await startedSessionWith(SkeinTree.newTree('dgdebug', 1));
+      expect(() => session.newChild(999)).toThrow();
+    });
+
+    it("closes both panes' menus", async () => {
+      const session = await startedSessionWith(
+        SkeinTree.newTree('dgdebug', 1).addChild(0, 'look', { text: 'a', inputType: 'line' })
+      );
+      session.openGraphMenu(1);
+      session.openTranscriptMenu(1);
+
+      session.newChild(1);
+
+      expect(session.getGraphMenuId()).toBeNull();
+      expect(session.getTranscriptMenuId()).toBeNull();
+    });
+  });
+
   describe('openGraphMenu / openTranscriptMenu', () => {
     it('are tracked independently - opening one pane\'s menu never opens the other\'s', async () => {
       const session = await startedSessionWith(
@@ -748,6 +806,38 @@ describe('SkeinSession', () => {
     it('throws for the root knot', async () => {
       const session = await startedSessionWith(SkeinTree.newTree('dgdebug', 1));
       expect(() => session.setLabel(0, 'nope')).toThrow();
+    });
+
+    it('propagates LabelConflictError for a label another knot already carries', async () => {
+      const session = await startedSessionWith(
+        SkeinTree.newTree('dgdebug', 1)
+          .addChild(0, 'look', { text: 'a', inputType: 'line' })
+          .addChild(0, 'inventory', { text: 'b', inputType: 'line' })
+          .setLabel(1, 'checkpoint')
+      );
+
+      expect(() => session.setLabel(2, 'checkpoint')).toThrow(LabelConflictError);
+      expect(session.getTree().getKnot(2)!.label).toBeNull();
+    });
+
+    // A rejected label was never a real edit - undo must not treat it as one (see session.ts's
+    // own doc comment on why the tree mutation is computed before pushUndoSnapshot). Without that
+    // fix, the rejected attempt would still push a snapshot equal to the already-current tree, so
+    // a single undo() would silently no-op instead of reverting the genuine setLabel(1,...) edit -
+    // confusing "I pressed undo and nothing happened" UX.
+    it('does not waste an undo entry on a rejected (conflicting) label', async () => {
+      const session = await startedSessionWith(
+        SkeinTree.newTree('dgdebug', 1)
+          .addChild(0, 'look', { text: 'a', inputType: 'line' })
+          .addChild(0, 'inventory', { text: 'b', inputType: 'line' })
+      );
+
+      session.setLabel(1, 'checkpoint'); // a real, valid edit - pushes one undo entry
+      expect(() => session.setLabel(2, 'checkpoint')).toThrow(LabelConflictError); // rejected - must not push another
+
+      session.undo();
+
+      expect(session.getTree().getKnot(1)!.label).toBeNull();
     });
   });
 

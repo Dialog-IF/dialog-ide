@@ -160,7 +160,7 @@ function renderKnot(
     knot.label
       ? `<span class="font-bold bg-neutral text-neutral-content px-1 py-0.5 rounded text-sm">${escapeHtml(knot.label)}</span>`
       : ''
-  }${renderKnotMenu(knot.id, knot.unblessedResponse !== null, knot.id === transcriptMenuId, '/actions/open-transcript-menu')}</div>`;
+  }${renderKnotMenu(knot.id, knot.unblessedResponse !== null, knot.id === transcriptMenuId, '/actions/open-transcript-menu', active, knot.label)}</div>`;
 
   const keystrokeChip =
     reachedViaKeystroke(tree, knot)
@@ -286,7 +286,8 @@ function renderCommandInput(tree: SkeinTree): string {
 export function renderNavbar(info: SessionDisplayInfo, tree: SkeinTree): string {
   const t = totals(tree);
   const spineLeafId = tree.getSelectedLeafId();
-  return `<nav class="bg-base-100 text-base-content border-base-200 divide-base-200 px-2 sm:px-4 py-2.5 w-full border-b">
+  return `<nav class="bg-base-100 text-base-content border-base-200 divide-base-200 px-2 sm:px-4 py-2.5 w-full border-b"
+  data-spine-leaf-id="${spineLeafId}">
   <div class="w-full flex items-center gap-2">
     <div class="self-center truncate text-xl font-semibold shrink min-w-0">${escapeHtml(info.sessionId)}.skein &middot; ${escapeHtml(info.engine)} &middot; seed ${info.seed}</div>
     <div class="join shrink-0 mx-auto">
@@ -295,13 +296,13 @@ export function renderNavbar(info: SessionDisplayInfo, tree: SkeinTree): string 
       <div class="bg-error text-error-content p-2 font-semibold rounded-r-lg" aria-label="${t.error} error knots">${t.error}</div>
     </div>
     <div class="flex items-center gap-1 shrink-0 ml-auto">
-      <button type="button" class="btn btn-primary" data-on:click="@post('/actions/save')" title="Save this skein to its file - the only thing that ever writes to disk">
+      <button type="button" class="btn btn-primary" data-on:click="@post('/actions/save')" title="Save this skein to its file - the only thing that ever writes to disk (⌘S)">
         <div class="icon icon-save" aria-hidden="true"></div><span class="hidden lg:inline">Save</span>
       </button>
-      <button type="button" class="btn btn-primary" data-on:click="@post('/actions/replay-all')" title="Re-run every command on the active spine against a fresh process">
+      <button type="button" class="btn btn-primary" data-on:click="@post('/actions/replay-all')" title="Re-run every command on the active spine against a fresh process (⌥⇧R)">
         <div class="icon icon-play" aria-hidden="true"></div><span class="hidden lg:inline">Replay All</span>
       </button>
-      <button type="button" class="btn btn-primary" data-on:click="$knotId = ${spineLeafId}; @post('/actions/bless-changes')" title="Bless every changed knot visible in the transcript (the active spine)">
+      <button type="button" class="btn btn-primary" data-on:click="$knotId = ${spineLeafId}; @post('/actions/bless-changes')" title="Bless every changed knot visible in the transcript (the active spine) (⌥⇧B)">
         <div class="icon icon-bless" aria-hidden="true"></div><span class="hidden lg:inline">Bless Transcript</span>
       </button>
     </div>

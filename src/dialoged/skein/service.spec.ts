@@ -2,7 +2,7 @@ import * as http from 'http';
 import * as path from 'path';
 import { SkeinService } from './service';
 import { SkeinSession } from './session';
-import { SkeinTree } from './tree';
+import { LabelConflictError, SkeinTree } from './tree';
 
 const MEDIA_ROOT = path.join(__dirname, '..', '..', '..', 'media');
 
@@ -18,12 +18,14 @@ function createFakeSession(
     runCommand?: (command: string) => void | Promise<void>;
     replayToKnot?: (id: number) => void | Promise<void>;
     replayAll?: () => void | Promise<void>;
+    setLabel?: (id: number, label: string | null) => void;
   } = {}
 ) {
   const listeners: Array<() => void> = [];
   const runCommandCalls: string[] = [];
   const calls = {
     setActiveKnot: [] as number[],
+    newChild: [] as number[],
     openGraphMenu: [] as number[],
     openTranscriptMenu: [] as number[],
     blessKnot: [] as number[],
@@ -83,6 +85,11 @@ function createFakeSession(
       closeMenus();
       emit();
     },
+    newChild: (id: number) => {
+      calls.newChild.push(id);
+      closeMenus();
+      emit();
+    },
     openGraphMenu: (id: number) => {
       calls.openGraphMenu.push(id);
       transcriptMenuId = null;
@@ -118,6 +125,7 @@ function createFakeSession(
     },
     setLabel: (id: number, label: string | null) => {
       calls.setLabel.push([id, label]);
+      options.setLabel?.(id, label);
       closeMenus();
       emit();
     },
@@ -451,6 +459,55 @@ describe('SkeinService', () => {
     });
   });
 
+  describe('POST /actions/new-child', () => {
+    it('400s when no session is active', async () => {
+      const res = await post(`http://localhost:${service.getPort()}/actions/new-child`, { knotId: 1 });
+      expect(res.status).toBe(400);
+    });
+
+    it('400s when knotId is missing or not a number', async () => {
+      const tree = SkeinTree.newTree('dgdebug', 1);
+      const fake = createFakeSession(tree);
+      service.setActiveSession(fake as unknown as SkeinSession, 'default');
+
+      const res = await post(`http://localhost:${service.getPort()}/actions/new-child`, { knotId: 'nope' });
+      expect(res.status).toBe(400);
+    });
+
+    it('calls session.newChild and returns 204 - distinct from select-knot, see session.ts', async () => {
+      const tree = SkeinTree.newTree('dgdebug', 1);
+      const fake = createFakeSession(tree);
+      service.setActiveSession(fake as unknown as SkeinSession, 'default');
+
+      const res = await post(`http://localhost:${service.getPort()}/actions/new-child`, { knotId: 1 });
+
+      expect(res.status).toBe(204);
+      expect(fake.calls.newChild).toEqual([1]);
+      expect(fake.calls.setActiveKnot).toEqual([]);
+    });
+
+    it('broadcasts the focus/reset execute-script after - the user is about to type the new command', async () => {
+      const tree = SkeinTree.newTree('dgdebug', 1);
+      const fake = createFakeSession(tree);
+      service.setActiveSession(fake as unknown as SkeinSession, 'default');
+
+      const chunks: string[] = [];
+      const req = http.get(`http://localhost:${service.getPort()}/events`, (res) => {
+        res.on('data', (chunk) => chunks.push(chunk.toString()));
+      });
+      try {
+        await waitFor(() => chunks.length > 0);
+        chunks.length = 0;
+
+        await post(`http://localhost:${service.getPort()}/actions/new-child`, { knotId: 1 });
+
+        await waitFor(() => chunks.join('').includes('resetAndFocusCommandInput'));
+      } finally {
+        req.destroy();
+      }
+    });
+  });
+
   describe('POST /actions/open-graph-menu, open-transcript-menu', () => {
     for (const [route, callKey] of [
       ['open-graph-menu', 'openGraphMenu'],
@@ -641,6 +698,35 @@ describe('SkeinService', () => {
       await post(`http://localhost:${service.getPort()}/actions/set-label`, { knotId: 1, label: '   ' });
 
       expect(fake.calls.setLabel).toEqual([[1, null]]);
+    });
+
+    it('409s with a JSON {error} body for a duplicate label - the modal reads this to show inline, not a generic 500', async () => {
+      const tree = SkeinTree.newTree('dgdebug', 1).addChild(0, 'look', { text: 'a', inputType: 'line' });
+      const fake = createFakeSession(tree, {
+        setLabel: () => {
+          throw new LabelConflictError('checkpoint');
+        }
+      });
+      service.setActiveSession(fake as unknown as SkeinSession, 'default');
+
+      const res = await post(`http://localhost:${service.getPort()}/actions/set-label`, { knotId: 1, label: 'checkpoint' });
+
+      expect(res.status).toBe(409);
+      expect(JSON.parse(res.body)).toEqual({ error: 'Label "checkpoint" is already used by another knot.' });
+    });
+
+    it('500s for any other setLabel failure', async () => {
+      const tree = SkeinTree.newTree('dgdebug', 1).addChild(0, 'look', { text: 'a', inputType: 'line' });
+      const fake = createFakeSession(tree, {
+        setLabel: () => {
+          throw new Error('disk full');
+        }
+      });
+      service.setActiveSession(fake as unknown as SkeinSession, 'default');
+
+      const res = await post(`http://localhost:${service.getPort()}/actions/set-label`, { knotId: 1, label: 'checkpoint' });
+
+      expect(res.status).toBe(500);
     });
   });
 

@@ -1,4 +1,4 @@
-import { SkeinTree, WireKnot } from './tree';
+import { LabelConflictError, SkeinTree, WireKnot } from './tree';
 
 describe('SkeinTree.newTree', () => {
   it('creates a root knot at id 0, labeled START, with no parent', () => {
@@ -289,6 +289,34 @@ describe('SkeinTree.setLabel / setLockStatus', () => {
       .addChild(0, 'look', { text: 'a', inputType: 'line' });
     expect(tree.setLabel(1, 'checkpoint').getKnot(1)!.label).toBe('checkpoint');
     expect(tree.setLabel(1, 'checkpoint').setLabel(1, null).getKnot(1)!.label).toBeNull();
+  });
+
+  // Labels are tree-unique (technical-design.md's Data Model) - a knot can't steal a label
+  // another knot is already carrying.
+  it('throws LabelConflictError when another knot already carries the requested label', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1)
+      .addChild(0, 'look', { text: 'a', inputType: 'line' }) // knot 1
+      .addChild(0, 'inventory', { text: 'b', inputType: 'line' }) // knot 2
+      .setLabel(1, 'checkpoint');
+
+    expect(() => tree.setLabel(2, 'checkpoint')).toThrow(LabelConflictError);
+    expect(() => tree.setLabel(2, 'checkpoint')).toThrow('Label "checkpoint" is already used by another knot.');
+  });
+
+  it('re-setting a knot\'s own already-held label is not a conflict with itself', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1)
+      .addChild(0, 'look', { text: 'a', inputType: 'line' })
+      .setLabel(1, 'checkpoint');
+
+    expect(() => tree.setLabel(1, 'checkpoint')).not.toThrow();
+  });
+
+  it('allows more than one knot to be unlabeled - only non-null labels need to be unique', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1)
+      .addChild(0, 'look', { text: 'a', inputType: 'line' }) // knot 1, unlabeled
+      .addChild(0, 'inventory', { text: 'b', inputType: 'line' }); // knot 2, unlabeled
+
+    expect(() => tree.setLabel(2, null)).not.toThrow();
   });
 
   it('sets and clears lock status', () => {
@@ -622,6 +650,60 @@ describe('SkeinTree.selectKnot', () => {
       .selectKnot(1);
 
     expect(tree.getDerivedKnot(1)!.selectedChild).toBe(3);
+  });
+});
+
+describe('SkeinTree.selectForNewChild', () => {
+  it('sets the active knot, same as selectKnot', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1)
+      .addChild(0, 'look', { text: 'a', inputType: 'line' })
+      .selectForNewChild(1);
+    expect(tree.getActiveKnotId()).toBe(1);
+  });
+
+  it('throws for an unknown knot id', () => {
+    expect(() => SkeinTree.newTree('dgdebug', 1).selectForNewChild(999)).toThrow();
+  });
+
+  // The regression this method exists to fix: selectKnot's own extendSelection would auto-jump
+  // into an existing single-child chain past the target, which is exactly wrong for "New Child" -
+  // the whole point is to stop at the target so a freshly-typed command becomes a genuinely new
+  // branch, not silently land on (and look like it's about to overwrite) something already there.
+  it("clears the target's own selectedChild instead of extending into an existing single-child chain", () => {
+    const tree = SkeinTree.newTree('dgdebug', 1)
+      .addChild(0, 'look', { text: 'a', inputType: 'line' }) // knot 1
+      .addChild(1, 'take orb', { text: 'b', inputType: 'line' }) // knot 2, knot 1's only child
+      .selectForNewChild(1);
+
+    expect(tree.getDerivedKnot(1)!.selectedChild).toBeNull();
+  });
+
+  it('clears the selectedChild at a real branch point too, unlike selectKnot which leaves it alone', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1)
+      .addChild(0, 'look', { text: 'a', inputType: 'line' }) // knot 1
+      .addChild(1, 'take orb', { text: 'b', inputType: 'line' }) // knot 2
+      .addChild(1, 'drop orb', { text: 'c', inputType: 'line' }) // knot 3, now knot 1's selectedChild
+      .selectForNewChild(1);
+
+    expect(tree.getDerivedKnot(1)!.selectedChild).toBeNull();
+  });
+
+  it("re-points an ancestor's selectedChild toward the target when it was pointing at a different branch, same as selectKnot", () => {
+    const tree = SkeinTree.newTree('dgdebug', 1)
+      .addChild(0, 'look', { text: 'a', inputType: 'line' }) // knot 1
+      .addChild(0, 'inventory', { text: 'b', inputType: 'line' }); // knot 2, now root's selectedChild
+    expect(tree.getDerivedKnot(0)!.selectedChild).toBe(2);
+
+    const selected = tree.selectForNewChild(1);
+
+    expect(selected.getDerivedKnot(0)!.selectedChild).toBe(1);
+  });
+
+  it('leaves a childless knot exactly as selectKnot would (nothing to clear or extend)', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1)
+      .addChild(0, 'look', { text: 'a', inputType: 'line' })
+      .selectForNewChild(1);
+    expect(tree.getDerivedKnot(1)!.selectedChild).toBeNull();
   });
 });
 

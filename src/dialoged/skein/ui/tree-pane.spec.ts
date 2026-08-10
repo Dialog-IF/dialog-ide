@@ -66,6 +66,32 @@ describe('renderTreePane', () => {
     expect(knot1).not.toContain(`disabled data-on:click="$knotId = 1; @post('/actions/toggle-lock')"`);
   });
 
+  it("wires the menu's New Child item to its own route, and Edit Label to the modal (not prompt()), carrying the current label", () => {
+    const tree = SkeinTree.newTree('dgdebug', 1)
+      .addChild(0, 'look', { text: 'a', inputType: 'line' })
+      .setLabel(1, 'checkpoint');
+    const html = renderTreePane(tree);
+    const knot1 = html.split('data-tree-node-id="1"')[1];
+
+    expect(knot1).toContain(`data-on:click="$knotId = 1; @post('/actions/new-child')"`);
+    expect(knot1).not.toContain('prompt(');
+    expect(knot1).toContain('data-current-label="checkpoint"');
+    expect(knot1).toContain('data-on:click="sk.showLabelModal(1, el.dataset.currentLabel)"');
+  });
+
+  // main.js's Option+letter accelerators always act on the active knot - see render.spec.ts's
+  // equivalent test on the transcript side for the full rationale.
+  it("shows keyboard-shortcut hints only on the active node's own menu items", () => {
+    const tree = SkeinTree.newTree('dgdebug', 1).addChild(0, 'look', { text: 'a', inputType: 'line' }).setActiveKnotId(1);
+    const html = renderTreePane(tree);
+
+    const root = html.split('data-tree-node-id="0"')[1].split('data-tree-node-id="1"')[0];
+    expect(root).not.toContain('title=');
+
+    const knot1 = html.split('data-tree-node-id="1"')[1];
+    expect(knot1).toContain('title="Delete (⌥D)"');
+  });
+
   it('renders a visible "..." trigger for each node\'s menu, for discoverability and keyboard access', () => {
     const tree = SkeinTree.newTree('dgdebug', 1).addChild(0, 'look', { text: 'a', inputType: 'line' });
     const html = renderTreePane(tree);
