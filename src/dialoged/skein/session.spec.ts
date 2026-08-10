@@ -21,28 +21,28 @@ import { ProgressHost } from './progress';
 /**
  * A controllable ProgressHost double for replayAll's progress/cancellation tests - runs the task
  * synchronously (like noopProgressHost), but records every withProgress() call's options and
- * every progress.report() update, and lets a test flip the token's isCancellationRequested
- * partway through by passing cancelAfterReports.
+ * every progress.report() update, and exposes cancel() so a test can flip the token's
+ * isCancellationRequested at whatever exact moment it needs (replayAll only reports progress
+ * once per leaf, after that leaf is already done - too coarse to hang mid-replay cancellation
+ * off of - so tests trigger it as a side effect of a mocked process call instead).
  */
-function fakeProgressHost(cancelAfterReports?: number) {
+function fakeProgressHost() {
   const withProgressCalls: { title: string; cancellable: boolean }[] = [];
   const reports: { message?: string; increment?: number }[] = [];
+  let token = { isCancellationRequested: false };
   const host: ProgressHost = {
     async withProgress(options, task) {
       withProgressCalls.push(options);
-      const token = { isCancellationRequested: false };
+      token = { isCancellationRequested: false };
       const progress = {
         report: (update: { message?: string; increment?: number }) => {
           reports.push(update);
-          if (cancelAfterReports !== undefined && reports.length >= cancelAfterReports) {
-            token.isCancellationRequested = true;
-          }
         }
       };
       return task(progress, token);
     }
   };
-  return { host, withProgressCalls, reports };
+  return { host, withProgressCalls, reports, cancel: () => { token.isCancellationRequested = true; } };
 }
 
 const BANNER_RESPONSE = { command: '', response: 'Welcome to the game.\n', promptType: 'line' as const };
@@ -402,7 +402,7 @@ describe('SkeinSession', () => {
         .setActiveKnotId(2);
     }
 
-    it('reports each replayed command through the injected progress host, as a cancellable notification', async () => {
+    it('reports progress once per leaf, not once per command, through the injected progress host', async () => {
       mockReadResponse
         .mockResolvedValueOnce(BANNER_RESPONSE) // session.start()
         .mockResolvedValueOnce(BANNER_RESPONSE) // replay's relaunch
@@ -416,10 +416,8 @@ describe('SkeinSession', () => {
       await session.replayAll();
 
       expect(withProgressCalls).toEqual([{ title: 'Replaying all paths...', cancellable: true }]);
-      expect(reports).toEqual([
-        { message: 'look', increment: 50 },
-        { message: 'take orb', increment: 50 }
-      ]);
+      // Single-branch tree, so a single leaf - one report for the whole path, not one per command.
+      expect(reports).toEqual([{ message: '1 of 1', increment: 100 }]);
     });
 
     it('stops replaying and lands the active knot on the last completed step once the token cancels mid-replay', async () => {
@@ -428,7 +426,11 @@ describe('SkeinSession', () => {
         .mockResolvedValueOnce(BANNER_RESPONSE) // replay's relaunch
         .mockResolvedValueOnce({ command: 'look', response: 'Room A.\n', promptType: 'line' })
         .mockResolvedValueOnce(dynamicResponse([]));
-      const { host } = fakeProgressHost(1); // cancel right after the first command's progress is reported
+      const { host, cancel } = fakeProgressHost();
+      // Progress only reports once per leaf (after it's already done), so it can't drive a
+      // mid-leaf cancellation - flip the token as a side effect of the first command actually
+      // being sent instead, which lands the cancellation check right before the second command.
+      mockSendCommand.mockImplementationOnce(() => cancel());
       const session = SkeinSession.createLoaded(seededTwoStepTree(), DGDEBUG_CONFIG, host);
       await session.start();
 
@@ -461,11 +463,12 @@ describe('SkeinSession', () => {
         .mockResolvedValueOnce(BANNER_RESPONSE) // relaunch
         .mockResolvedValueOnce({ command: 'look', response: 'Room A.\n', promptType: 'line' })
         .mockResolvedValueOnce({ command: 'inventory', response: 'Empty-handed.\n', promptType: 'line' })
-        .mockResolvedValueOnce(dynamicResponse([]))
         // leaf 2 ('take orb') is replayed last, since it's the originally-active spine.
         .mockResolvedValueOnce(BANNER_RESPONSE) // relaunch
         .mockResolvedValueOnce({ command: 'look', response: 'Room A.\n', promptType: 'line' })
         .mockResolvedValueOnce({ command: 'take orb', response: 'Got it.\n', promptType: 'line' })
+        // dynamic state (and everything else) is only refreshed once, after both leaves - not
+        // once per leaf - since nothing about it should be user-visible mid-replay.
         .mockResolvedValueOnce(dynamicResponse([]));
       const session = SkeinSession.createLoaded(seeded, DGDEBUG_CONFIG);
       await session.start();
@@ -474,13 +477,40 @@ describe('SkeinSession', () => {
 
       expect(mockTerminate).toHaveBeenCalledTimes(2); // one restart per leaf
       expect(mockSendCommand.mock.calls.map((call) => call[0])).toEqual([
-        'look', 'inventory', '@dynamic',
+        'look', 'inventory',
         'look', 'take orb', '@dynamic'
       ]);
       const tree = session.getTree();
       expect(tree.getDerivedKnot(3)!.state).toBe('valid'); // the non-active branch got re-validated too
       expect(tree.getActiveKnotId()).toBe(2); // active spine restored, not left on leaf 3
       expect(tree.getSelectedLeafId()).toBe(2);
+    });
+
+    it('never emits a change event mid-pass - only once, after every leaf has been replayed', async () => {
+      const seeded = SkeinTree.newTree('dgdebug', 1)
+        .addChild(0, 'look', { text: 'Room A.\n', inputType: 'line' })
+        .addChild(1, 'take orb', { text: 'Got it.\n', inputType: 'line' })
+        .addChild(1, 'inventory', { text: 'Empty-handed.\n', inputType: 'line' })
+        .blessKnot(3)
+        .selectKnot(2);
+      mockReadResponse
+        .mockResolvedValueOnce(BANNER_RESPONSE)
+        .mockResolvedValueOnce(BANNER_RESPONSE)
+        .mockResolvedValueOnce({ command: 'look', response: 'Room A.\n', promptType: 'line' })
+        .mockResolvedValueOnce({ command: 'inventory', response: 'Empty-handed.\n', promptType: 'line' })
+        .mockResolvedValueOnce(BANNER_RESPONSE)
+        .mockResolvedValueOnce({ command: 'look', response: 'Room A.\n', promptType: 'line' })
+        .mockResolvedValueOnce({ command: 'take orb', response: 'Got it.\n', promptType: 'line' })
+        .mockResolvedValueOnce(dynamicResponse([]));
+      const session = SkeinSession.createLoaded(seeded, DGDEBUG_CONFIG);
+      await session.start();
+
+      let changeCount = 0;
+      session.onChange(() => changeCount++);
+
+      await session.replayAll();
+
+      expect(changeCount).toBe(1);
     });
   });
 

@@ -8,7 +8,7 @@ import { SkeinProcess, ProcessConfig, EngineType } from './process';
 import { SkeinTree } from './tree';
 import { DynamicProcessor, DynamicState, DynamicChanges } from './dynamic';
 import { readProject, expandSources } from './project';
-import { ProgressHost, ProgressReporter, CancellationToken, noopProgressHost } from './progress';
+import { ProgressHost, CancellationToken, noopProgressHost } from './progress';
 
 const DYNAMIC_COMMAND = '@dynamic';
 // dialog-tool's start-debug-process! filters sources by :target :dgdebug when launching the
@@ -131,7 +131,7 @@ export class SkeinSession {
       // should be validated like any other knot, so an edited-and-reloaded .skein file (or a
       // banner that changed because a source file changed) shows up as a change instead of
       // silently vanishing. See launchProcessAndCaptureBanner's doc comment.
-      await this.launchProcessAndCaptureBanner(!this.hasLoadedHistory);
+      this.tree = await this.launchProcessAndCaptureBanner(this.tree, !this.hasLoadedHistory);
       this.isRunning = true;
       this.processPositionId = 0;
 
@@ -144,26 +144,31 @@ export class SkeinSession {
   }
 
   /**
-   * Spawns a fresh interpreter process and captures its startup banner as knot 0's response,
-   * replacing SkeinTree.newTree's generic "Welcome to the game." placeholder - io.ts's tag-line
-   * parser already separates the prompt from the content, so (unlike the placeholder) this
-   * doesn't carry a trailing "> " into the displayed text. updateKnotResponse only ever sets the
-   * *unblessed* response; blessRoot controls whether it's then immediately promoted (see start()'s
-   * call site for when that's appropriate and when it isn't) or left for the normal diffing logic
-   * to surface as a change, exactly like every other knot. Shared by start() and replayTo() -
-   * replayTo always passes false, since by the time a replay runs, knot 0 already has *some* real
-   * blessed response (from an earlier start()) that a changed banner should be diffed against, not
-   * silently overwritten - the same re-validation every other knot on the replay path gets.
+   * Spawns a fresh interpreter process (assigned to this.process - the live process handle is
+   * always session-level, never batched) and captures its startup banner as knot 0's response on
+   * top of the given tree, returning the updated tree rather than touching this.tree directly -
+   * so replayPathAgainstFreshProcess's callers (replayTo, replayAll) decide when, or whether, to
+   * commit it to session state. Replaces SkeinTree.newTree's generic "Welcome to the game."
+   * placeholder - io.ts's tag-line parser already separates the prompt from the content, so
+   * (unlike the placeholder) this doesn't carry a trailing "> " into the displayed text.
+   * updateKnotResponse only ever sets the *unblessed* response; blessRoot controls whether it's
+   * then immediately promoted (see start()'s call site for when that's appropriate and when it
+   * isn't) or left for the normal diffing logic to surface as a change, exactly like every other
+   * knot. Shared by start() and replayPathAgainstFreshProcess, which always passes false - by the
+   * time a replay runs, knot 0 already has *some* real blessed response (from an earlier start())
+   * that a changed banner should be diffed against, not silently overwritten - the same
+   * re-validation every other knot on the replay path gets.
    */
-  private async launchProcessAndCaptureBanner(blessRoot: boolean): Promise<void> {
+  private async launchProcessAndCaptureBanner(tree: SkeinTree, blessRoot: boolean): Promise<SkeinTree> {
     this.process = new SkeinProcess(this.buildProcessConfig());
     await this.process.start();
 
     const banner = await this.process.readResponse();
-    this.tree = this.tree.updateKnotResponse(0, { text: banner.response, inputType: banner.promptType });
+    let updated = tree.updateKnotResponse(0, { text: banner.response, inputType: banner.promptType });
     if (blessRoot) {
-      this.tree = this.tree.blessKnot(0);
+      updated = updated.blessKnot(0);
     }
+    return updated;
   }
 
   /**
@@ -253,58 +258,68 @@ export class SkeinSession {
   }
 
   /**
-   * Restarts the interpreter process from scratch and resends every command from root to
-   * targetId in order, recording each step's response via updateKnotResponse - which also
+   * The bare replay primitive, shared by replayTo (a single target, applied to session state
+   * immediately) and replayAll's per-leaf loop (which accumulates a whole multi-leaf result
+   * locally - see replayAll's own doc comment for why - and only commits it once, at the very
+   * end). Restarts the process from scratch (dgdebug has no way to rewind, only
+   * restart-and-replay, matching dialog-tool's own do-replay-to!) and resends every command from
+   * root to targetId in order against tree, recording each step's response - which also
    * re-validates it (a replayed response that no longer matches what's blessed there flips the
-   * knot to 'error', catching source edits that changed earlier output). This is the one real
-   * primitive behind Replay All, Replay to Here (context menu), and runCommand's automatic
-   * catch-up when the active knot isn't where the process actually is - dgdebug has no way to
-   * rewind, only restart-and-replay, matching dialog-tool's own do-replay-to!.
+   * knot to 'error', catching source edits that changed earlier output). Returns the updated tree
+   * and the id it actually reached, rather than mutating this.tree or emitting anything - callers
+   * decide what to do with the result.
    *
-   * progress/token are only ever supplied by replayAll (via progressHost.withProgress) - runCommand's
-   * silent catch-up and replayToKnot's single-step jump are both too quick to warrant a dialog, and
-   * stay plain fire-and-forget calls. When cancellation lands mid-loop, replay stops after the
-   * in-flight command's response is recorded rather than mid-command (dgdebug has no way to abort a
-   * command once sent) and lands the active knot on the last knot actually replayed, not the
-   * original target - a truncated-but-consistent replay, never a knot showing a response that was
-   * never actually sent to the process.
+   * When cancellation lands mid-loop, replay stops after the in-flight command's response is
+   * recorded rather than mid-command (dgdebug has no way to abort a command once sent) - the
+   * returned reachedId is the last knot actually replayed, not necessarily targetId, so a caller
+   * that trusts it never ends up showing a response that was never actually sent to the process.
    *
-   * totalSteps overrides the command count used as progress's percentage denominator - replayAll
-   * passes the sum of every leaf's path length so the bar reflects the whole multi-leaf pass
-   * instead of resetting to 0-100% on each leaf; everyone else (replayToKnot, runCommand's silent
-   * catch-up) leaves it unset and gets this call's own path.length, as before.
+   * No progress reporting happens in here, deliberately: a per-command report (there can be
+   * thousands, across a large tree's worth of leaves) means a broadcastScript SSE write per
+   * command - real, measurable overhead on top of the dgdebug round-trip itself, for updates
+   * nobody's watching that closely anyway. Callers that want progress report it themselves, at
+   * whatever granularity actually matches something worth showing - see replayAll.
    */
-  private async replayTo(
+  private async replayPathAgainstFreshProcess(
+    tree: SkeinTree,
     targetId: number,
-    progress?: ProgressReporter,
-    token?: CancellationToken,
-    totalSteps?: number
-  ): Promise<void> {
-    if (!this.process) {
-      throw new Error('Session not running');
-    }
+    token?: CancellationToken
+  ): Promise<{ tree: SkeinTree; reachedId: number }> {
+    await this.process!.terminate();
+    tree = await this.launchProcessAndCaptureBanner(tree, false);
 
-    await this.process.terminate();
-    await this.launchProcessAndCaptureBanner(false);
-
-    const path = this.tree.commandPath(targetId);
-    const progressDivisor = totalSteps ?? path.length;
+    const path = tree.commandPath(targetId);
     let reachedId = 0;
     for (const { id, command } of path) {
       if (token?.isCancellationRequested) {
         break;
       }
-      if (progressDivisor > 0) {
-        progress?.report({ message: command, increment: 100 / progressDivisor });
-      }
       this.process!.sendCommand(command);
       const response = await this.process!.readResponse();
-      this.tree = this.tree.updateKnotResponse(id, { text: response.response, inputType: response.promptType });
+      tree = tree.updateKnotResponse(id, { text: response.response, inputType: response.promptType });
       reachedId = id;
     }
 
+    return { tree, reachedId };
+  }
+
+  /**
+   * Applies a single-target replayPathAgainstFreshProcess to session state immediately: this is
+   * the one real primitive behind Replay to Here (context menu) and runCommand's automatic
+   * catch-up when the active knot isn't where the process actually is. Unlike replayAll, there's
+   * only ever one path here, so committing this.tree/processPositionId and broadcasting a single
+   * 'change' right away (rather than batching) is both correct and cheap - and quick enough that
+   * it's never worth a progress dialog (see replayAll for the one caller that wants one).
+   */
+  private async replayTo(targetId: number): Promise<void> {
+    if (!this.process) {
+      throw new Error('Session not running');
+    }
+
+    const { tree, reachedId } = await this.replayPathAgainstFreshProcess(this.tree, targetId);
+
+    this.tree = tree.selectKnot(reachedId);
     this.processPositionId = reachedId;
-    this.tree = this.tree.selectKnot(reachedId);
     this.closeMenus();
     await this.refreshDynamicState();
     this.changeEmitter.emit('change');
@@ -320,34 +335,77 @@ export class SkeinSession {
    * files since the process last started, across every branch, not just the one visible in the
    * transcript.
    *
-   * Each leaf's own replayTo call ends by pointing that leaf's whole root-to-here path's
-   * selectedChild pointers at itself (see replayTo/selectKnot) - so whichever leaf is replayed
-   * last "wins" any shared ancestor's selectedChild, and the transcript would end up showing
-   * whatever branch that happened to be rather than the one the user actually had open. Replaying
-   * the originally-active spine's own leaf last avoids that: it always wins, so the view never
-   * jumps just because other branches also got re-validated along the way. (When there's only one
-   * leaf - the common case, no forks yet - this reduces to exactly the single-spine replay this
-   * method used to be.)
+   * Unlike replayTo, this never touches this.tree or broadcasts a 'change' mid-pass: every leaf
+   * is replayed against a purely local tree value (replayPathAgainstFreshProcess never mutates
+   * session state on its own), and the result is committed - this.tree assigned,
+   * processPositionId set, dynamic state refreshed, 'change' emitted - exactly once, after every
+   * leaf has been replayed. Only the progress bar should visibly move mid-replay; nothing about
+   * the transcript or graph pane should change until the whole pass is done. For a tree with many
+   * branches this also means the (potentially large) page-render cost is paid once instead of
+   * once per leaf, and it makes the whole operation atomic from the rest of the session's point of
+   * view - nothing else on the event loop between awaits can observe, or push an undo snapshot
+   * against, a halfway-replayed tree.
+   *
+   * Replaying the originally-active spine's own leaf last (rather than in getLeafIds' plain
+   * ascending order) means it's always the last thing folded into the accumulated tree, so its
+   * own reachedId is what selectKnot uses to set the final displayed spine - the view lands back
+   * where the user had it open, not on whatever other branch happened to replay last. If
+   * cancellation lands before the original leaf's own pass ever starts, the displayed spine is
+   * left untouched entirely (only the data already re-validated in other branches is kept);
+   * mid-way through the original leaf's own pass, it lands on that leaf's own truncated reachedId,
+   * exactly like replayTo's single-path cancellation. processPositionId always tracks the actual
+   * live process, regardless of which branch that ends up being - runCommand's catch-up check
+   * stays correct either way. (When there's only one leaf - the common case, no forks yet - this
+   * reduces to exactly the single-spine replay this method used to be, with no extra work.)
+   *
+   * Progress is reported once per leaf, not once per command - see
+   * replayPathAgainstFreshProcess's own doc comment for why per-command reporting is deliberately
+   * not an option here: with potentially thousands of commands across a large tree's leaves, that
+   * many SSE broadcasts is real overhead on top of the replay itself, for a progress bar nobody
+   * can actually read that granularly anyway. One report per leaf is both cheap and exactly as
+   * informative as this dialog needs to be.
    *
    * Wrapped in progressHost.withProgress so a real session (see extension.ts's
    * vscodeProgressHost) shows a cancellable native progress notification; tests and every other
    * call site get noopProgressHost's immediate no-dialog pass-through instead.
    */
   public async replayAll(): Promise<void> {
+    if (!this.process) {
+      throw new Error('Session not running');
+    }
+
     const originalLeafId = this.tree.getSelectedLeafId();
     const orderedLeafIds = [
       ...this.tree.getLeafIds().filter((id) => id !== originalLeafId),
       originalLeafId
     ];
-    const totalSteps = orderedLeafIds.reduce((sum, id) => sum + this.tree.commandPath(id).length, 0);
+    const totalLeaves = orderedLeafIds.length;
 
     await this.progressHost.withProgress({ title: 'Replaying all paths...', cancellable: true }, async (progress, token) => {
+      let tree = this.tree;
+      let lastReachedId = this.processPositionId;
+      let originalReachedId: number | null = null;
+      let leavesReplayed = 0;
+
       for (const leafId of orderedLeafIds) {
         if (token.isCancellationRequested) {
           break;
         }
-        await this.replayTo(leafId, progress, token, totalSteps);
+        const result = await this.replayPathAgainstFreshProcess(tree, leafId, token);
+        tree = result.tree;
+        lastReachedId = result.reachedId;
+        if (leafId === originalLeafId) {
+          originalReachedId = result.reachedId;
+        }
+        leavesReplayed++;
+        progress.report({ message: `${leavesReplayed} of ${totalLeaves}`, increment: 100 / totalLeaves });
       }
+
+      this.tree = originalReachedId !== null ? tree.selectKnot(originalReachedId) : tree;
+      this.processPositionId = lastReachedId;
+      this.closeMenus();
+      await this.refreshDynamicState();
+      this.changeEmitter.emit('change');
     });
   }
 
