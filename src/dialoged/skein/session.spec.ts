@@ -329,6 +329,31 @@ describe('SkeinSession', () => {
       expect(knot1.state).toBe('error'); // differs from the blessed 'Room A.\n'
     });
 
+    // Regression: replayAll used to target getActiveKnotId(), which stops short the moment the
+    // user navigates back to an ancestor (see tree.ts's selectKnot/getSelectedLeafId) - the
+    // transcript keeps showing everything past it regardless, so "Replay All" silently replayed
+    // less than what was actually visible.
+    it('replays all the way to the selected spine\'s leaf, not just the active knot, once navigation has moved the active knot back up the tree', async () => {
+      const seeded = SkeinTree.newTree('dgdebug', 1)
+        .addChild(0, 'look', { text: 'Room A.\n', inputType: 'line' })
+        .addChild(1, 'take orb', { text: 'Got it.\n', inputType: 'line' })
+        .selectKnot(1); // active knot moves back up; knot 2 is still shown in the transcript
+      mockReadResponse
+        .mockResolvedValueOnce(BANNER_RESPONSE) // session.start()
+        .mockResolvedValueOnce(BANNER_RESPONSE) // replay's relaunch
+        .mockResolvedValueOnce({ command: 'look', response: 'Room A.\n', promptType: 'line' })
+        .mockResolvedValueOnce({ command: 'take orb', response: 'Got it.\n', promptType: 'line' })
+        .mockResolvedValueOnce(dynamicResponse([]));
+      const session = SkeinSession.createLoaded(seeded, DGDEBUG_CONFIG);
+      await session.start();
+
+      await session.replayAll();
+
+      expect(mockSendCommand).toHaveBeenNthCalledWith(1, 'look');
+      expect(mockSendCommand).toHaveBeenNthCalledWith(2, 'take orb');
+      expect(session.getTree().getActiveKnotId()).toBe(2);
+    });
+
     it('replayToKnot targets a specific knot and makes it the active one', async () => {
       const seeded = SkeinTree.newTree('dgdebug', 1)
         .addChild(0, 'look', { text: 'Room A.\n', inputType: 'line' })

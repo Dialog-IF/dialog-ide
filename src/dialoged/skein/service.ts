@@ -9,6 +9,7 @@ import * as path from 'path';
 import { SkeinSession } from './session';
 import { SkeinTree } from './tree';
 import { renderApp, renderPage, SessionDisplayInfo } from './ui/render';
+import { ProgressHost, ProgressReporter, CancellationToken } from './progress';
 
 /**
  * Service configuration
@@ -69,7 +70,7 @@ function parseKnotId(payload: Record<string, unknown>): number | null {
 /**
  * Class for managing the web service interface
  */
-export class SkeinService {
+export class SkeinService implements ProgressHost {
   private config: ServiceConfig;
   private sessions: Map<string, SkeinSession> = new Map();
   private isRunning: boolean = false;
@@ -85,6 +86,18 @@ export class SkeinService {
   private saveHandler: (() => Promise<void>) | undefined;
   private readonly sseClients = new Set<http.ServerResponse>();
   private readonly onActiveSessionChange = (): void => this.broadcast();
+  // Set only while a withProgress() call (SkeinSession.replayAll's progressHost) is in flight -
+  // POST /actions/cancel-replay flips it. At most one replay is ever in flight at a time (the UI
+  // only ever shows one progress modal), so a single field is enough - see withProgress's own doc
+  // comment for why this class is the ProgressHost rather than a native vscode wrapper.
+  private cancelCurrentReplay: (() => void) | null = null;
+  // Mirrors whatever withProgress last broadcast, null once it's done - see handleSseConnect's use
+  // of this: extension.ts's implicit replay-on-load can start (and finish) a whole replayAll
+  // before the webview's iframe has even navigated to GET / and opened its /events connection, so
+  // a client connecting mid-replay (or, in the fast/small case, just after) needs to be caught up
+  // rather than silently missing broadcasts that already fired into an empty sseClients set.
+  private currentProgress: { title: string; cancellable: boolean; percent: number; message: string | null } | null =
+    null;
 
   constructor(config: ServiceConfig) {
     this.config = config;
@@ -247,12 +260,14 @@ export class SkeinService {
     }
 
     if (req.method === 'POST' && url.pathname === '/actions/bless-knot') {
-      await this.handleKnotAction(req, res, (session, knotId) => session.blessKnot(knotId));
+      await this.handleKnotAction(req, res, (session, knotId) => session.blessKnot(knotId), { flashMessage: 'Knot blessed' });
       return;
     }
 
     if (req.method === 'POST' && url.pathname === '/actions/bless-changes') {
-      await this.handleKnotAction(req, res, (session, knotId) => session.blessChanges(knotId));
+      await this.handleKnotAction(req, res, (session, knotId) => session.blessChanges(knotId), {
+        flashMessage: 'Transcript blessed'
+      });
       return;
     }
 
@@ -282,7 +297,14 @@ export class SkeinService {
     }
 
     if (req.method === 'POST' && url.pathname === '/actions/replay-to') {
-      await this.handleKnotAction(req, res, (session, knotId) => session.replayToKnot(knotId));
+      await this.handleKnotAction(req, res, (session, knotId) => session.replayToKnot(knotId), {
+        flashMessage: 'Replayed to knot'
+      });
+      return;
+    }
+
+    if (req.method === 'POST' && url.pathname === '/actions/cancel-replay') {
+      await this.handleCancelReplay(req, res);
       return;
     }
 
@@ -376,12 +398,14 @@ export class SkeinService {
    * update that emits 'change', so there's nothing left for this to do about menu state - one
    * broadcast, already correct. set-label and replay-all have their own handlers below since
    * their request/response shapes don't quite fit this one (an extra field; no knot id at all).
+   * flashMessage is only set for the handful of actions worth an explicit "yes, that happened"
+   * acknowledgement (bless, replay) - see broadcastFlash's doc comment.
    */
   private async handleKnotAction(
     req: http.IncomingMessage,
     res: http.ServerResponse,
     fn: (session: SkeinSession, knotId: number) => void | Promise<void>,
-    options: { focusAfter?: boolean } = {}
+    options: { focusAfter?: boolean; flashMessage?: string } = {}
   ): Promise<void> {
     if (!this.activeSession) {
       res.writeHead(400);
@@ -405,6 +429,9 @@ export class SkeinService {
       return;
     }
 
+    if (options.flashMessage) {
+      this.broadcastFlash(options.flashMessage);
+    }
     if (options.focusAfter) {
       this.broadcastScript('sk.resetAndFocusCommandInput()');
     }
@@ -467,6 +494,20 @@ export class SkeinService {
       return;
     }
 
+    this.broadcastFlash('Replayed all commands');
+    res.writeHead(204);
+    res.end();
+  }
+
+  /**
+   * POST /actions/cancel-replay - the progress modal's Cancel button (see withProgress). A no-op,
+   * not a 400, when nothing is actually replaying: the button and the replay it targets are on
+   * independent timers (SSE broadcast vs. the in-flight fetch), so a click landing just after the
+   * replay already finished on its own is normal, not an error.
+   */
+  private async handleCancelReplay(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+    await readRequestBody(req);
+    this.cancelCurrentReplay?.();
     res.writeHead(204);
     res.end();
   }
@@ -537,6 +578,16 @@ export class SkeinService {
     // resetAndFocusCommandInput's own null-check when there's no input to focus (no session, or
     // a keystroke-prompt placeholder instead).
     this.sendScript(res, 'sk.resetAndFocusCommandInput()');
+
+    // Catches this client up on a replay that's already in flight - see currentProgress's own
+    // doc comment for why this is needed (not just a nice-to-have): without it, a replay that
+    // starts before this connection exists broadcasts into an empty sseClients set and the
+    // progress modal never appears at all, only the final flash once the tree itself re-renders.
+    if (this.currentProgress) {
+      const { title, cancellable, percent, message } = this.currentProgress;
+      this.sendScript(res, `sk.showProgress(${JSON.stringify(title)}, ${JSON.stringify(cancellable)})`);
+      this.sendScript(res, `sk.updateProgress(${percent}, ${JSON.stringify(message)})`);
+    }
   }
 
   private broadcast(): void {
@@ -572,6 +623,57 @@ export class SkeinService {
   private broadcastScript(js: string): void {
     for (const client of this.sseClients) {
       this.sendScript(client, js);
+    }
+  }
+
+  /**
+   * An acknowledging flash for actions worth an explicit "yes, that happened" confirmation
+   * (bless, replay, replay all) - routine navigation/selection actions don't get one, since the
+   * transcript updating is already the confirmation. Ported from dialog-tool's own flash!/
+   * sk.showFlash (top-center, single-flash-at-a-time, fades out on its own) - reuses
+   * broadcastScript's script-append channel rather than baking a flash container into renderApp's
+   * own markup, so it's unaffected by the ordinary #skein-app morph a tree change triggers.
+   */
+  private broadcastFlash(message: string): void {
+    this.broadcastScript(`sk.showFlash(${JSON.stringify(message)})`);
+  }
+
+  /**
+   * ProgressHost implementation for SkeinSession.replayAll (see progress.ts's doc comment for why
+   * that's an injected interface rather than a direct dependency): dialog-tool's own replay-all
+   * shows a real in-page progress modal, not a native OS/editor dialog, and its Cancel button
+   * actually works here (dialog-tool's own :continue flag is set but never read anywhere -
+   * confirmed by inspecting its source - so its Cancel button is silently inert; this one isn't).
+   * Broadcasts sk.showProgress/updateProgress/hideProgress over the same script-append channel as
+   * broadcastFlash - percent is accumulated here from each report()'s increment (0-100) rather
+   * than threading a running total through the wire, since ProgressReporter's contract is already
+   * increment-based (see session.ts's replayTo). cancelCurrentReplay is how POST
+   * /actions/cancel-replay reaches back into the token captured by this specific call.
+   */
+  public async withProgress<T>(
+    options: { title: string; cancellable: boolean },
+    task: (progress: ProgressReporter, token: CancellationToken) => Promise<T>
+  ): Promise<T> {
+    const token: CancellationToken = { isCancellationRequested: false };
+    this.cancelCurrentReplay = () => {
+      token.isCancellationRequested = true;
+    };
+    this.currentProgress = { title: options.title, cancellable: options.cancellable, percent: 0, message: null };
+    this.broadcastScript(`sk.showProgress(${JSON.stringify(options.title)}, ${JSON.stringify(options.cancellable)})`);
+    const progress: ProgressReporter = {
+      report: (update) => {
+        const percent = Math.min(100, this.currentProgress!.percent + (update.increment ?? 0));
+        const message = update.message ?? null;
+        this.currentProgress = { ...this.currentProgress!, percent, message };
+        this.broadcastScript(`sk.updateProgress(${percent}, ${JSON.stringify(message)})`);
+      }
+    };
+    try {
+      return await task(progress, token);
+    } finally {
+      this.cancelCurrentReplay = null;
+      this.currentProgress = null;
+      this.broadcastScript('sk.hideProgress()');
     }
   }
 

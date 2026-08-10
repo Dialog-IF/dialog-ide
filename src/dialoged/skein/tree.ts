@@ -718,10 +718,91 @@ export class SkeinTree {
   }
 
   /**
+   * The leaf of the currently selected spine - root, then following selectedChild all the way
+   * down. This is "the whole spine" render.ts's selectedKnots renders into the transcript, and
+   * what the navbar's Replay All / Bless Transcript operate on - deliberately NOT activeKnotId,
+   * which (since selectKnot) can be any knot navigated to partway up that same spine. Using
+   * activeKnotId for either of those would silently stop short at wherever the user last clicked,
+   * even though the transcript itself keeps showing everything past it (see selectKnot's doc
+   * comment) - this is what those two operations actually mean by "the active spine".
+   */
+  public getSelectedLeafId(): number {
+    let currentId = 0;
+    for (;;) {
+      const state = this.knotStates.get(currentId);
+      if (!state || state.selectedChild === null) {
+        return currentId;
+      }
+      currentId = state.selectedChild;
+    }
+  }
+
+  /**
    * Set active knot ID
    */
   public setActiveKnotId(id: number | null): SkeinTree {
     return new SkeinTree(this.engine, this.seed, this.knots, this.knotStates, id, this.collapsedKnotIds);
+  }
+
+  /**
+   * The real click-to-navigate operation - ported from dialog-tool's session/select-knot (tree/
+   * select-knot + tree/extend-selection) + set-active-knot-id. render.ts's selectedKnots renders
+   * root-to-leaf by walking selectedChild, not root-to-activeKnotId (see setActiveKnotId's own
+   * doc comment above, and toggleCollapsed's) - so a plain setActiveKnotId(id) alone left whatever
+   * was already explored past id, at every ancestor above id, exactly as it was. That's correct
+   * when id is already on the currently-selected path (nothing to change), but wrong the moment
+   * id sits in a different branch: the transcript would keep showing the *old* branch below the
+   * point where they diverge, not id at all. selectKnot fixes that by re-pointing selectedChild
+   * along the path down to id first (selectPath), then - since id itself might already have its
+   * own unambiguous continuation worth showing automatically - extends through single-child
+   * chains below id (extendSelection). Neither step ever touches a real branch point's existing
+   * selectedChild (2+ children keeps whatever was already selected there), and neither ever
+   * removes a knot - only addChild's own selectedChild reassignment (a genuinely new branch)
+   * changes what's displayed past a branch point; selecting an existing knot never truncates
+   * anything, which is the whole point of this method existing separately from setActiveKnotId.
+   */
+  public selectKnot(id: number): SkeinTree {
+    if (!this.knots.get(id)) {
+      throw new Error(`Knot ${id} not found`);
+    }
+    return this.selectPath(id).extendSelection(id).setActiveKnotId(id);
+  }
+
+  /**
+   * Reassigns selectedChild along the path from root down to id - see selectKnot's doc comment.
+   */
+  private selectPath(id: number): SkeinTree {
+    const path = this.pathFromRoot(id);
+    let knotStates = this.knotStates;
+    for (let i = 0; i < path.length - 1; i++) {
+      const parentId = path[i];
+      const childId = path[i + 1];
+      const parentState = knotStates.get(parentId)!;
+      if (parentState.selectedChild !== childId) {
+        knotStates = knotStates.set(parentId, { ...parentState, selectedChild: childId });
+      }
+    }
+    return new SkeinTree(this.engine, this.seed, this.knots, knotStates, this.activeKnotId, this.collapsedKnotIds);
+  }
+
+  /**
+   * Extends selection downward from id through single-child chains until a leaf or an actual
+   * branch point (2+ children) - see selectKnot's doc comment. A branch point's own already-
+   * explored selectedChild is left exactly as it was.
+   */
+  private extendSelection(id: number): SkeinTree {
+    let knotStates = this.knotStates;
+    let currentId = id;
+    for (;;) {
+      const state = knotStates.get(currentId);
+      if (!state || state.children.length !== 1) {
+        break;
+      }
+      const childId = state.children[0];
+      knotStates = knotStates.set(currentId, { ...state, selectedChild: childId });
+      currentId = childId;
+    }
+    return new SkeinTree(this.engine, this.seed, this.knots, knotStates, this.activeKnotId, this.collapsedKnotIds);
   }
 
   /**

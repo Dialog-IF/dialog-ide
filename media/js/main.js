@@ -13,6 +13,155 @@ window.sk = {
     }
   },
 
+  // An acknowledging flash (service.ts's broadcastFlash) - ported near-verbatim from dialog-tool's
+  // own sk.showFlash: top-center, one at a time (a new flash dismisses whatever's currently
+  // showing rather than stacking), fades in then auto-dismisses. Built client-side rather than
+  // server-rendered into renderApp, so the ordinary #skein-app morph a tree change triggers can
+  // never clip one mid-display. type is 'info' (default; blue, no dismiss button, auto-fades) or
+  // 'error' (red, persists until the user dismisses it via the X button or Escape) - dialog-ide
+  // doesn't send 'error' flashes yet, but the parameter is here so it doesn't need revisiting when
+  // something eventually does.
+  _dismissFlash() {
+    if (this._flashTimer) {
+      clearTimeout(this._flashTimer);
+      this._flashTimer = null;
+    }
+    if (this._flashEl) {
+      this._flashEl.remove();
+      this._flashEl = null;
+    }
+  },
+
+  showFlash(message, type = 'info') {
+    const isError = type === 'error';
+    this._dismissFlash();
+
+    const wrapper = document.createElement('div');
+    wrapper.className = 'fixed top-20 left-1/2 -translate-x-1/2 z-50';
+    wrapper.style.pointerEvents = isError ? 'auto' : 'none';
+
+    const inner = document.createElement('div');
+    inner.className = isError
+      ? 'flex items-center gap-3 bg-red-600 text-white px-6 py-3 rounded-lg shadow-lg'
+      : 'bg-blue-600 text-white px-6 py-3 rounded-lg shadow-lg transition-opacity duration-500';
+    if (!isError) inner.style.opacity = '0';
+
+    const msg = document.createElement('span');
+    msg.textContent = message;
+    inner.appendChild(msg);
+
+    if (isError) {
+      inner.setAttribute('tabindex', '-1');
+      inner.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') this._dismissFlash();
+      });
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'ml-2 opacity-80 hover:opacity-100 text-lg font-bold cursor-pointer';
+      btn.textContent = '✕';
+      btn.addEventListener('click', () => this._dismissFlash());
+      inner.appendChild(btn);
+    }
+
+    wrapper.appendChild(inner);
+    document.body.appendChild(wrapper);
+    this._flashEl = wrapper;
+
+    if (isError) {
+      inner.focus();
+    } else {
+      requestAnimationFrame(() => {
+        inner.style.opacity = '1';
+        this._flashTimer = setTimeout(() => {
+          inner.style.opacity = '0';
+          this._flashTimer = setTimeout(() => this._dismissFlash(), 600);
+        }, 2000);
+      });
+    }
+  },
+
+  // A centered progress modal for Replay All (service.ts's ProgressHost implementation) - ported
+  // visually from dialog-tool's modals/progress + components/modal.clj (backdrop, centered white
+  // panel, header/body layout, <progress> bar), but with a Cancel button that actually works:
+  // dialog-tool's own sets a :continue flag that's never read anywhere in its codebase, so
+  // clicking it does nothing there. Here it POSTs to /actions/cancel-replay, which flips the
+  // CancellationToken session.ts's replayTo checks between each replayed command (see service.ts's
+  // withProgress/cancelCurrentReplay).
+  showProgress(title, cancellable) {
+    this.hideProgress();
+
+    const overlay = document.createElement('div');
+    overlay.id = 'progress-modal';
+    overlay.className = 'fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-grayscale';
+
+    const panel = document.createElement('div');
+    panel.className = 'bg-base-100 rounded-lg shadow-xl max-w-full min-w-md mx-4';
+    panel.setAttribute('role', 'dialog');
+    panel.setAttribute('aria-modal', 'true');
+
+    const header = document.createElement('div');
+    header.className = 'px-6 py-4 border-b border-base-200';
+    const heading = document.createElement('h3');
+    heading.className = 'text-lg font-medium text-base-content';
+    heading.textContent = title;
+    header.appendChild(heading);
+
+    const body = document.createElement('div');
+    body.className = 'px-6 py-4';
+
+    const statusRow = document.createElement('div');
+    statusRow.className = 'flex justify-between mb-2';
+    const percentEl = document.createElement('span');
+    percentEl.id = 'progress-modal-percent';
+    percentEl.className = 'text-sm font-medium text-base-content';
+    percentEl.textContent = '0%';
+    const labelEl = document.createElement('span');
+    labelEl.id = 'progress-modal-label';
+    labelEl.className = 'text-sm text-base-content opacity-70';
+    statusRow.append(percentEl, labelEl);
+
+    const bar = document.createElement('progress');
+    bar.id = 'progress-modal-bar';
+    bar.className = 'progress progress-primary w-full';
+    bar.value = 0;
+    bar.max = 100;
+    bar.setAttribute('aria-label', title);
+
+    body.append(statusRow, bar);
+
+    if (cancellable) {
+      const buttonRow = document.createElement('div');
+      buttonRow.className = 'flex justify-end gap-2 mt-4';
+      const cancelBtn = document.createElement('button');
+      cancelBtn.type = 'button';
+      cancelBtn.className = 'btn btn-neutral';
+      cancelBtn.textContent = 'Cancel';
+      cancelBtn.addEventListener('click', () => {
+        fetch('/actions/cancel-replay', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+      });
+      buttonRow.appendChild(cancelBtn);
+      body.appendChild(buttonRow);
+    }
+
+    panel.append(header, body);
+    overlay.appendChild(panel);
+    document.body.appendChild(overlay);
+  },
+
+  updateProgress(percent, message) {
+    const bar = document.getElementById('progress-modal-bar');
+    if (bar) bar.value = percent;
+    const percentEl = document.getElementById('progress-modal-percent');
+    if (percentEl) percentEl.textContent = Math.round(percent) + '%';
+    const labelEl = document.getElementById('progress-modal-label');
+    if (labelEl) labelEl.textContent = message || '';
+  },
+
+  hideProgress() {
+    const el = document.getElementById('progress-modal');
+    if (el) el.remove();
+  },
+
   // ---------------------------------------------------------------------------
   // Tree/graph pane: SVG connector lines + drag-to-pan.
   // Ported from dialog-tool's own main.js (initTreeGraph/drawTreeArrows) - same element ids

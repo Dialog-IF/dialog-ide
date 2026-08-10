@@ -221,7 +221,11 @@ export class SkeinSession {
         // just created without needing addChild to hand it back explicitly.
         activeKnotId = this.tree.getDerivedKnot(parentId)!.selectedChild!;
       }
-      this.tree = this.tree.setActiveKnotId(activeKnotId);
+      // selectKnot, not setActiveKnotId: the reused-existing-child branch above can land on a
+      // sibling that wasn't already parentId's selectedChild (re-running an old, currently-
+      // unselected command), which needs the same selectedChild fix-up a plain click does - see
+      // selectKnot's doc comment in tree.ts.
+      this.tree = this.tree.selectKnot(activeKnotId);
       this.processPositionId = activeKnotId;
 
       await this.refreshDynamicState();
@@ -277,27 +281,27 @@ export class SkeinSession {
     }
 
     this.processPositionId = reachedId;
-    this.tree = this.tree.setActiveKnotId(reachedId);
+    this.tree = this.tree.selectKnot(reachedId);
     this.closeMenus();
     await this.refreshDynamicState();
     this.changeEmitter.emit('change');
   }
 
   /**
-   * Re-runs every command on the active spine against a fresh process - the navbar's "Replay
-   * All". Since dgdebug re-reads its source files on every launch, this doubles as picking up
-   * any edits made to the project's .dg files since the process last started. Wrapped in
-   * progressHost.withProgress so a real session (see extension.ts's vscodeProgressHost) shows a
-   * cancellable native progress notification; tests and every other call site get
-   * noopProgressHost's immediate no-dialog pass-through instead.
+   * Re-runs every command on the selected spine against a fresh process - the navbar's "Replay
+   * All". Targets tree.getSelectedLeafId(), not getActiveKnotId(): activeKnotId can be any knot
+   * navigated to partway up the spine (see tree.ts's selectKnot), and the transcript keeps
+   * showing everything past it regardless - "replay everything visible" means the leaf, not
+   * wherever the user last clicked. Since dgdebug re-reads its source files on every launch, this
+   * doubles as picking up any edits made to the project's .dg files since the process last
+   * started. Wrapped in progressHost.withProgress so a real session (see extension.ts's
+   * vscodeProgressHost) shows a cancellable native progress notification; tests and every other
+   * call site get noopProgressHost's immediate no-dialog pass-through instead.
    */
   public async replayAll(): Promise<void> {
-    const activeKnotId = this.tree.getActiveKnotId();
-    if (activeKnotId === null) {
-      throw new Error('No active knot to replay to');
-    }
+    const leafId = this.tree.getSelectedLeafId();
     await this.progressHost.withProgress({ title: 'Replaying all commands...', cancellable: true }, (progress, token) =>
-      this.replayTo(activeKnotId, progress, token)
+      this.replayTo(leafId, progress, token)
     );
   }
 
@@ -313,13 +317,16 @@ export class SkeinSession {
    * Makes id the active (displayed/navigated-to) knot - a pure tree mutation, no process
    * interaction. Backs both graph/transcript click-navigation and the actions menu's "New
    * Child" (which then just relies on the command input + runCommand's replay-if-stale guard
-   * for the actual new command).
+   * for the actual new command). selectKnot, not the plain setActiveKnotId: clicking a knot in a
+   * different branch than what's currently displayed needs to re-point the spine down to it
+   * (without discarding whatever was already explored past it) - see tree.ts's selectKnot for
+   * why setActiveKnotId alone isn't enough here.
    */
   public setActiveKnot(id: number): void {
     if (!this.tree.getKnot(id)) {
       throw new Error(`Knot ${id} not found`);
     }
-    this.tree = this.tree.setActiveKnotId(id);
+    this.tree = this.tree.selectKnot(id);
     this.closeMenus();
     this.changeEmitter.emit('change');
   }

@@ -37,7 +37,7 @@ describe('renderNavbar', () => {
     expect(html).toContain(`data-on:click="@post('/actions/replay-all')"`);
   });
 
-  it('wires the single Bless Transcript button to bless-changes for the current active knot, baked in server-side at render time', () => {
+  it('wires the single Bless Transcript button to bless-changes for the selected spine\'s leaf, baked in server-side at render time', () => {
     const tree = SkeinTree.newTree('dgdebug', 1)
       .addChild(0, 'look', { text: 'a', inputType: 'line' })
       .setActiveKnotId(1);
@@ -45,6 +45,22 @@ describe('renderNavbar', () => {
     expect(html).toContain(`$knotId = 1; @post('/actions/bless-changes')`);
     expect(html).toContain('Bless Transcript');
     expect(html).not.toContain('/actions/bless-knot');
+  });
+
+  // Regression: the button used to target activeKnotId, which stops short the moment the user
+  // navigates back to an ancestor (see tree.ts's selectKnot) - the transcript keeps showing
+  // everything past it regardless, so "Bless Transcript" silently blessed less than what was
+  // actually visible. getSelectedLeafId() is the fix; this pins the button to it.
+  it('targets the spine\'s leaf, not the active knot, once navigation has moved the active knot back up the tree', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1)
+      .addChild(0, 'look', { text: 'Room A.\n', inputType: 'line' }) // knot 1
+      .addChild(1, 'take orb', { text: 'Got it.\n', inputType: 'line' }) // knot 2
+      .selectKnot(1); // navigate back to knot 1; knot 2 is still shown in the transcript
+
+    const html = renderNavbar(INFO, tree);
+
+    expect(tree.getActiveKnotId()).toBe(1);
+    expect(html).toContain(`$knotId = 2; @post('/actions/bless-changes')`);
   });
 
   it('styles Save, Replay All, and Bless Transcript identically as bordered primary buttons, not a dropdown', () => {
@@ -79,6 +95,33 @@ describe('renderKnotList', () => {
     expect(html).toContain('id="knot-0"');
     expect(html).toContain('id="knot-1"');
     expect(html).toContain(visible('You see nothing.\n'));
+  });
+
+  // Regression: renderKnotList used to walk root-to-activeKnotId, so navigating (selectKnot) to
+  // an ancestor made everything already explored past it vanish from the transcript, even though
+  // nothing was actually deleted - only creating a new child should ever do that. See
+  // tree.ts's selectKnot and this function's own doc comment.
+  it('keeps showing everything already explored past the selected knot - selecting it is not the same as creating a new child', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1)
+      .addChild(0, 'look', { text: 'Room A.\n', inputType: 'line' }) // knot 1
+      .addChild(1, 'take orb', { text: 'Got it.\n', inputType: 'line' }) // knot 2
+      .selectKnot(1); // navigate back to knot 1, after having already explored down to knot 2
+
+    const html = renderKnotList(tree);
+    expect(html).toContain('id="knot-0"');
+    expect(html).toContain('id="knot-1"');
+    expect(html).toContain('id="knot-2"');
+  });
+
+  it('switches the displayed branch when selecting a knot in a different, previously-unselected branch', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1)
+      .addChild(0, 'look', { text: 'a', inputType: 'line' }) // knot 1
+      .addChild(0, 'inventory', { text: 'b', inputType: 'line' }) // knot 2, now root's selectedChild
+      .selectKnot(1); // click back to knot 1's branch
+
+    const html = renderKnotList(tree);
+    expect(html).toContain('id="knot-1"');
+    expect(html).not.toContain('id="knot-2"');
   });
 
   it('marks the active knot with the arrow icon', () => {

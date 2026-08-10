@@ -544,6 +544,61 @@ describe('SkeinService', () => {
       const page = await get(`http://localhost:${service.getPort()}/`);
       expect(page.body).not.toContain('<details class="dropdown dropdown-right font-sans" open style="anchor-name: --knot-menu-graph-1">');
     });
+
+    describe('acknowledging flash', () => {
+      const flashRoutes: [string, string][] = [
+        ['bless-knot', 'Knot blessed'],
+        ['bless-changes', 'Transcript blessed'],
+        ['replay-to', 'Replayed to knot']
+      ];
+
+      for (const [route, message] of flashRoutes) {
+        it(`${route} broadcasts an acknowledging "${message}" flash`, async () => {
+          const tree = SkeinTree.newTree('dgdebug', 1).addChild(0, 'look', { text: 'a', inputType: 'line' });
+          const fake = createFakeSession(tree);
+          service.setActiveSession(fake as unknown as SkeinSession, 'default');
+
+          const chunks: string[] = [];
+          const req = http.get(`http://localhost:${service.getPort()}/events`, (res) => {
+            res.on('data', (chunk) => chunks.push(chunk.toString()));
+          });
+          try {
+            await waitFor(() => chunks.length > 0); // the connect-time patch
+            chunks.length = 0;
+
+            await post(`http://localhost:${service.getPort()}/actions/${route}`, { knotId: 1 });
+
+            await waitFor(() => chunks.join('').includes('sk.showFlash'));
+            expect(chunks.join('')).toContain(`sk.showFlash(${JSON.stringify(message)})`);
+          } finally {
+            req.destroy();
+          }
+        });
+      }
+
+      it('toggle-lock does not broadcast a flash - not every action warrants one', async () => {
+        const tree = SkeinTree.newTree('dgdebug', 1).addChild(0, 'look', { text: 'a', inputType: 'line' });
+        const fake = createFakeSession(tree);
+        service.setActiveSession(fake as unknown as SkeinSession, 'default');
+
+        const chunks: string[] = [];
+        const req = http.get(`http://localhost:${service.getPort()}/events`, (res) => {
+          res.on('data', (chunk) => chunks.push(chunk.toString()));
+        });
+        try {
+          await waitFor(() => chunks.length > 0);
+          chunks.length = 0;
+
+          await post(`http://localhost:${service.getPort()}/actions/toggle-lock`, { knotId: 1 });
+          // Give an (incorrect) broadcast a moment to arrive, then confirm none did - only the
+          // ordinary tree-change patch should have.
+          await new Promise((resolve) => setTimeout(resolve, 100));
+          expect(chunks.join('')).not.toContain('sk.showFlash');
+        } finally {
+          req.destroy();
+        }
+      });
+    });
   });
 
   describe('POST /actions/set-label', () => {
@@ -594,6 +649,28 @@ describe('SkeinService', () => {
       expect(fake.calls.replayAllCount).toBe(1);
     });
 
+    it('broadcasts an acknowledging flash on success', async () => {
+      const tree = SkeinTree.newTree('dgdebug', 1);
+      const fake = createFakeSession(tree);
+      service.setActiveSession(fake as unknown as SkeinSession, 'default');
+
+      const chunks: string[] = [];
+      const req = http.get(`http://localhost:${service.getPort()}/events`, (res) => {
+        res.on('data', (chunk) => chunks.push(chunk.toString()));
+      });
+      try {
+        await waitFor(() => chunks.length > 0);
+        chunks.length = 0;
+
+        await post(`http://localhost:${service.getPort()}/actions/replay-all`, {});
+
+        await waitFor(() => chunks.join('').includes('sk.showFlash'));
+        expect(chunks.join('')).toContain(`sk.showFlash(${JSON.stringify('Replayed all commands')})`);
+      } finally {
+        req.destroy();
+      }
+    });
+
     it('500s when replayAll rejects', async () => {
       const tree = SkeinTree.newTree('dgdebug', 1);
       const fake = createFakeSession(tree, {
@@ -605,6 +682,112 @@ describe('SkeinService', () => {
 
       const res = await post(`http://localhost:${service.getPort()}/actions/replay-all`, {});
       expect(res.status).toBe(500);
+    });
+  });
+
+  describe('SkeinService.withProgress (ProgressHost) / POST /actions/cancel-replay', () => {
+    function listenForBroadcastScripts() {
+      const chunks: string[] = [];
+      const req = http.get(`http://localhost:${service.getPort()}/events`, (res) => {
+        res.on('data', (chunk) => chunks.push(chunk.toString()));
+      });
+      return { chunks, stop: () => req.destroy() };
+    }
+
+    it('broadcasts sk.showProgress, an sk.updateProgress per report(), and sk.hideProgress on completion', async () => {
+      const { chunks, stop } = listenForBroadcastScripts();
+      try {
+        await waitFor(() => chunks.length > 0); // the connect-time patch
+        chunks.length = 0;
+
+        await service.withProgress({ title: 'Replaying all commands...', cancellable: true }, async (progress) => {
+          progress.report({ message: 'look', increment: 50 });
+          progress.report({ message: 'take orb', increment: 50 });
+        });
+
+        // The SSE writes above land on the server-side socket synchronously, but delivery to this
+        // client is a real (loopback) round trip - waitFor before asserting, same as every other
+        // SSE test in this file, rather than reading chunks immediately after the await above.
+        await waitFor(() => chunks.join('').includes('sk.hideProgress()'));
+        const payload = chunks.join('');
+        expect(payload).toContain(`sk.showProgress(${JSON.stringify('Replaying all commands...')}, true)`);
+        expect(payload).toContain(`sk.updateProgress(50, ${JSON.stringify('look')})`);
+        expect(payload).toContain(`sk.updateProgress(100, ${JSON.stringify('take orb')})`);
+        expect(payload).toContain('sk.hideProgress()');
+      } finally {
+        stop();
+      }
+    });
+
+    // Regression: extension.ts's implicit replay-on-load (runLoadedSession) can start (and, for a
+    // short replay, finish) before the webview's iframe has even navigated to GET / and opened
+    // its own /events connection - the broadcasts above land in an empty sseClients set and are
+    // gone forever, so the progress modal never appeared at all on load, only on a manual click
+    // (where the connection already exists). handleSseConnect's currentProgress catch-up fixes
+    // this: a client connecting mid-replay must see the modal immediately, not just future
+    // updates.
+    it('catches a newly-connecting client up on a replay already in progress, without waiting for the next report()', async () => {
+      let resolveTask: (() => void) | undefined;
+      const withProgressPromise = service.withProgress(
+        { title: 'Replaying all commands...', cancellable: true },
+        async (progress) => {
+          progress.report({ message: 'look', increment: 50 });
+          await new Promise<void>((resolve) => {
+            resolveTask = resolve;
+          });
+        }
+      );
+
+      const chunks: string[] = [];
+      const req = http.get(`http://localhost:${service.getPort()}/events`, (res) => {
+        res.on('data', (chunk) => chunks.push(chunk.toString()));
+      });
+      try {
+        await waitFor(() => chunks.join('').includes('sk.showProgress'));
+        const payload = chunks.join('');
+        expect(payload).toContain(`sk.showProgress(${JSON.stringify('Replaying all commands...')}, true)`);
+        expect(payload).toContain(`sk.updateProgress(50, ${JSON.stringify('look')})`);
+      } finally {
+        resolveTask?.();
+        await withProgressPromise;
+        req.destroy();
+      }
+    });
+
+    it('still broadcasts sk.hideProgress when the task throws', async () => {
+      const { chunks, stop } = listenForBroadcastScripts();
+      try {
+        await waitFor(() => chunks.length > 0);
+        chunks.length = 0;
+
+        await expect(
+          service.withProgress({ title: 'x', cancellable: false }, async () => {
+            throw new Error('boom');
+          })
+        ).rejects.toThrow('boom');
+
+        await waitFor(() => chunks.join('').includes('sk.hideProgress()'));
+        expect(chunks.join('')).toContain('sk.hideProgress()');
+      } finally {
+        stop();
+      }
+    });
+
+    it('cancel-replay flips the token passed to the in-flight withProgress task', async () => {
+      const withProgressPromise = service.withProgress({ title: 'x', cancellable: true }, async (_progress, token) => {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        return token.isCancellationRequested;
+      });
+
+      await post(`http://localhost:${service.getPort()}/actions/cancel-replay`, {});
+      const wasCancelled = await withProgressPromise;
+
+      expect(wasCancelled).toBe(true);
+    });
+
+    it('204s as a no-op when nothing is currently replaying', async () => {
+      const res = await post(`http://localhost:${service.getPort()}/actions/cancel-replay`, {});
+      expect(res.status).toBe(204);
     });
   });
 

@@ -545,6 +545,86 @@ describe('SkeinTree.setActiveKnotId', () => {
   });
 });
 
+describe('SkeinTree.getSelectedLeafId', () => {
+  it('is root on a fresh tree', () => {
+    expect(SkeinTree.newTree('dgdebug', 1).getSelectedLeafId()).toBe(0);
+  });
+
+  it('follows selectedChild down to the leaf, independent of activeKnotId', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1)
+      .addChild(0, 'look', { text: 'a', inputType: 'line' }) // knot 1
+      .addChild(1, 'take orb', { text: 'b', inputType: 'line' }) // knot 2
+      .selectKnot(1); // active knot moves back up; selectedChild below it is untouched
+
+    expect(tree.getActiveKnotId()).toBe(1);
+    expect(tree.getSelectedLeafId()).toBe(2);
+  });
+
+  it('stops at a branch point, following whichever child is currently selected there', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1)
+      .addChild(0, 'look', { text: 'a', inputType: 'line' }) // knot 1
+      .addChild(0, 'inventory', { text: 'b', inputType: 'line' }); // knot 2, now root's selectedChild
+
+    expect(tree.getSelectedLeafId()).toBe(2);
+  });
+});
+
+describe('SkeinTree.selectKnot', () => {
+  it('sets the active knot, same as setActiveKnotId', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1).addChild(0, 'look', { text: 'a', inputType: 'line' }).selectKnot(1);
+    expect(tree.getActiveKnotId()).toBe(1);
+  });
+
+  it('throws for an unknown knot id', () => {
+    expect(() => SkeinTree.newTree('dgdebug', 1).selectKnot(999)).toThrow();
+  });
+
+  // The regression this whole method exists to fix: a plain click on an ancestor must not look
+  // like it discarded whatever was already explored past it - only creating a new child does
+  // that. render.ts's selectedKnots walks selectedChild from root, so what matters here is that
+  // selectedChild below the clicked knot is untouched, not just getActiveKnotId().
+  it('leaves selectedChild below the selected knot untouched, so anything already explored past it stays selected', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1)
+      .addChild(0, 'look', { text: 'a', inputType: 'line' }) // knot 1
+      .addChild(1, 'take orb', { text: 'b', inputType: 'line' }) // knot 2, knot 1's selectedChild
+      .selectKnot(0) // click back to root
+      .selectKnot(1); // then click knot 1 again
+
+    expect(tree.getDerivedKnot(1)!.selectedChild).toBe(2);
+  });
+
+  it('re-points an ancestor\'s selectedChild toward the clicked knot when it was pointing at a different branch', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1)
+      .addChild(0, 'look', { text: 'a', inputType: 'line' }) // knot 1
+      .addChild(0, 'inventory', { text: 'b', inputType: 'line' }); // knot 2, now root's selectedChild
+    expect(tree.getDerivedKnot(0)!.selectedChild).toBe(2);
+
+    const selected = tree.selectKnot(1);
+
+    expect(selected.getDerivedKnot(0)!.selectedChild).toBe(1);
+  });
+
+  it('extends selection downward through an unambiguous single-child chain below the selected knot', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1)
+      .addChild(0, 'look', { text: 'a', inputType: 'line' }) // knot 1
+      .addChild(1, 'take orb', { text: 'b', inputType: 'line' }) // knot 2, knot 1's only child
+      .selectKnot(0) // knot 1's own selectedChild is untouched by this, still 2
+      .selectKnot(1);
+
+    expect(tree.getDerivedKnot(1)!.selectedChild).toBe(2);
+  });
+
+  it('stops extending at a real branch point, leaving its existing selectedChild alone', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1)
+      .addChild(0, 'look', { text: 'a', inputType: 'line' }) // knot 1
+      .addChild(1, 'take orb', { text: 'b', inputType: 'line' }) // knot 2
+      .addChild(1, 'drop orb', { text: 'c', inputType: 'line' }) // knot 3, now knot 1's selectedChild
+      .selectKnot(1);
+
+    expect(tree.getDerivedKnot(1)!.selectedChild).toBe(3);
+  });
+});
+
 describe('SkeinTree.toggleCollapsed', () => {
   it('flips DerivedKnot.collapsed on alternating calls', () => {
     const tree = SkeinTree.newTree('dgdebug', 1).addChild(0, 'look', { text: 'a', inputType: 'line' });

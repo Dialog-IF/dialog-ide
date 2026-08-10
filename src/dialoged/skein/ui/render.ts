@@ -80,26 +80,27 @@ function renderDiff(response: string | null, unblessedResponse: string | null): 
 }
 
 /**
- * The active spine, root to active leaf - dialog-tool's session/selected-knots has no existing
- * dialog-ide equivalent; this is a small local helper rather than new SkeinTree API.
+ * The selected spine, root to leaf - ported from dialog-tool's session/selected-knots, which
+ * walks root down via selectedChild all the way to a leaf, entirely independent of
+ * activeKnotId (only used for highlighting which knot in that chain is "active" - see
+ * renderKnot). Deliberately NOT root-to-activeKnotId: activeKnotId can be any knot clicked
+ * elsewhere in the tree (see tree.ts's selectKnot), and stopping there would make a plain click
+ * on an ancestor look like it discarded everything already explored past it, when nothing
+ * actually changed - only creating a new child (addChild's own selectedChild reassignment) is
+ * a real, deliberate change to what's displayed.
  */
 function selectedKnots(tree: SkeinTree): DerivedKnot[] {
-  const activeId = tree.getActiveKnotId();
-  if (activeId === null) {
-    return [];
-  }
-
   const chain: DerivedKnot[] = [];
-  let currentId: number | null = activeId;
+  let currentId: number | null = 0;
   while (currentId !== null) {
     const knot = tree.getDerivedKnot(currentId);
     if (!knot) {
       break;
     }
     chain.push(knot);
-    currentId = knot.parentId;
+    currentId = knot.selectedChild;
   }
-  return chain.reverse();
+  return chain;
 }
 
 function totals(tree: SkeinTree): Record<KnotStatus, number> {
@@ -275,15 +276,16 @@ function renderCommandInput(tree: SkeinTree): string {
  * wanted to persist it.
  *
  * Bless Transcript posts to /actions/bless-changes (session.blessChanges -> tree.blessTranscript),
- * which blesses every non-valid knot from root to the given id inclusive - i.e. exactly the
- * active spine, which is also exactly what selectedKnots/renderKnotList render into the
- * transcript pane. So "blesses everything visible in the transcript" is that route's existing
- * behavior, not new logic - only the button's label and (no longer a dropdown) presentation
- * changed to say so directly.
+ * which blesses every non-valid knot from root to the given id inclusive - targeting
+ * tree.getSelectedLeafId() (not activeKnotId - see that method's doc comment) makes that exactly
+ * the whole spine selectedKnots/renderKnotList render into the transcript pane, regardless of
+ * which knot on it the user last clicked. So "blesses everything visible in the transcript" is
+ * that route's existing behavior, not new logic - only the button's label, target, and (no longer
+ * a dropdown) presentation changed to say so directly.
  */
 export function renderNavbar(info: SessionDisplayInfo, tree: SkeinTree): string {
   const t = totals(tree);
-  const activeKnotId = tree.getActiveKnotId();
+  const spineLeafId = tree.getSelectedLeafId();
   return `<nav class="bg-base-100 text-base-content border-base-200 divide-base-200 px-2 sm:px-4 py-2.5 w-full border-b">
   <div class="w-full flex items-center gap-2">
     <div class="self-center truncate text-xl font-semibold shrink min-w-0">${escapeHtml(info.sessionId)}.skein &middot; ${escapeHtml(info.engine)} &middot; seed ${info.seed}</div>
@@ -299,7 +301,7 @@ export function renderNavbar(info: SessionDisplayInfo, tree: SkeinTree): string 
       <button type="button" class="btn btn-primary" data-on:click="@post('/actions/replay-all')" title="Re-run every command on the active spine against a fresh process">
         <div class="icon icon-play" aria-hidden="true"></div><span class="hidden lg:inline">Replay All</span>
       </button>
-      <button type="button" class="btn btn-primary" data-on:click="$knotId = ${activeKnotId}; @post('/actions/bless-changes')" title="Bless every changed knot visible in the transcript (the active spine)">
+      <button type="button" class="btn btn-primary" data-on:click="$knotId = ${spineLeafId}; @post('/actions/bless-changes')" title="Bless every changed knot visible in the transcript (the active spine)">
         <div class="icon icon-bless" aria-hidden="true"></div><span class="hidden lg:inline">Bless Transcript</span>
       </button>
     </div>
