@@ -20,6 +20,27 @@
  * layer above the entire document, bypassing every ancestor stacking context outright - the only
  * mechanism that actually solves this without relocating the DOM node via custom JS.
  *
+ * popover="manual", not the default "auto": an "auto" popover has its own built-in light-dismiss
+ * (closes itself on outside pointerdown, and on Escape) that runs entirely in the browser, with
+ * no JS involved and nothing to tell the server about it. Originally openGraphMenu/
+ * openTranscriptMenu just unconditionally set the id, so a second click on an already-open
+ * trigger never changed graphMenuId/transcriptMenuId at all - the re-rendered markup was
+ * byte-for-byte identical, so the patched-in data-effect string never changed either, and
+ * Datastar only re-runs an attribute's effect when the attribute's value actually changes (see
+ * datastar.js's morph/attribute-patch code). That first click's "auto" light-dismiss (fired by
+ * the very next outside click, including the trigger itself) would silently close the popover
+ * client-side while the server still believed it was open - and because the server's id genuinely
+ * hadn't changed, nothing would ever force a resync: one click opened it, the next closed it (via
+ * the browser, not us), and the one after that appeared to do nothing, since server state hadn't
+ * actually moved. Making the routes real toggles (session.ts's openGraphMenu/openTranscriptMenu)
+ * fixes the "nothing happens" half by guaranteeing every click is a real state transition; "manual"
+ * fixes the rest by removing every implicit, un-reported way the popover could close itself
+ * (outside click, Escape) so el.togglePopover(isOpen) is the *only* thing that ever opens or
+ * closes it and the visible state can never drift from graphMenuId/transcriptMenuId. The
+ * outside-click-closes behavior a user would expect from "auto" is provided explicitly instead -
+ * see the document click listener in main.js, which now closes the popover itself, not just the
+ * <details> element.
+ *
  * direction ('right' for the tree pane, 'left' for the transcript - see tree-pane.ts/render.ts's
  * call sites) picks which of daisyUI's dropdown-left/dropdown-right modifiers to use (see
  * node_modules/daisyui/components/dropdown.css) - which side the menu opens on relative to its
@@ -45,9 +66,11 @@
  * pane and transcript menu for the *same* knot from colliding.
  *
  * Opening the menu (its "..." trigger, nothing else - there is no right-click affordance) posts
- * to openRoute - /actions/open-graph-menu or /actions/open-transcript-menu, tracked as two
- * separate ids on SkeinSession (graphMenuId/transcriptMenuId) precisely so the graph pane and the
- * transcript never open each other's menu just because they happen to show the same knot.
+ * to openRoute - /actions/open-graph-menu or /actions/open-transcript-menu - every time it's
+ * clicked, including to close its own already-open menu (a real toggle server-side, see
+ * session.ts's openGraphMenu doc comment for why that's load-bearing, not just nicer UX), tracked
+ * as two separate ids on SkeinSession (graphMenuId/transcriptMenuId) precisely so the graph pane
+ * and the transcript never open each other's menu just because they happen to show the same knot.
  * Deliberately does NOT change the active knot - see session.ts's openGraphMenu doc comment.
  *
  * The trigger and every item below stop the click from propagating (Datastar's __stop modifier -
@@ -92,7 +115,7 @@ export function renderKnotMenu(id: number, hasUnblessed: boolean, isOpen: boolea
     data-on:click__prevent__stop="$knotId = ${id}; @post('${openRoute}')" aria-label="Knot actions">
     <div class="icon icon-dots-vertical w-3 h-3" aria-hidden="true"></div>
   </summary>
-  <ul id="${popoverId}" popover tabindex="0" role="menu" class="dropdown-content knot-menu-popover menu bg-base-100 rounded-box p-2 w-52 shadow-xl z-10"
+  <ul id="${popoverId}" popover="manual" tabindex="0" role="menu" class="dropdown-content knot-menu-popover menu bg-base-100 rounded-box p-2 w-52 shadow-xl z-10"
     style="position-anchor: ${anchorName}"
     data-effect="el.togglePopover(${isOpen})"
     data-on:click__stop="void 0">

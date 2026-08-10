@@ -3,7 +3,7 @@
  * Implements immutable persistent data structures as specified in the technical design.
  */
 
-import { Map } from 'immutable';
+import { Map, Set } from 'immutable';
 
 /**
  * A knot's own status, or (for treeState) the greatest status among a knot and its
@@ -58,6 +58,7 @@ export interface DerivedKnot {
   inputType: 'line' | 'key';
   label: string | null;
   locked: boolean;
+  collapsed: boolean;
 }
 
 /**
@@ -71,19 +72,29 @@ export class SkeinTree {
   private readonly knots: Map<number, WireKnot>;
   private readonly knotStates: Map<number, KnotState>;
   private readonly activeKnotId: number | null;
+  // Which knots have their tree/graph pane subtree collapsed (children hidden) - presentation
+  // state only, not part of WireKnot, so it's never written to the .skein file (see fromKnots,
+  // which always starts empty) and doesn't affect a knot's own state/treeState. Lives on the
+  // tree itself, alongside activeKnotId, rather than as a session-level side channel, because
+  // toggling it can need to move activeKnotId (see toggleCollapsed) - keeping both in one place
+  // means that interaction is a single atomic tree operation instead of two systems that have to
+  // be kept in sync by whoever calls them.
+  private readonly collapsedKnotIds: Set<number>;
 
   private constructor(
     engine: 'dgdebug' | 'frotz' | 'frotz-release',
     seed: number,
     knots: Map<number, WireKnot>,
     knotStates: Map<number, KnotState>,
-    activeKnotId: number | null
+    activeKnotId: number | null,
+    collapsedKnotIds: Set<number>
   ) {
     this.engine = engine;
     this.seed = seed;
     this.knots = knots;
     this.knotStates = knotStates;
     this.activeKnotId = activeKnotId;
+    this.collapsedKnotIds = collapsedKnotIds;
   }
 
   /**
@@ -115,7 +126,8 @@ export class SkeinTree {
       seed,
       Map<number, WireKnot>().set(0, initialKnot),
       Map<number, KnotState>().set(0, initialState),
-      0
+      0,
+      Set<number>()
     );
   }
 
@@ -165,7 +177,7 @@ export class SkeinTree {
       .set(parentId, updatedParentState);
     knotStates = SkeinTree.propagateTreeState(knots, knotStates, parentId);
 
-    return new SkeinTree(this.engine, this.seed, knots, knotStates, this.activeKnotId);
+    return new SkeinTree(this.engine, this.seed, knots, knotStates, this.activeKnotId, this.collapsedKnotIds);
   }
 
   /**
@@ -186,7 +198,7 @@ export class SkeinTree {
     const knots = this.knots.set(id, updatedKnot);
     const knotStates = SkeinTree.propagateOwnStateChange(knots, this.knotStates, id, updatedKnot);
 
-    return new SkeinTree(this.engine, this.seed, knots, knotStates, this.activeKnotId);
+    return new SkeinTree(this.engine, this.seed, knots, knotStates, this.activeKnotId, this.collapsedKnotIds);
   }
 
   /**
@@ -206,7 +218,7 @@ export class SkeinTree {
     const knots = this.knots.set(id, updatedKnot);
     const knotStates = SkeinTree.propagateOwnStateChange(knots, this.knotStates, id, updatedKnot);
 
-    return new SkeinTree(this.engine, this.seed, knots, knotStates, this.activeKnotId);
+    return new SkeinTree(this.engine, this.seed, knots, knotStates, this.activeKnotId, this.collapsedKnotIds);
   }
 
   /**
@@ -233,7 +245,7 @@ export class SkeinTree {
     const knots = this.knots.set(id, updatedKnot);
     const knotStates = SkeinTree.propagateOwnStateChange(knots, this.knotStates, id, updatedKnot);
 
-    return new SkeinTree(this.engine, this.seed, knots, knotStates, this.activeKnotId);
+    return new SkeinTree(this.engine, this.seed, knots, knotStates, this.activeKnotId, this.collapsedKnotIds);
   }
 
   /**
@@ -268,9 +280,11 @@ export class SkeinTree {
 
     let knots = this.knots;
     let knotStates = this.knotStates;
+    let collapsedKnotIds = this.collapsedKnotIds;
     for (const descendantId of this.collectSubtreeIds(id)) {
       knots = knots.delete(descendantId);
       knotStates = knotStates.delete(descendantId);
+      collapsedKnotIds = collapsedKnotIds.remove(descendantId);
     }
 
     if (knot.parentId !== null) {
@@ -278,7 +292,7 @@ export class SkeinTree {
       knotStates = SkeinTree.propagateTreeState(knots, knotStates, knot.parentId);
     }
 
-    return new SkeinTree(this.engine, this.seed, knots, knotStates, this.activeKnotId);
+    return new SkeinTree(this.engine, this.seed, knots, knotStates, this.activeKnotId, collapsedKnotIds);
   }
 
   /**
@@ -318,7 +332,7 @@ export class SkeinTree {
       knotStates = SkeinTree.propagateTreeState(knots, knotStates, knot.parentId);
     }
 
-    return new SkeinTree(this.engine, this.seed, knots, knotStates, this.activeKnotId);
+    return new SkeinTree(this.engine, this.seed, knots, knotStates, this.activeKnotId, this.collapsedKnotIds.remove(id));
   }
 
   /**
@@ -373,7 +387,7 @@ export class SkeinTree {
     // upward - covers both the newly inserted knot and its ancestors in one pass.
     knotStates = SkeinTree.propagateTreeState(knots, knotStates, newId);
 
-    return new SkeinTree(this.engine, this.seed, knots, knotStates, this.activeKnotId);
+    return new SkeinTree(this.engine, this.seed, knots, knotStates, this.activeKnotId, this.collapsedKnotIds);
   }
 
   /**
@@ -390,7 +404,7 @@ export class SkeinTree {
       label
     };
 
-    return new SkeinTree(this.engine, this.seed, this.knots.set(id, updatedKnot), this.knotStates, this.activeKnotId);
+    return new SkeinTree(this.engine, this.seed, this.knots.set(id, updatedKnot), this.knotStates, this.activeKnotId, this.collapsedKnotIds);
   }
 
   /**
@@ -407,7 +421,7 @@ export class SkeinTree {
       locked
     };
 
-    return new SkeinTree(this.engine, this.seed, this.knots.set(id, updatedKnot), this.knotStates, this.activeKnotId);
+    return new SkeinTree(this.engine, this.seed, this.knots.set(id, updatedKnot), this.knotStates, this.activeKnotId, this.collapsedKnotIds);
   }
 
   /**
@@ -479,7 +493,8 @@ export class SkeinTree {
       selectedChild: state ? state.selectedChild : null,
       inputType: knot.response ? knot.response.inputType : 'line',
       label: knot.label,
-      locked: knot.locked
+      locked: knot.locked,
+      collapsed: this.collapsedKnotIds.has(id)
     };
   }
 
@@ -661,7 +676,10 @@ export class SkeinTree {
       cursor = knotStates.get(cursor)?.selectedChild ?? null;
     }
 
-    return new SkeinTree(engine, seed, knots, knotStates, activeKnotId);
+    // collapsedKnotIds always starts empty on rebuild-from-file - presentation state, not
+    // persisted (see WireKnot/the field's own doc comment), matching dialog-tool's own
+    // expanded-ids being recomputed at load time rather than read from the file.
+    return new SkeinTree(engine, seed, knots, knotStates, activeKnotId, Set<number>());
   }
 
   /**
@@ -703,6 +721,45 @@ export class SkeinTree {
    * Set active knot ID
    */
   public setActiveKnotId(id: number | null): SkeinTree {
-    return new SkeinTree(this.engine, this.seed, this.knots, this.knotStates, id);
+    return new SkeinTree(this.engine, this.seed, this.knots, this.knotStates, id, this.collapsedKnotIds);
+  }
+
+  /**
+   * Toggles id's tree/graph pane subtree between collapsed (children hidden) and expanded -
+   * the small chevron below any node with children (see tree-pane.ts's renderTreeNode).
+   *
+   * Collapsing id can hide the active knot: the transcript always renders root-to-active-leaf
+   * (selectedKnots in render.ts), so if activeKnotId is a strict descendant of the knot just
+   * collapsed, it just became something the graph pane no longer shows at all - left alone,
+   * the transcript would keep displaying knots the graph pane has hidden, which is exactly the
+   * "conflict between what's in the transcript and what's in the nav graph" this guards against.
+   * id itself is the nearest still-visible ancestor of everything being hidden, so that's where
+   * active moves to - never on expand, and never when the collapsed subtree doesn't contain the
+   * active knot.
+   */
+  public toggleCollapsed(id: number): SkeinTree {
+    if (!this.knots.get(id)) {
+      throw new Error(`Knot ${id} not found`);
+    }
+
+    const collapsing = !this.collapsedKnotIds.has(id);
+    const collapsedKnotIds = collapsing ? this.collapsedKnotIds.add(id) : this.collapsedKnotIds.remove(id);
+
+    const activeKnotId =
+      collapsing && this.activeKnotId !== null && this.isDescendantOf(this.activeKnotId, id) ? id : this.activeKnotId;
+
+    return new SkeinTree(this.engine, this.seed, this.knots, this.knotStates, activeKnotId, collapsedKnotIds);
+  }
+
+  /** Whether id is a strict descendant of ancestorId (walks up via parentId; false for id === ancestorId). */
+  private isDescendantOf(id: number, ancestorId: number): boolean {
+    let current = this.knots.get(id)?.parentId ?? null;
+    while (current !== null) {
+      if (current === ancestorId) {
+        return true;
+      }
+      current = this.knots.get(current)?.parentId ?? null;
+    }
+    return false;
   }
 }

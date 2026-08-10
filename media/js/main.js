@@ -212,21 +212,26 @@ window.sk = {
   // Datastar data-on:click on the trigger, like everything else in this UI) and positioned by plain
   // daisyUI .dropdown/.dropdown-content CSS - the server decides which knot's menu is open in
   // each pane separately (session.ts's graphMenuId/transcriptMenuId) and sets the native `open`
-  // attribute directly in the re-rendered markup. The one thing native <details> doesn't give us
-  // for free (unlike the Popover API's popover="auto") is dismiss-on-outside-click - see the
-  // listener below.
+  // attribute directly in the re-rendered markup, plus toggles the dropdown-content's own
+  // popover="manual" via a data-effect (see knot-menu.ts's doc comment for why it's a real
+  // top-layer popover, and why "manual" rather than the default "auto"). "manual" means nothing
+  // ever closes it but that explicit toggle - not outside clicks, not Escape - so the listener
+  // below is what actually provides the outside-click-to-close a user expects.
 };
 
 // Clicking outside the open dropdown closes it. Skips anything inside a .dropdown entirely - a
 // click on a trigger (opening a different knot's menu) or a menu item is already handled by its
 // own data-on:click, including closing this one server-side as a side effect (every mutating
 // action and plain navigation already calls session.closeAllMenus() - see session.ts). Removing
-// `open` here first gives instant visual feedback; the fetch just keeps the server in sync so a
-// later, unrelated SSE patch doesn't re-open it.
+// `open`/hiding the popover here first gives instant visual feedback; the fetch just keeps the
+// server in sync so a later, unrelated SSE patch doesn't re-open it.
 document.addEventListener('click', (evt) => {
   if (evt.target.closest('.dropdown')) return;
   const openMenus = document.querySelectorAll('details.dropdown[open]');
   if (openMenus.length === 0) return;
-  openMenus.forEach((details) => details.removeAttribute('open'));
+  openMenus.forEach((details) => {
+    details.removeAttribute('open');
+    details.querySelector('[popover]')?.togglePopover(false);
+  });
   fetch('/actions/close-menus', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
 });

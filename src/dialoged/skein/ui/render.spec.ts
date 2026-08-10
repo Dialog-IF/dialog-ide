@@ -37,13 +37,21 @@ describe('renderNavbar', () => {
     expect(html).toContain(`data-on:click="@post('/actions/replay-all')"`);
   });
 
-  it('wires the Bless dropdown items to the current active knot, baked in server-side at render time', () => {
+  it('wires the single Bless Transcript button to bless-changes for the current active knot, baked in server-side at render time', () => {
     const tree = SkeinTree.newTree('dgdebug', 1)
       .addChild(0, 'look', { text: 'a', inputType: 'line' })
       .setActiveKnotId(1);
     const html = renderNavbar(INFO, tree);
-    expect(html).toContain(`$knotId = 1; @post('/actions/bless-knot')`);
     expect(html).toContain(`$knotId = 1; @post('/actions/bless-changes')`);
+    expect(html).toContain('Bless Transcript');
+    expect(html).not.toContain('/actions/bless-knot');
+  });
+
+  it('styles Save, Replay All, and Bless Transcript identically as bordered primary buttons, not a dropdown', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1);
+    const html = renderNavbar(INFO, tree);
+    expect(html.match(/class="btn btn-primary"/g)?.length).toBe(3);
+    expect(html).not.toContain('dropdown');
   });
 
   it('does not render the still-deferred prototype buttons (Undo/Redo/Reload/Quit/Jump/Search)', () => {

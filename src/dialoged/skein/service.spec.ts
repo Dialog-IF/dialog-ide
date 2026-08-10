@@ -34,7 +34,8 @@ function createFakeSession(
     spliceKnot: [] as number[],
     replayToKnot: [] as number[],
     replayAllCount: 0,
-    closeAllMenusCount: 0
+    closeAllMenusCount: 0,
+    toggleTreeNode: [] as number[]
   };
   const emit = () => listeners.forEach((fn) => fn());
 
@@ -47,11 +48,17 @@ function createFakeSession(
     graphMenuId = null;
     transcriptMenuId = null;
   };
-
   return {
     getTree: () => tree,
     getGraphMenuId: () => graphMenuId,
     getTranscriptMenuId: () => transcriptMenuId,
+    // The real toggleTreeNode delegates to SkeinTree.toggleCollapsed (state lives on the tree
+    // itself now, exposed via DerivedKnot.collapsed - see tree.spec.ts for that logic's own
+    // coverage), so this fake only needs to record the call for route-wiring assertions.
+    toggleTreeNode: (id: number) => {
+      calls.toggleTreeNode.push(id);
+      emit();
+    },
     onChange: (fn: () => void) => listeners.push(fn),
     offChange: (fn: () => void) => {
       const index = listeners.indexOf(fn);
@@ -485,11 +492,12 @@ describe('SkeinService', () => {
     });
   });
 
-  describe('POST /actions/bless-knot, bless-changes, toggle-lock, delete-knot, splice-knot, replay-to', () => {
+  describe('POST /actions/bless-knot, bless-changes, toggle-lock, toggle-tree-node, delete-knot, splice-knot, replay-to', () => {
     const routes: [string, keyof ReturnType<typeof createFakeSession>['calls']][] = [
       ['bless-knot', 'blessKnot'],
       ['bless-changes', 'blessChanges'],
       ['toggle-lock', 'toggleLock'],
+      ['toggle-tree-node', 'toggleTreeNode'],
       ['delete-knot', 'deleteKnot'],
       ['splice-knot', 'spliceKnot'],
       ['replay-to', 'replayToKnot']

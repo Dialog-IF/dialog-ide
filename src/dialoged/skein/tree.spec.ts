@@ -544,3 +544,73 @@ describe('SkeinTree.setActiveKnotId', () => {
     expect(tree.getAllKnots()).toHaveLength(2);
   });
 });
+
+describe('SkeinTree.toggleCollapsed', () => {
+  it('flips DerivedKnot.collapsed on alternating calls', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1).addChild(0, 'look', { text: 'a', inputType: 'line' });
+    expect(tree.getDerivedKnot(0)!.collapsed).toBe(false);
+
+    const collapsed = tree.toggleCollapsed(0);
+    expect(collapsed.getDerivedKnot(0)!.collapsed).toBe(true);
+
+    const reExpanded = collapsed.toggleCollapsed(0);
+    expect(reExpanded.getDerivedKnot(0)!.collapsed).toBe(false);
+  });
+
+  it('throws for an unknown knot id', () => {
+    expect(() => SkeinTree.newTree('dgdebug', 1).toggleCollapsed(999)).toThrow();
+  });
+
+  it('moves the active knot up to the collapsed knot when it was a descendant of the newly-hidden subtree', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1)
+      .addChild(0, 'look', { text: 'a', inputType: 'line' })
+      .addChild(1, 'take orb', { text: 'b', inputType: 'line' })
+      .setActiveKnotId(2);
+
+    const collapsed = tree.toggleCollapsed(1);
+
+    expect(collapsed.getActiveKnotId()).toBe(1);
+  });
+
+  it('leaves the active knot alone when collapsing the active knot itself (not a strict descendant)', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1)
+      .addChild(0, 'look', { text: 'a', inputType: 'line' })
+      .setActiveKnotId(1);
+
+    const collapsed = tree.toggleCollapsed(1);
+
+    expect(collapsed.getActiveKnotId()).toBe(1);
+  });
+
+  it('leaves the active knot alone when it is outside the collapsed subtree', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1)
+      .addChild(0, 'look', { text: 'a', inputType: 'line' })
+      .addChild(0, 'inventory', { text: 'b', inputType: 'line' })
+      .setActiveKnotId(2);
+
+    const collapsed = tree.toggleCollapsed(1);
+
+    expect(collapsed.getActiveKnotId()).toBe(2);
+  });
+
+  it('never moves the active knot on expand, even if it happens to be inside the (already hidden) subtree', () => {
+    // Contrived but worth pinning down: this shouldn't be reachable via the UI (a hidden knot
+    // can't be clicked active), but the guard is specifically "only on collapsing", not "only
+    // when a descendant is currently active" - assert that directly rather than relying on it
+    // being unreachable.
+    const tree = SkeinTree.newTree('dgdebug', 1)
+      .addChild(0, 'look', { text: 'a', inputType: 'line' })
+      .addChild(1, 'take orb', { text: 'b', inputType: 'line' })
+      .setActiveKnotId(2)
+      .toggleCollapsed(1); // active knot is now 1 (moved up by the collapse itself)
+    const reExpanded = tree.toggleCollapsed(1);
+
+    expect(reExpanded.getActiveKnotId()).toBe(1);
+  });
+
+  it('is not persisted through SkeinTree.fromKnots - always starts fully expanded on load', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1).addChild(0, 'look', { text: 'a', inputType: 'line' }).toggleCollapsed(0);
+    const reloaded = SkeinTree.fromKnots('dgdebug', 1, tree.getAllKnots());
+    expect(reloaded.getDerivedKnot(0)!.collapsed).toBe(false);
+  });
+});

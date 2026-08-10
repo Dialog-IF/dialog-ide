@@ -258,24 +258,32 @@ function renderCommandInput(tree: SkeinTree): string {
 }
 
 /**
- * The navbar: session identity, ok/new/error badges, Save, Replay All, and a Bless dropdown - a
- * deliberately smaller set than dialog-tool's app.clj navbar + operations toolbar. Generic app
- * actions still deferred to native VS Code commands (Undo/Redo/Reload/Quit/Jump - no
- * webview<->extension-host bridge exists yet) and per-knot operations (New Child, Edit Label,
- * Toggle Lock, Delete, Splice Out, Replay to Here) are dropped from here on purpose - the latter
- * live in the per-knot actions menu shared by the tree pane and the transcript (see
- * knot-menu.ts's renderKnotMenu). Save/Replay All/Bless all target things known server-side at
- * render time (the active session; the active spine's leaf), so each is baked directly into its
- * button's data-on:click - same Datastar data-on:*="@post(...)" pattern as everywhere else in
- * this file, no custom JS dispatch needed. Save is explicit-only and deliberately so: nothing
- * else in this app ever writes the .skein file on its own initiative (see service.ts's
- * saveHandler and extension.ts's stopActiveSession) - matches dialog-tool's own model, where
- * stopping or replacing a session never implies the user wanted to persist it.
+ * The navbar: session identity, ok/new/error badges, and three equally-weighted primary actions -
+ * Save, Replay All, Bless Transcript - a deliberately smaller set than dialog-tool's app.clj
+ * navbar + operations toolbar. Generic app actions still deferred to native VS Code commands
+ * (Undo/Redo/Reload/Quit/Jump - no webview<->extension-host bridge exists yet) and per-knot
+ * operations (New Child, Edit Label, Toggle Lock, Delete, Splice Out, Replay to Here, and
+ * single-knot Bless Knot) are dropped from here on purpose - they live in the per-knot actions
+ * menu shared by the tree pane and the transcript (see knot-menu.ts's renderKnotMenu), so nothing
+ * is lost by Bless Transcript no longer being a dropdown with a single-knot option alongside it.
+ * All three target things known server-side at render time (the active session; the active
+ * spine's leaf), so each is baked directly into its button's data-on:click - same Datastar
+ * data-on:*="@post(...)" pattern as everywhere else in this file, no custom JS dispatch needed.
+ * Save is explicit-only and deliberately so: nothing else in this app ever writes the .skein file
+ * on its own initiative (see service.ts's saveHandler and extension.ts's stopActiveSession) -
+ * matches dialog-tool's own model, where stopping or replacing a session never implies the user
+ * wanted to persist it.
+ *
+ * Bless Transcript posts to /actions/bless-changes (session.blessChanges -> tree.blessTranscript),
+ * which blesses every non-valid knot from root to the given id inclusive - i.e. exactly the
+ * active spine, which is also exactly what selectedKnots/renderKnotList render into the
+ * transcript pane. So "blesses everything visible in the transcript" is that route's existing
+ * behavior, not new logic - only the button's label and (no longer a dropdown) presentation
+ * changed to say so directly.
  */
 export function renderNavbar(info: SessionDisplayInfo, tree: SkeinTree): string {
   const t = totals(tree);
   const activeKnotId = tree.getActiveKnotId();
-  const closeDropdown = `el.closest('details').removeAttribute('open')`;
   return `<nav class="bg-base-100 text-base-content border-base-200 divide-base-200 px-2 sm:px-4 py-2.5 w-full border-b">
   <div class="w-full flex items-center gap-2">
     <div class="self-center truncate text-xl font-semibold shrink min-w-0">${escapeHtml(info.sessionId)}.skein &middot; ${escapeHtml(info.engine)} &middot; seed ${info.seed}</div>
@@ -285,21 +293,15 @@ export function renderNavbar(info: SessionDisplayInfo, tree: SkeinTree): string 
       <div class="bg-error text-error-content p-2 font-semibold rounded-r-lg" aria-label="${t.error} error knots">${t.error}</div>
     </div>
     <div class="flex items-center gap-1 shrink-0 ml-auto">
-      <button type="button" class="btn btn-ghost" data-on:click="@post('/actions/save')" title="Save this skein to its file - the only thing that ever writes to disk">
+      <button type="button" class="btn btn-primary" data-on:click="@post('/actions/save')" title="Save this skein to its file - the only thing that ever writes to disk">
         <div class="icon icon-save" aria-hidden="true"></div><span class="hidden lg:inline">Save</span>
       </button>
-      <button type="button" class="btn btn-ghost" data-on:click="@post('/actions/replay-all')" title="Re-run every command on the active spine against a fresh process">
+      <button type="button" class="btn btn-primary" data-on:click="@post('/actions/replay-all')" title="Re-run every command on the active spine against a fresh process">
         <div class="icon icon-play" aria-hidden="true"></div><span class="hidden lg:inline">Replay All</span>
       </button>
-      <details class="dropdown dropdown-end">
-        <summary tabindex="0" role="button" class="btn btn-primary m-0">
-          <div class="icon icon-bless" aria-hidden="true"></div><span class="hidden lg:inline">Bless</span> <span aria-hidden="true">&#9662;</span>
-        </summary>
-        <ul tabindex="0" class="dropdown-content menu bg-base-100 rounded-box z-10 w-52 p-2 shadow-xl">
-          <li><button type="button" data-on:click="$knotId = ${activeKnotId}; @post('/actions/bless-knot'); ${closeDropdown}">Bless Knot</button></li>
-          <li><button type="button" data-on:click="$knotId = ${activeKnotId}; @post('/actions/bless-changes'); ${closeDropdown}">Bless Changes</button></li>
-        </ul>
-      </details>
+      <button type="button" class="btn btn-primary" data-on:click="$knotId = ${activeKnotId}; @post('/actions/bless-changes')" title="Bless every changed knot visible in the transcript (the active spine)">
+        <div class="icon icon-bless" aria-hidden="true"></div><span class="hidden lg:inline">Bless Transcript</span>
+      </button>
     </div>
   </div>
 </nav>`;

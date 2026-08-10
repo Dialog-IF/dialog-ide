@@ -2,12 +2,18 @@
  * Left-pane tree graph for the Skein UI - the whole knot tree, not just the active spine.
  *
  * Ported from dialog-tool's tree_pane.clj (render-node/render-subtree/render-tree-pane) and
- * main.js's initTreeGraph()/drawTreeArrows(), adapted to SkeinTree/DerivedKnot. One deliberate
- * simplification: dialog-tool's expand/collapse-per-node state (:expanded-ids) has no equivalent
- * in SkeinTree yet, so this always renders the full tree - fine for the tree sizes dialog-ide
- * deals with today; worth revisiting if that changes. When it does, expand/collapse needs its
- * own icon/toggle distinct from the actions-menu trigger (renderKnotMenu) - the two are separate
- * concerns and shouldn't share a slot.
+ * main.js's initTreeGraph()/drawTreeArrows(), adapted to SkeinTree/DerivedKnot.
+ *
+ * Expand/collapse (SkeinTree.toggleCollapsed/DerivedKnot.collapsed, toggled via renderTreeNode's
+ * chevron) is deliberately inverted from dialog-tool's :expanded-ids: dialog-tool defaults every
+ * node to collapsed and opt-in expands ancestors of the active spine, where dialog-ide defaults
+ * every node to expanded (its existing "always render the full tree" behavior) and opt-in
+ * collapses individual subtrees - purely additive over what was here before, not a
+ * default-visibility change. The toggle is its own small button below the node pill, distinct
+ * from the actions-menu trigger (renderKnotMenu) inside it - two separate concerns that shouldn't
+ * share a slot. A collapsed knot's children are simply not rendered at all (not hidden via CSS),
+ * so drawTreeArrows() - which only ever looks at [data-tree-node-id] elements actually in the DOM
+ * - needs no changes to skip connector lines for them.
  *
  * Click-to-select and the per-knot actions menu are both wired declaratively via
  * data-on:*="@post(...)", the same Datastar pattern render.ts's command input already uses - see
@@ -102,9 +108,17 @@ function nodeColorClass(status: KnotStatus, treeState: KnotStatus, onSpine: bool
  * tabindex/a keydown handler standing in for the native semantics/keyboard activation a real
  * button would give for free. The menu itself (renderKnotMenu) is inline, native <details> markup
  * positioned by plain CSS - no custom JS needed to open or position it.
+ *
+ * The expand/collapse chevron only renders when the knot actually has children (nothing to
+ * toggle otherwise) - a small ghost button below the pill, matching tree_pane.clj's placement
+ * and sizing (btn-xs). ▾ (expanded, pointing down at the children below) / ▸ (collapsed,
+ * pointing at what's hidden) mirrors dialog-tool exactly; a plain Unicode glyph rather than a new
+ * SVG/.icon-* asset since none of the existing icons are a bare single chevron.
  */
 function renderTreeNode(knot: DerivedKnot, spine: Set<number>, activeKnotId: number | null, graphMenuId: number | null): string {
   const active = knot.id === activeKnotId;
+  const hasChildren = knot.children.length > 0;
+  const collapsed = knot.collapsed;
   const onSpine = spine.has(knot.id);
   const colorClass = nodeColorClass(knot.state, knot.treeState, onSpine, active);
   const borderClass = active ? 'border-primary' : 'border-transparent';
@@ -122,6 +136,11 @@ function renderTreeNode(knot: DerivedKnot, spine: Set<number>, activeKnotId: num
   const statusSuffix = knot.state === 'new' ? ' (new)' : knot.state === 'error' ? ' (error)' : '';
   const parentAttr = knot.parentId !== null ? ` data-parent-id="${knot.parentId}"` : '';
   const selectCall = `$knotId = ${knot.id}; @post('/actions/select-knot')`;
+  const toggleButton = hasChildren
+    ? `<button type="button" class="btn btn-xs btn-ghost py-0 px-1 min-h-0 h-5 leading-none"
+    aria-label="${collapsed ? 'Expand' : 'Collapse'}" aria-expanded="${!collapsed}"
+    data-on:click="$knotId = ${knot.id}; @post('/actions/toggle-tree-node')">${collapsed ? '&#9656;' : '&#9662;'}</button>`
+    : '';
 
   return `<div class="flex flex-col items-center gap-1"
     data-knot-id="${knot.id}">
@@ -132,6 +151,7 @@ function renderTreeNode(knot: DerivedKnot, spine: Set<number>, activeKnotId: num
     data-on:keydown="if (evt.key === 'Enter' || evt.key === ' ') { evt.preventDefault(); ${selectCall} }"
     aria-label="${escapeHtml(knot.command)}${statusSuffix}"
     aria-pressed="${active}">${statusIcon}${lockIcon}${labelChip}<span class="truncate font-mono text-xs">${escapeHtml(knot.command)}</span><span class="ml-auto">${renderKnotMenu(knot.id, knot.unblessedResponse !== null, knot.id === graphMenuId, '/actions/open-graph-menu')}</span></div>
+  ${toggleButton}
 </div>`;
 }
 
@@ -148,12 +168,14 @@ function renderSubtree(
     .sort((a, b) => a.command.localeCompare(b.command));
 
   let childrenHtml = '';
-  if (children.length === 1) {
-    childrenHtml = renderSubtree(tree, children[0].id, spine, activeKnotId, graphMenuId);
-  } else if (children.length > 1) {
-    childrenHtml = `<div class="flex flex-row items-start gap-6">
+  if (children.length > 0 && !knot.collapsed) {
+    if (children.length === 1) {
+      childrenHtml = renderSubtree(tree, children[0].id, spine, activeKnotId, graphMenuId);
+    } else {
+      childrenHtml = `<div class="flex flex-row items-start gap-6">
 ${children.map((child) => `<div class="flex flex-col items-center">${renderSubtree(tree, child.id, spine, activeKnotId, graphMenuId)}</div>`).join('\n')}
 </div>`;
+    }
   }
 
   return `<div class="flex flex-col items-center gap-10 min-w-max">

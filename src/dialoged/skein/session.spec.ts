@@ -23,6 +23,13 @@ async function startedSessionWith(tree: SkeinTree): Promise<SkeinSession> {
   mockReadResponse.mockResolvedValueOnce(BANNER_RESPONSE);
   const session = SkeinSession.createLoaded(tree, DGDEBUG_CONFIG);
   await session.start();
+  // createLoaded sessions diff the live banner against knot 0's already-loaded response rather
+  // than auto-blessing it (see session.ts) - every tree built via SkeinTree.newTree(...) here
+  // still carries its synthetic placeholder text there, which never matches BANNER_RESPONSE, so
+  // without this every single test using this helper would start with a spuriously 'error' root.
+  // Resolve that here since it's not what these tests are about; the dedicated 'loaded session
+  // root revalidation' tests below cover the real behavior directly.
+  session.blessKnot(0);
   return session;
 }
 
@@ -86,6 +93,34 @@ describe('SkeinSession', () => {
       const session = SkeinSession.createNew(FROTZ_CONFIG);
       await expect(session.start()).rejects.toThrow('frotz is not yet supported');
       expect(session.isRunningSession()).toBe(false);
+    });
+
+    describe('loaded session root revalidation', () => {
+      // createLoaded's tree carries a real, previously-blessed knot 0 (loaded from a .skein
+      // file) - unlike createNew's synthetic placeholder, that's genuine history the live
+      // banner should be diffed against, not silently overwritten. Regression coverage for: a
+      // manually-edited-and-reloaded .skein file's knot 0 changes never showing up as a change.
+      it('flags knot 0 as changed when the live banner no longer matches the loaded response, instead of silently re-blessing it', async () => {
+        mockReadResponse.mockResolvedValueOnce(BANNER_RESPONSE);
+        const loaded = SkeinTree.newTree('dgdebug', 1).blessKnot(0); // no-op: newTree's root starts blessed
+        const session = SkeinSession.createLoaded(loaded, DGDEBUG_CONFIG);
+
+        await session.start();
+
+        const knot0 = session.getTree().getDerivedKnot(0)!;
+        expect(knot0.state).toBe('error');
+        expect(knot0.response).toBe('Welcome to the game. > '); // the loaded text, untouched
+        expect(knot0.unblessedResponse).toBe('Welcome to the game.\n'); // the live banner, pending
+      });
+
+      it('leaves knot 0 valid when the live banner matches the loaded response', async () => {
+        mockReadResponse.mockResolvedValueOnce({ command: '', response: 'Welcome to the game. > ', promptType: 'line' as const });
+        const session = SkeinSession.createLoaded(SkeinTree.newTree('dgdebug', 1), DGDEBUG_CONFIG);
+
+        await session.start();
+
+        expect(session.getTree().getDerivedKnot(0)!.state).toBe('valid');
+      });
     });
   });
 
@@ -284,6 +319,26 @@ describe('SkeinSession', () => {
       expect(mockSendCommand).toHaveBeenNthCalledWith(1, 'look');
       expect(session.getTree().getActiveKnotId()).toBe(1);
     });
+
+    it('re-validates knot 0 against its already-blessed response too, instead of force-blessing it every replay', async () => {
+      const seeded = SkeinTree.newTree('dgdebug', 1)
+        .addChild(0, 'look', { text: 'Room A.\n', inputType: 'line' })
+        .blessKnot(1)
+        .setActiveKnotId(1);
+      mockReadResponse
+        .mockResolvedValueOnce(BANNER_RESPONSE) // session.start()
+        .mockResolvedValueOnce({ command: '', response: 'Welcome to the game, changed.\n', promptType: 'line' }) // replay's relaunch: a changed banner
+        .mockResolvedValueOnce({ command: 'look', response: 'Room A.\n', promptType: 'line' })
+        .mockResolvedValueOnce(dynamicResponse([]));
+      const session = SkeinSession.createLoaded(seeded, DGDEBUG_CONFIG);
+      await session.start();
+
+      await session.replayAll();
+
+      const knot0 = session.getTree().getDerivedKnot(0)!;
+      expect(knot0.unblessedResponse).toBe('Welcome to the game, changed.\n');
+      expect(knot0.state).toBe('error'); // differs from the blessed 'Welcome to the game. > '
+    });
   });
 
   describe('setActiveKnot', () => {
@@ -378,6 +433,26 @@ describe('SkeinSession', () => {
       expect(() => session.openGraphMenu(999)).toThrow();
       expect(() => session.openTranscriptMenu(999)).toThrow();
     });
+
+    it('is a real toggle - calling it again for the already-open knot closes it', async () => {
+      // Load-bearing, not just nicer UX: the client re-posts to this route every time the
+      // trigger is clicked, including to close its own menu. If a second call for the same id
+      // didn't actually change state, the re-rendered markup would be identical to what's
+      // already on screen and the popover's open/close effect would never re-fire client-side.
+      const session = await startedSessionWith(
+        SkeinTree.newTree('dgdebug', 1).addChild(0, 'look', { text: 'a', inputType: 'line' })
+      );
+
+      session.openGraphMenu(1);
+      expect(session.getGraphMenuId()).toBe(1);
+      session.openGraphMenu(1);
+      expect(session.getGraphMenuId()).toBeNull();
+
+      session.openTranscriptMenu(1);
+      expect(session.getTranscriptMenuId()).toBe(1);
+      session.openTranscriptMenu(1);
+      expect(session.getTranscriptMenuId()).toBeNull();
+    });
   });
 
   describe('menus close after any mutating action', () => {
@@ -403,6 +478,76 @@ describe('SkeinSession', () => {
         expect(session.getGraphMenuId()).toBeNull();
         expect(session.getTranscriptMenuId()).toBeNull();
       }
+    });
+  });
+
+  describe('toggleTreeNode', () => {
+    it('flips DerivedKnot.collapsed on alternating calls', async () => {
+      const session = await startedSessionWith(
+        SkeinTree.newTree('dgdebug', 1).addChild(0, 'look', { text: 'a', inputType: 'line' })
+      );
+
+      session.toggleTreeNode(1);
+      expect(session.getTree().getDerivedKnot(1)!.collapsed).toBe(true);
+
+      session.toggleTreeNode(1);
+      expect(session.getTree().getDerivedKnot(1)!.collapsed).toBe(false);
+    });
+
+    it('throws for an unknown knot id', async () => {
+      const session = await startedSessionWith(SkeinTree.newTree('dgdebug', 1));
+      expect(() => session.toggleTreeNode(999)).toThrow();
+    });
+
+    it('does not touch either menu', async () => {
+      const session = await startedSessionWith(
+        SkeinTree.newTree('dgdebug', 1)
+          .addChild(0, 'look', { text: 'a', inputType: 'line' })
+          .setActiveKnotId(0)
+      );
+      session.openGraphMenu(1);
+
+      session.toggleTreeNode(1);
+
+      expect(session.getGraphMenuId()).toBe(1);
+    });
+
+    it("moves the active knot up to the collapsed knot when collapsing hides it - the transcript must never show what the graph pane doesn't", async () => {
+      const session = await startedSessionWith(
+        SkeinTree.newTree('dgdebug', 1)
+          .addChild(0, 'look', { text: 'a', inputType: 'line' })
+          .addChild(1, 'take orb', { text: 'b', inputType: 'line' })
+          .setActiveKnotId(2)
+      );
+
+      session.toggleTreeNode(1); // collapses knot 1's subtree, hiding knot 2 (the active knot)
+
+      expect(session.getTree().getActiveKnotId()).toBe(1);
+    });
+
+    it('leaves the active knot alone when it is not inside the collapsed subtree', async () => {
+      const session = await startedSessionWith(
+        SkeinTree.newTree('dgdebug', 1)
+          .addChild(0, 'look', { text: 'a', inputType: 'line' })
+          .addChild(0, 'inventory', { text: 'b', inputType: 'line' })
+          .setActiveKnotId(2)
+      );
+
+      session.toggleTreeNode(1); // knot 2 is a sibling of 1, not a descendant
+
+      expect(session.getTree().getActiveKnotId()).toBe(2);
+    });
+
+    it('emits a change event', async () => {
+      const session = await startedSessionWith(
+        SkeinTree.newTree('dgdebug', 1).addChild(0, 'look', { text: 'a', inputType: 'line' })
+      );
+      const onChange = jest.fn();
+      session.onChange(onChange);
+
+      session.toggleTreeNode(1);
+
+      expect(onChange).toHaveBeenCalledTimes(1);
     });
   });
 

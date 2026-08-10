@@ -136,4 +136,35 @@ describe('renderTreePane', () => {
     const beforeKnot3 = afterKnot1.split('data-tree-node-id="3"')[0];
     expect(beforeKnot3).not.toContain('flex flex-row items-start gap-6');
   });
+
+  describe('expand/collapse toggle', () => {
+    it('renders no toggle for a childless knot', () => {
+      const tree = SkeinTree.newTree('dgdebug', 1);
+      const html = renderTreePane(tree);
+      expect(html).not.toContain("@post('/actions/toggle-tree-node')");
+    });
+
+    it('renders a toggle for a knot with children, wired to its own id', () => {
+      const tree = SkeinTree.newTree('dgdebug', 1).addChild(0, 'look', { text: 'a', inputType: 'line' });
+      const html = renderTreePane(tree);
+      expect(html).toContain(`$knotId = 0; @post('/actions/toggle-tree-node')`);
+    });
+
+    it('omits a collapsed knot\'s children entirely, but still renders its own toggle', () => {
+      const tree = SkeinTree.newTree('dgdebug', 1).addChild(0, 'look', { text: 'a', inputType: 'line' }).toggleCollapsed(0);
+      const html = renderTreePane(tree);
+      expect(html).not.toContain('data-tree-node-id="1"');
+      expect(html).toContain(`$knotId = 0; @post('/actions/toggle-tree-node')`);
+      expect(html).toContain('aria-label="Expand"');
+      expect(html).toContain('aria-expanded="false"');
+    });
+
+    it('renders every knot when nothing is collapsed (the default)', () => {
+      const tree = SkeinTree.newTree('dgdebug', 1).addChild(0, 'look', { text: 'a', inputType: 'line' });
+      const html = renderTreePane(tree);
+      expect(html).toContain('data-tree-node-id="1"');
+      expect(html).toContain('aria-label="Collapse"');
+      expect(html).toContain('aria-expanded="true"');
+    });
+  });
 });

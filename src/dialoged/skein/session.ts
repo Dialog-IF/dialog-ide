@@ -62,6 +62,13 @@ export class SkeinSession {
   // action or plain navigation (setActiveKnot) - see closeMenus.
   private graphMenuId: number | null = null;
   private transcriptMenuId: number | null = null;
+  // False for createNew: the tree's knot 0 is only ever SkeinTree.newTree's synthetic
+  // placeholder, which was never a real, meaningful "blessed" response - there's nothing to
+  // diff the live banner against, so start() force-blesses it (see launchProcessAndCaptureBanner).
+  // True for createLoaded: knot 0 already carries a real, previously-blessed response loaded
+  // from a .skein file, exactly like every other knot - the live banner should be diffed
+  // against it like anything else, not silently overwritten-and-blessed.
+  private hasLoadedHistory = false;
 
   constructor(config: SessionConfig) {
     this.id = this.generateId();
@@ -90,6 +97,7 @@ export class SkeinSession {
   public static createLoaded(tree: SkeinTree, config: SessionConfig): SkeinSession {
     const session = new SkeinSession(config);
     session.tree = tree;
+    session.hasLoadedHistory = true;
     return session;
   }
 
@@ -102,7 +110,12 @@ export class SkeinSession {
     }
 
     try {
-      await this.launchProcessAndCaptureBanner();
+      // Force-bless knot 0 only when there's genuinely nothing meaningful to diff it against
+      // (a brand-new tree's placeholder) - a loaded session's knot 0 is real prior history and
+      // should be validated like any other knot, so an edited-and-reloaded .skein file (or a
+      // banner that changed because a source file changed) shows up as a change instead of
+      // silently vanishing. See launchProcessAndCaptureBanner's doc comment.
+      await this.launchProcessAndCaptureBanner(!this.hasLoadedHistory);
       this.isRunning = true;
       this.processPositionId = 0;
 
@@ -119,18 +132,22 @@ export class SkeinSession {
    * replacing SkeinTree.newTree's generic "Welcome to the game." placeholder - io.ts's tag-line
    * parser already separates the prompt from the content, so (unlike the placeholder) this
    * doesn't carry a trailing "> " into the displayed text. updateKnotResponse only ever sets the
-   * *unblessed* response, so blessKnot immediately promotes it - knot 0 has no prior history to
-   * diff against, it should just start out 'valid'. Shared by start() and replayTo(), which both
-   * need a brand-new process positioned at knot 0 before proceeding.
+   * *unblessed* response; blessRoot controls whether it's then immediately promoted (see start()'s
+   * call site for when that's appropriate and when it isn't) or left for the normal diffing logic
+   * to surface as a change, exactly like every other knot. Shared by start() and replayTo() -
+   * replayTo always passes false, since by the time a replay runs, knot 0 already has *some* real
+   * blessed response (from an earlier start()) that a changed banner should be diffed against, not
+   * silently overwritten - the same re-validation every other knot on the replay path gets.
    */
-  private async launchProcessAndCaptureBanner(): Promise<void> {
+  private async launchProcessAndCaptureBanner(blessRoot: boolean): Promise<void> {
     this.process = new SkeinProcess(this.buildProcessConfig());
     await this.process.start();
 
     const banner = await this.process.readResponse();
-    this.tree = this.tree
-      .updateKnotResponse(0, { text: banner.response, inputType: banner.promptType })
-      .blessKnot(0);
+    this.tree = this.tree.updateKnotResponse(0, { text: banner.response, inputType: banner.promptType });
+    if (blessRoot) {
+      this.tree = this.tree.blessKnot(0);
+    }
   }
 
   /**
@@ -225,7 +242,7 @@ export class SkeinSession {
     }
 
     await this.process.terminate();
-    await this.launchProcessAndCaptureBanner();
+    await this.launchProcessAndCaptureBanner(false);
 
     for (const { id, command } of this.tree.commandPath(targetId)) {
       this.process!.sendCommand(command);
@@ -277,29 +294,48 @@ export class SkeinSession {
   }
 
   /**
-   * Opens the tree/graph pane's actions menu for id - a right-click or the "..." trigger on a
-   * node. Deliberately does NOT change the active knot: only a plain left-click on the knot
-   * itself (setActiveKnot) does that. Opening a menu and navigating are independent actions - you
-   * can right-click a knot you're not "on" to inspect/act on it without disturbing where you
-   * actually are. Tracked separately from the transcript's menu (see graphMenuId's doc comment)
-   * so opening one pane's menu never opens the other's.
+   * Opens (or, if id's menu is already open, closes - a real toggle) the tree/graph pane's
+   * actions menu for id - the "..." trigger on a node. Deliberately does NOT change the active
+   * knot: only a plain left-click on the knot itself (setActiveKnot) does that. Opening a menu
+   * and navigating are independent actions - you can act on a knot you're not "on" without
+   * disturbing where you actually are. Tracked separately from the transcript's menu (see
+   * graphMenuId's doc comment) so opening one pane's menu never opens the other's.
+   *
+   * Toggling (rather than unconditionally setting id) matters beyond UX: the trigger's own click
+   * handler posts here every time it's clicked, including the second click meant to close its
+   * own menu. If that click didn't actually change graphMenuId, the re-rendered markup would be
+   * byte-for-byte identical to what's already on screen, so the SSE patch would be a no-op and
+   * the client-side effect that drives the popover open/closed would never re-fire - see
+   * knot-menu.ts's doc comment on why that silently desyncs the popover from server state.
    */
   public openGraphMenu(id: number): void {
     if (!this.tree.getKnot(id)) {
       throw new Error(`Knot ${id} not found`);
     }
     this.transcriptMenuId = null;
-    this.graphMenuId = id;
+    this.graphMenuId = this.graphMenuId === id ? null : id;
     this.changeEmitter.emit('change');
   }
 
-  /** The transcript's equivalent of openGraphMenu - see its doc comment. */
+  /** The transcript's equivalent of openGraphMenu, including the toggle behavior - see its doc comment. */
   public openTranscriptMenu(id: number): void {
     if (!this.tree.getKnot(id)) {
       throw new Error(`Knot ${id} not found`);
     }
     this.graphMenuId = null;
-    this.transcriptMenuId = id;
+    this.transcriptMenuId = this.transcriptMenuId === id ? null : id;
+    this.changeEmitter.emit('change');
+  }
+
+  /**
+   * Toggles the tree/graph pane's expand/collapse state for id's subtree - the small chevron
+   * below any node with children (see tree-pane.ts's renderTreeNode). Delegates entirely to
+   * SkeinTree.toggleCollapsed, which also moves activeKnotId when collapsing hides it - see its
+   * doc comment. Deliberately doesn't call closeMenus() (unlike every other knot action):
+   * collapsing a subtree elsewhere in the tree has no bearing on a menu open on some other node.
+   */
+  public toggleTreeNode(id: number): void {
+    this.tree = this.tree.toggleCollapsed(id);
     this.changeEmitter.emit('change');
   }
 

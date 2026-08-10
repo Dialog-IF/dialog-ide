@@ -261,6 +261,11 @@ export class SkeinService {
       return;
     }
 
+    if (req.method === 'POST' && url.pathname === '/actions/toggle-tree-node') {
+      await this.handleKnotAction(req, res, (session, knotId) => session.toggleTreeNode(knotId));
+      return;
+    }
+
     if (req.method === 'POST' && url.pathname === '/actions/set-label') {
       await this.handleSetLabel(req, res);
       return;
@@ -364,8 +369,8 @@ export class SkeinService {
 
   /**
    * Shared plumbing for the actions-menu / navbar knot actions (select-knot, open-graph-menu,
-   * open-transcript-menu, bless-knot, bless-changes, toggle-lock, delete-knot, splice-knot,
-   * replay-to): parses {knotId} from the JSON body, requires an active session, runs fn, and
+   * open-transcript-menu, bless-knot, bless-changes, toggle-lock, toggle-tree-node, delete-knot,
+   * splice-knot, replay-to): parses {knotId} from the JSON body, requires an active session, runs fn, and
    * responds 204/400/500 - the same shape as handleSendCommand. session.ts's own methods already
    * manage graphMenuId/transcriptMenuId (opening or closing them) as part of the same state
    * update that emits 'change', so there's nothing left for this to do about menu state - one
