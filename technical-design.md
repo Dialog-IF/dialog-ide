@@ -796,7 +796,7 @@ This is not an IDE-original format — it's dialog-tool's actual on-disk skein f
 #### Format Structure
 ```
 seed: 42
-engine: :dgdebug
+engine: dgdebug
 --------------------------------------------------------------------------------
 id: 0
 label: START
@@ -818,8 +818,8 @@ You have no possessions.
 #### File Header
 - `key: value` lines appear before the first separator; order doesn't matter, both are optional per line
 - `seed`: numeric, the RNG seed for the session
-- `engine`: `:dgdebug`, `:frotz`, or `:frotz-release` — written **with the leading colon** (a Clojure keyword literal baked into the on-disk format by the reference implementation); defaults to `:dgdebug` when the line is omitted entirely. Readers must accept the value with or without the leading colon; writers should keep the colon for compatibility with files also touched by dialog-tool.
-  - **Known upstream bug**: dialog-tool's own reader (`file.clj`'s `kv-re`, `#"(.+):\s*(.+)"`) is greedy on the key portion, so on a line like `engine: :dgdebug` it matches key = `"engine: "` (through the *second* colon) and value = `"dgdebug"` — that mangled key doesn't match `meta-parsers`' `"engine"` entry, so the field is silently dropped. Confirmed empirically: loading dialog-tool's own real `test-fixtures/dgsample/default.skein` through its own `read-tree` yields `nil` for `:engine`, and dialog-tool has no test covering this round-trip. Every dialog-tool-written file with an `engine:` line is affected the same way when read back by dialog-tool itself - this IDE's `persistence.ts` parses it correctly (see `normalizeEngine`), so it isn't a compatibility problem for this codebase, but it means a file dialog-tool wrote isn't actually fully round-trippable by dialog-tool itself. Not something to fix here since it lives entirely in the sibling repo.
+- `engine`: `dgdebug`, `frotz`, or `frotz-release`; defaults to `dgdebug` when the line is omitted entirely. This tool's writer emits the plain word, **without** a leading colon. Readers must still accept a leading colon, since dialog-tool's own writer emits `:dgdebug` (a Clojure keyword literal baked into the on-disk format by the reference implementation) and older files (or files also touched by dialog-tool) carry that form.
+  - **Known upstream bug, and why we don't replicate its output form**: dialog-tool's own reader (`file.clj`'s `kv-re`, `#"(.+):\s*(.+)"`) is greedy on the key portion, so on a line like `engine: :dgdebug` it matches key = `"engine: "` (through the *second* colon) and value = `"dgdebug"` — that mangled key doesn't match `meta-parsers`' `"engine"` entry, so the field is silently dropped. Confirmed empirically: loading dialog-tool's own real `test-fixtures/dgsample/default.skein` through its own `read-tree` yields `nil` for `:engine`, and dialog-tool has no test covering this round-trip. Every dialog-tool-written file with an `engine:` line is affected the same way when read back by dialog-tool itself. This IDE's `persistence.ts` parses either form correctly (see `normalizeEngine`), but earlier deliberately still *wrote* the colon form for interchangeability - since that form is unreadable by dialog-tool itself anyway, there's no interchangeability upside to keeping it, only the downside of perpetuating a bug into freshly-written files. The writer now emits the plain word instead; the colon is still accepted on read, as a workaround, not replicated on write.
 - No comment lines (`#`) are used
 
 #### Separators

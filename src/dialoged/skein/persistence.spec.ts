@@ -27,12 +27,13 @@ describe('serializeTree / deserializeTree', () => {
     expect(reloaded.getActiveKnotId()).toBe(2);
   });
 
-  it('writes engine with a leading colon (Clojure keyword form) for dialog-tool compatibility', () => {
+  it('writes engine as a plain word, not dialog-tool\'s Clojure keyword form - that form is a known upstream bug we don\'t replicate', () => {
     const tree = SkeinTree.newTree('dgdebug', 1);
-    expect(serializeTree(tree)).toContain('engine: :dgdebug');
+    expect(serializeTree(tree)).toContain('engine: dgdebug');
+    expect(serializeTree(tree)).not.toContain('engine: :dgdebug');
   });
 
-  it('accepts engine with or without the leading colon on read', () => {
+  it('still accepts engine with a leading colon on read, for files dialog-tool (or an earlier version of this tool) wrote', () => {
     expect(deserializeTree('seed: 1\nengine: :frotz-release\n').getEngine()).toBe('frotz-release');
     expect(deserializeTree('seed: 1\nengine: frotz-release\n').getEngine()).toBe('frotz-release');
   });

@@ -19,9 +19,12 @@ const KEY_VALUE_RE = /^([^:]+):\s*(.+)$/;
 
 type EngineType = 'dgdebug' | 'frotz' | 'frotz-release';
 
-// Strips the leading colon dialog-tool's writer always includes (str on a keyword). Note that
-// dialog-tool's own reader doesn't do this - its greedy kv-re regex mis-parses "engine: :x"
-// lines and silently drops the field - see technical-design.md's File Header notes.
+// dialog-tool's writer emits "engine: :dgdebug" (str on a keyword) - a format its own reader
+// can't actually parse back (a separate greedy-regex bug in file.clj's kv-re silently drops the
+// field - see technical-design.md's File Header notes). serializeTree below deliberately doesn't
+// replicate that keyword form since there's no upside to it, but this still strips a leading
+// colon on read so files written by dialog-tool itself (or by earlier versions of this tool) keep
+// loading correctly.
 function normalizeEngine(raw: string | undefined): EngineType {
   const value = raw?.startsWith(':') ? raw.slice(1) : raw;
   if (value === 'dgdebug' || value === 'frotz' || value === 'frotz-release') {
@@ -114,7 +117,7 @@ function serializeKnot(knot: WireKnot): string {
 export function serializeTree(tree: SkeinTree): string {
   const lines: string[] = [
     `seed: ${tree.getSeed()}`,
-    `engine: :${tree.getEngine()}`
+    `engine: ${tree.getEngine()}`
   ];
 
   const knots = tree.getAllKnots().sort((a, b) => a.id - b.id);
