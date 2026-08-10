@@ -774,12 +774,13 @@ export class SkeinTree {
   /**
    * The leaf of the currently selected spine - root, then following selectedChild all the way
    * down. This is "the whole spine" render.ts's selectedKnots renders into the transcript, and
-   * what Bless Transcript operates on, and what SkeinSession.replayAll restores the view to once
-   * every leaf in the tree has been replayed - deliberately NOT activeKnotId, which (since
-   * selectKnot) can be any knot navigated to partway up that same spine. Using activeKnotId for
-   * any of those would silently stop short at wherever the user last clicked, even though the
-   * transcript itself keeps showing everything past it (see selectKnot's doc comment) - this is
-   * what those operations actually mean by "the active spine".
+   * what Bless Transcript operates on - deliberately NOT activeKnotId, which (since selectKnot)
+   * can be any knot navigated to partway up that same spine. Using activeKnotId for any of those
+   * would silently stop short at wherever the user last clicked, even though the transcript itself
+   * keeps showing everything past it (see selectKnot's doc comment) - this is what those
+   * operations actually mean by "the active spine". SkeinSession.replayAll uses this to pick which
+   * leaf's process to keep as the live one, but - unlike Bless Transcript - never moves
+   * activeKnotId to it; replaying refreshes responses, it doesn't navigate.
    */
   public getSelectedLeafId(): number {
     let currentId = 0;

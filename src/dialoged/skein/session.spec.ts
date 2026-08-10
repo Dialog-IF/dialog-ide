@@ -392,7 +392,9 @@ describe('SkeinSession', () => {
 
       expect(mockSendCommand).toHaveBeenNthCalledWith(1, 'look');
       expect(mockSendCommand).toHaveBeenNthCalledWith(2, 'take orb');
-      expect(session.getTree().getActiveKnotId()).toBe(2);
+      // Replaying the whole spine down to its leaf is independent from where the active knot sits -
+      // replayAll is a refresh, not a navigation, so knot 1 stays active even though knot 2 got replayed too.
+      expect(session.getTree().getActiveKnotId()).toBe(1);
     });
 
     it('replayToKnot targets a specific knot and makes it the active one', async () => {
@@ -461,7 +463,7 @@ describe('SkeinSession', () => {
       expect(reports).toEqual([{ message: '1 of 1', increment: 100 }]);
     });
 
-    it('stops replaying and lands the active knot on the last completed step once the token cancels mid-replay', async () => {
+    it('stops replaying but leaves the active knot untouched once the token cancels mid-replay', async () => {
       mockReadResponse
         .mockResolvedValueOnce(BANNER_RESPONSE) // session.start()
         .mockResolvedValueOnce(BANNER_RESPONSE) // replay's relaunch
@@ -481,7 +483,8 @@ describe('SkeinSession', () => {
       // command - so 'look' plus that, but never 'take orb'.
       expect(mockSendCommand).toHaveBeenNthCalledWith(1, 'look');
       expect(mockSendCommand).not.toHaveBeenCalledWith('take orb');
-      expect(session.getTree().getActiveKnotId()).toBe(1); // not 2, the original target
+      // seededTwoStepTree starts with knot 2 active - replayAll never moves it, cancelled or not.
+      expect(session.getTree().getActiveKnotId()).toBe(2);
     });
   });
 

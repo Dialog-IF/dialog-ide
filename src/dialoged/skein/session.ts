@@ -402,10 +402,13 @@ export class SkeinSession {
    *
    * The originally-active leaf's own process is kept and installed as the new this.process
    * (after terminating the old one) instead of being thrown away like the others - so the live
-   * process ends up exactly where the displayed spine is, same as before parallelizing, and the
-   * very next command doesn't need yet another silent catch-up replay. If cancellation lands
-   * before that leaf's own task ever starts, this.process and the displayed spine are left
-   * completely untouched - only whatever other, already-finished leaves' data is kept.
+   * process ends up exactly where that leaf's replay reached, same as before parallelizing, and
+   * the very next command doesn't need yet another silent catch-up replay. This never moves the
+   * active knot, though: activeKnotId and the selected spine come through baseTree untouched by
+   * every updateKnotResponse fold, so replaying leaves the display exactly where the user left it
+   * even though processPositionId tracks the kept process's own (possibly different) position. If
+   * cancellation lands before that leaf's own task ever starts, this.process is left completely
+   * untouched - only whatever other, already-finished leaves' data is kept.
    *
    * Progress is reported once per leaf's completion (in whatever order they actually finish, not
    * launch order), not once per command - a per-command report would be a broadcastScript SSE
@@ -467,10 +470,11 @@ export class SkeinSession {
         await this.process!.terminate();
         this.process = originalResult.process;
         this.processPositionId = originalResult.reachedId;
-        this.tree = tree.selectKnot(originalResult.reachedId);
-      } else {
-        this.tree = tree;
       }
+      // Not selectKnot: every updateKnotResponse fold above preserves baseTree's activeKnotId and
+      // selectedChild structure untouched (only knot text/state changes), so the active knot stays
+      // exactly where the user left it - replaying is a refresh, not a navigation.
+      this.tree = tree;
 
       this.closeMenus();
       await this.refreshDynamicState();
