@@ -271,4 +271,46 @@ describe('SkeinProcess', () => {
       expect(() => proc.sendCommand('look')).toThrow('Process not running');
     });
   });
+
+  describe('terminate', () => {
+    beforeEach(() => {
+      jest.useFakeTimers();
+    });
+
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
+    it('sends SIGTERM and resolves as soon as the process closes, without waiting out the full timeout', async () => {
+      const proc = new SkeinProcess(DGDEBUG_CONFIG);
+      await proc.start();
+
+      const terminated = proc.terminate();
+      expect(fakeChild.kill).toHaveBeenCalledWith('SIGTERM');
+      fakeChild.exitCode = 0;
+      fakeChild.emit('close', 0, null);
+      await terminated;
+
+      expect(fakeChild.kill).not.toHaveBeenCalledWith('SIGKILL');
+      expect(proc.isProcessRunning()).toBe(false);
+    });
+
+    it('force-kills and resolves once the timeout elapses if the process never closes on its own', async () => {
+      const proc = new SkeinProcess(DGDEBUG_CONFIG);
+      await proc.start();
+
+      const terminated = proc.terminate();
+      await jest.advanceTimersByTimeAsync(1000);
+      await terminated;
+
+      expect(fakeChild.kill).toHaveBeenCalledWith('SIGTERM');
+      expect(fakeChild.kill).toHaveBeenCalledWith('SIGKILL');
+    });
+
+    it('is a no-op when the process was never started', async () => {
+      const proc = new SkeinProcess(DGDEBUG_CONFIG);
+      await expect(proc.terminate()).resolves.toBeUndefined();
+      expect(fakeChild.kill).not.toHaveBeenCalled();
+    });
+  });
 });

@@ -248,23 +248,35 @@ export class SkeinProcess extends EventEmitter {
   }
 
   /**
-   * Terminate the process gracefully
+   * Terminate the process gracefully - sends SIGTERM and resolves as soon as the process
+   * actually closes, rather than always waiting a fixed second regardless of how quickly that
+   * happens. A well-behaved dgdebug/dfrotz typically exits in well under that - but every replay
+   * (runCommand's silent catch-up, Replay to Here, and Replay All's once-per-leaf restart) calls
+   * this first, so a fixed wait here was pure dead time, multiplied by however many restarts a
+   * replay needed. The 1s timeout is now only a last-resort ceiling: if the process hasn't closed
+   * by then, it's genuinely not responding to SIGTERM and gets SIGKILL'd instead.
    */
   public async terminate(): Promise<void> {
-    if (this.process && this.isRunning) {
-      console.log('Terminating process...');
-      this.process.kill('SIGTERM');
-
-      // Wait a bit for graceful shutdown
-      await new Promise(resolve => setTimeout(resolve, 1000));
-
-      if (this.process.exitCode === null) {
-        // Force kill if still running
-        this.process.kill('SIGKILL');
-      }
-
-      this.isRunning = false;
+    if (!this.process || !this.isRunning) {
+      return;
     }
+
+    const proc = this.process;
+    await new Promise<void>((resolve) => {
+      const onClose = () => {
+        clearTimeout(timer);
+        resolve();
+      };
+      proc.once('close', onClose);
+      const timer = setTimeout(() => {
+        proc.off('close', onClose);
+        proc.kill('SIGKILL');
+        resolve();
+      }, 1000);
+      proc.kill('SIGTERM');
+    });
+
+    this.isRunning = false;
   }
 
   /**
