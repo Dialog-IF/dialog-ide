@@ -35,7 +35,9 @@ function createFakeSession(
     replayToKnot: [] as number[],
     replayAllCount: 0,
     closeAllMenusCount: 0,
-    toggleTreeNode: [] as number[]
+    toggleTreeNode: [] as number[],
+    undoCount: 0,
+    redoCount: 0
   };
   const emit = () => listeners.forEach((fn) => fn());
 
@@ -138,6 +140,16 @@ function createFakeSession(
     replayAll: async () => {
       calls.replayAllCount++;
       await options.replayAll?.();
+      closeMenus();
+      emit();
+    },
+    undo: () => {
+      calls.undoCount++;
+      closeMenus();
+      emit();
+    },
+    redo: () => {
+      calls.redoCount++;
       closeMenus();
       emit();
     }
@@ -866,6 +878,29 @@ describe('SkeinService', () => {
       expect(fake.calls.closeAllMenusCount).toBe(1);
       expect(fake.getGraphMenuId()).toBeNull();
       expect(fake.getTranscriptMenuId()).toBeNull();
+    });
+  });
+
+  describe('POST /actions/undo, /actions/redo', () => {
+    it('400s when no session is active', async () => {
+      const undoRes = await post(`http://localhost:${service.getPort()}/actions/undo`, {});
+      const redoRes = await post(`http://localhost:${service.getPort()}/actions/redo`, {});
+      expect(undoRes.status).toBe(400);
+      expect(redoRes.status).toBe(400);
+    });
+
+    it('calls session.undo/session.redo and returns 204, with no knotId required', async () => {
+      const tree = SkeinTree.newTree('dgdebug', 1);
+      const fake = createFakeSession(tree);
+      service.setActiveSession(fake as unknown as SkeinSession, 'default');
+
+      const undoRes = await post(`http://localhost:${service.getPort()}/actions/undo`, {});
+      const redoRes = await post(`http://localhost:${service.getPort()}/actions/redo`, {});
+
+      expect(undoRes.status).toBe(204);
+      expect(redoRes.status).toBe(204);
+      expect(fake.calls.undoCount).toBe(1);
+      expect(fake.calls.redoCount).toBe(1);
     });
   });
 

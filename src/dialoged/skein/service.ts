@@ -313,6 +313,16 @@ export class SkeinService implements ProgressHost {
       return;
     }
 
+    if (req.method === 'POST' && url.pathname === '/actions/undo') {
+      await this.handleUndoRedo(req, res, (session) => session.undo());
+      return;
+    }
+
+    if (req.method === 'POST' && url.pathname === '/actions/redo') {
+      await this.handleUndoRedo(req, res, (session) => session.redo());
+      return;
+    }
+
     if (req.method === 'POST' && url.pathname === '/actions/save') {
       await this.handleSave(req, res);
       return;
@@ -554,6 +564,30 @@ export class SkeinService implements ProgressHost {
 
     await readRequestBody(req);
     this.activeSession.closeAllMenus();
+
+    res.writeHead(204);
+    res.end();
+  }
+
+  /**
+   * POST /actions/undo and /actions/redo - main.js's document-level Cmd+Z/Shift+Cmd+Z listener.
+   * No body/knotId (there's nothing to target - undo/redo always act on whatever's on top of
+   * session.ts's own undo/redo stack); a no-op rather than an error when the stack is empty, same
+   * reasoning as handleCancelReplay's doc comment.
+   */
+  private async handleUndoRedo(
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+    fn: (session: SkeinSession) => void
+  ): Promise<void> {
+    if (!this.activeSession) {
+      res.writeHead(400);
+      res.end();
+      return;
+    }
+
+    await readRequestBody(req);
+    fn(this.activeSession);
 
     res.writeHead(204);
     res.end();

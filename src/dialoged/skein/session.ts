@@ -63,6 +63,15 @@ export class SkeinSession {
   // action or plain navigation (setActiveKnot) - see closeMenus.
   private graphMenuId: number | null = null;
   private transcriptMenuId: number | null = null;
+  // Snapshot-based undo/redo (Cmd+Z/Shift+Cmd+Z) over structural tree edits - bless/unbless,
+  // delete/splice, label/lock changes, and running a new command. SkeinTree is immutable (every
+  // mutator returns a new instance rather than changing the existing one in place), so a
+  // "snapshot" is just the old this.tree reference, not a deep copy. Deliberately excludes pure
+  // navigation (setActiveKnot, menu toggles, collapse/expand) and replay (replayTo/replayAll/
+  // replayToKnot only re-validates already-recorded responses, it doesn't create a new edit) -
+  // see pushUndoSnapshot's call sites for the exact boundary.
+  private undoStack: SkeinTree[] = [];
+  private redoStack: SkeinTree[] = [];
   // False for createNew: the tree's knot 0 is only ever SkeinTree.newTree's synthetic
   // placeholder, which was never a real, meaningful "blessed" response - there's nothing to
   // diff the live banner against, so start() force-blesses it (see launchProcessAndCaptureBanner).
@@ -206,6 +215,11 @@ export class SkeinSession {
       process.sendCommand(command);
       const response = await process.readResponse();
       const newResponse = { text: response.response, inputType: response.promptType };
+
+      // Snapshot after any silent replay-catchup above (which only re-validates already-recorded
+      // knots, not a new edit) but before this command's own structural change - see
+      // pushUndoSnapshot's doc comment.
+      this.pushUndoSnapshot();
 
       // Re-running the same command from the same knot reuses the existing child (updating its
       // response - unblessed unless the new text happens to match what's already blessed there,
@@ -414,6 +428,7 @@ export class SkeinSession {
 
   /** Actions menu's "Bless Knot". */
   public blessKnot(id: number): void {
+    this.pushUndoSnapshot();
     this.tree = this.tree.blessKnot(id);
     this.closeMenus();
     this.changeEmitter.emit('change');
@@ -421,6 +436,7 @@ export class SkeinSession {
 
   /** Navbar's "Bless Changes" (the whole active spine) and, from the actions menu, a single knot's path. */
   public blessChanges(id: number): void {
+    this.pushUndoSnapshot();
     this.tree = this.tree.blessTranscript(id);
     this.closeMenus();
     this.changeEmitter.emit('change');
@@ -435,6 +451,7 @@ export class SkeinSession {
     if (!knot) {
       throw new Error(`Knot ${id} not found`);
     }
+    this.pushUndoSnapshot();
     this.tree = this.tree.setLockStatus(id, !knot.locked);
     this.closeMenus();
     this.changeEmitter.emit('change');
@@ -445,6 +462,7 @@ export class SkeinSession {
     if (id === 0) {
       throw new Error('The root knot\'s label cannot be changed');
     }
+    this.pushUndoSnapshot();
     this.tree = this.tree.setLabel(id, label);
     this.closeMenus();
     this.changeEmitter.emit('change');
@@ -463,6 +481,7 @@ export class SkeinSession {
     if (!knot) {
       throw new Error(`Knot ${id} not found`);
     }
+    this.pushUndoSnapshot();
     if (this.isKnotOrDescendantActive(id)) {
       this.tree = this.tree.setActiveKnotId(knot.parentId);
     }
@@ -484,10 +503,52 @@ export class SkeinSession {
     if (!knot) {
       throw new Error(`Knot ${id} not found`);
     }
+    this.pushUndoSnapshot();
     if (this.tree.getActiveKnotId() === id) {
       this.tree = this.tree.setActiveKnotId(knot.parentId);
     }
     this.tree = this.tree.spliceKnot(id);
+    this.closeMenus();
+    this.changeEmitter.emit('change');
+  }
+
+  /**
+   * Records the tree as it is right now onto the undo stack, and discards any redo history - the
+   * usual rule that making a new edit after undoing invalidates whatever was undone. Called by
+   * every structural edit (see this class's undo/redo doc comment on undoStack) right before it
+   * starts mutating this.tree, so the snapshot is always "one edit ago", never a half-applied
+   * intermediate state.
+   */
+  private pushUndoSnapshot(): void {
+    this.undoStack.push(this.tree);
+    this.redoStack = [];
+  }
+
+  /**
+   * Steps the tree back to its state before the most recent structural edit (Cmd+Z). A no-op
+   * when there's nothing to undo. Doesn't touch processPositionId - if the restored tree's active
+   * knot no longer matches where the interpreter actually is, runCommand's own replay-if-stale
+   * guard resyncs it transparently on the next command, exactly as it does for plain navigation.
+   */
+  public undo(): void {
+    if (this.undoStack.length === 0) {
+      return;
+    }
+    const previous = this.undoStack.pop()!;
+    this.redoStack.push(this.tree);
+    this.tree = previous;
+    this.closeMenus();
+    this.changeEmitter.emit('change');
+  }
+
+  /** Re-applies the most recently undone edit (Shift+Cmd+Z). A no-op when there's nothing to redo. */
+  public redo(): void {
+    if (this.redoStack.length === 0) {
+      return;
+    }
+    const next = this.redoStack.pop()!;
+    this.undoStack.push(this.tree);
+    this.tree = next;
     this.closeMenus();
     this.changeEmitter.emit('change');
   }

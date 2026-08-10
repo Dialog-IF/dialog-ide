@@ -844,4 +844,147 @@ describe('SkeinSession', () => {
       expect(() => session.spliceKnot(0)).toThrow();
     });
   });
+
+  describe('undo / redo', () => {
+    it('reverts the most recent structural edit', async () => {
+      const session = await startedSessionWith(
+        SkeinTree.newTree('dgdebug', 1).addChild(0, 'look', { text: 'a', inputType: 'line' })
+      );
+
+      session.blessKnot(1);
+      expect(session.getTree().getDerivedKnot(1)!.state).toBe('valid');
+
+      session.undo();
+
+      expect(session.getTree().getDerivedKnot(1)!.state).toBe('new');
+    });
+
+    it('is a no-op when there is nothing to undo', async () => {
+      mockReadResponse.mockResolvedValueOnce(BANNER_RESPONSE);
+      const session = SkeinSession.createNew(DGDEBUG_CONFIG);
+      await session.start();
+      const treeBefore = session.getTree();
+
+      session.undo();
+
+      expect(session.getTree()).toBe(treeBefore);
+    });
+
+    it('redo re-applies the most recently undone edit', async () => {
+      const session = await startedSessionWith(
+        SkeinTree.newTree('dgdebug', 1).addChild(0, 'look', { text: 'a', inputType: 'line' })
+      );
+
+      session.blessKnot(1);
+      session.undo();
+      expect(session.getTree().getDerivedKnot(1)!.state).toBe('new');
+
+      session.redo();
+
+      expect(session.getTree().getDerivedKnot(1)!.state).toBe('valid');
+    });
+
+    it('is a no-op when there is nothing to redo', async () => {
+      mockReadResponse.mockResolvedValueOnce(BANNER_RESPONSE);
+      const session = SkeinSession.createNew(DGDEBUG_CONFIG);
+      await session.start();
+      const treeBefore = session.getTree();
+
+      session.redo();
+
+      expect(session.getTree()).toBe(treeBefore);
+    });
+
+    it('discards the redo history once a fresh edit is made after an undo', async () => {
+      const session = await startedSessionWith(
+        SkeinTree.newTree('dgdebug', 1)
+          .addChild(0, 'look', { text: 'a', inputType: 'line' })
+          .addChild(0, 'inventory', { text: 'b', inputType: 'line' })
+      );
+
+      session.blessKnot(1);
+      session.undo();
+      session.blessKnot(2); // a fresh edit, not a redo - should invalidate the undone blessKnot(1)
+
+      session.redo();
+
+      expect(session.getTree().getDerivedKnot(1)!.state).toBe('new');
+      expect(session.getTree().getDerivedKnot(2)!.state).toBe('valid');
+    });
+
+    it('undoes several edits in reverse order', async () => {
+      const session = await startedSessionWith(
+        SkeinTree.newTree('dgdebug', 1).addChild(0, 'look', { text: 'a', inputType: 'line' })
+      );
+
+      session.setLabel(1, 'checkpoint');
+      session.toggleLock(1);
+
+      session.undo();
+      expect(session.getTree().getKnot(1)!.locked).toBe(false);
+      expect(session.getTree().getKnot(1)!.label).toBe('checkpoint');
+
+      session.undo();
+      expect(session.getTree().getKnot(1)!.label).toBeNull();
+    });
+
+    it('does not create its own undo point for pure navigation (setActiveKnot)', async () => {
+      const session = await startedSessionWith(
+        SkeinTree.newTree('dgdebug', 1)
+          .addChild(0, 'look', { text: 'a', inputType: 'line' })
+          .addChild(0, 'inventory', { text: 'b', inputType: 'line' })
+      );
+
+      session.blessKnot(1);
+      session.setActiveKnot(2);
+
+      session.undo();
+
+      // The single undo reverts the bless, not the navigation - setActiveKnot never pushed its
+      // own point, so there's nothing separate to step back through first.
+      expect(session.getTree().getDerivedKnot(1)!.state).toBe('new');
+    });
+
+    it('running a new command pushes an undo point that removes the new knot', async () => {
+      mockReadResponse
+        .mockResolvedValueOnce(BANNER_RESPONSE)
+        .mockResolvedValueOnce({ command: 'look', response: 'Room A.\n', promptType: 'line' })
+        .mockResolvedValueOnce(dynamicResponse([]));
+      const session = SkeinSession.createNew(DGDEBUG_CONFIG);
+      await session.start();
+
+      await session.runCommand('look');
+      expect(session.getTree().getKnot(1)).not.toBeNull();
+
+      session.undo();
+
+      expect(session.getTree().getKnot(1)).toBeNull();
+      expect(session.getTree().getActiveKnotId()).toBe(0);
+    });
+
+    it("closes both panes' menus, like every other mutating action", async () => {
+      const session = await startedSessionWith(
+        SkeinTree.newTree('dgdebug', 1).addChild(0, 'look', { text: 'a', inputType: 'line' })
+      );
+      session.blessKnot(1);
+      session.openGraphMenu(1);
+
+      session.undo();
+
+      expect(session.getGraphMenuId()).toBeNull();
+    });
+
+    it('emits a change event', async () => {
+      const session = await startedSessionWith(
+        SkeinTree.newTree('dgdebug', 1).addChild(0, 'look', { text: 'a', inputType: 'line' })
+      );
+      session.blessKnot(1);
+      const listener = jest.fn();
+      session.onChange(listener);
+
+      session.undo();
+
+      expect(listener).toHaveBeenCalled();
+    });
+  });
 });

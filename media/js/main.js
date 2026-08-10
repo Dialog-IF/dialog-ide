@@ -384,3 +384,17 @@ document.addEventListener('click', (evt) => {
   });
   fetch('/actions/close-menus', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
 });
+
+// Cmd+Z / Shift+Cmd+Z (Ctrl+Z on non-Mac) - undo/redo over session.ts's structural-edit stack
+// (bless, delete, splice, label/lock, running a new command). Intentionally global, not scoped to
+// "focus is outside a text field": the command input auto-refocuses after nearly every action
+// (sk.resetAndFocusCommandInput), so excluding INPUT/TEXTAREA focus would make the shortcut fire
+// almost never. There's nothing meaningful for the browser's own per-field undo to do here anyway
+// (the input's value is cleared via a plain JS assignment after each submit, not real typed
+// history), so this always wins over native field-undo and calls preventDefault to suppress it.
+document.addEventListener('keydown', (evt) => {
+  if (!(evt.metaKey || evt.ctrlKey) || evt.key.toLowerCase() !== 'z') return;
+  evt.preventDefault();
+  const path = evt.shiftKey ? '/actions/redo' : '/actions/undo';
+  fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+});
