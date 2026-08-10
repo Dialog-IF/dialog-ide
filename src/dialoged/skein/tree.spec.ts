@@ -1,4 +1,7 @@
+import { DynamicState } from './dynamic';
 import { LabelConflictError, SkeinTree, WireKnot } from './tree';
+
+const EMPTY_DYNAMIC_STATE: DynamicState = { flags: new Set(), vars: {} };
 
 describe('SkeinTree.newTree', () => {
   it('creates a root knot at id 0, labeled START, with no parent', () => {
@@ -219,6 +222,17 @@ describe('SkeinTree.deleteKnot', () => {
   it('throws when the knot does not exist', () => {
     const tree = SkeinTree.newTree('dgdebug', 1);
     expect(() => tree.deleteKnot(999)).toThrow();
+  });
+
+  it('discards captured dynamic state for the deleted knot and its descendants', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1)
+      .addChild(0, 'look', { text: 'a', inputType: 'line' }) // id 1
+      .addChild(1, 'take orb', { text: 'b', inputType: 'line' }) // id 2
+      .updateDynamicState(1, EMPTY_DYNAMIC_STATE)
+      .updateDynamicState(2, EMPTY_DYNAMIC_STATE)
+      .deleteKnot(1);
+    expect(tree.getDynamicState(1)).toBeNull();
+    expect(tree.getDynamicState(2)).toBeNull();
   });
 });
 
@@ -800,5 +814,33 @@ describe('SkeinTree.toggleCollapsed', () => {
     const tree = SkeinTree.newTree('dgdebug', 1).addChild(0, 'look', { text: 'a', inputType: 'line' }).toggleCollapsed(0);
     const reloaded = SkeinTree.fromKnots('dgdebug', 1, tree.getAllKnots());
     expect(reloaded.getDerivedKnot(0)!.collapsed).toBe(false);
+  });
+});
+
+describe('SkeinTree.updateDynamicState / getDynamicState', () => {
+  it('stores and retrieves a knot\'s captured dynamic state', () => {
+    const state: DynamicState = { flags: new Set(['(game started)']), vars: { '(score)': '(score) is 0' } };
+    const tree = SkeinTree.newTree('dgdebug', 1)
+      .addChild(0, 'look', { text: 'a', inputType: 'line' })
+      .updateDynamicState(1, state);
+    expect(tree.getDynamicState(1)).toBe(state);
+  });
+
+  it('returns null for a knot with no captured dynamic state', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1).addChild(0, 'look', { text: 'a', inputType: 'line' });
+    expect(tree.getDynamicState(1)).toBeNull();
+  });
+
+  it('throws when the knot does not exist', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1);
+    expect(() => tree.updateDynamicState(999, EMPTY_DYNAMIC_STATE)).toThrow();
+  });
+
+  it('is not persisted through SkeinTree.fromKnots - dynamic state never survives a reload', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1)
+      .addChild(0, 'look', { text: 'a', inputType: 'line' })
+      .updateDynamicState(1, EMPTY_DYNAMIC_STATE);
+    const reloaded = SkeinTree.fromKnots('dgdebug', 1, tree.getAllKnots());
+    expect(reloaded.getDynamicState(1)).toBeNull();
   });
 });

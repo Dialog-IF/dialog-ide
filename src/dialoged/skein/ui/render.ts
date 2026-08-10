@@ -7,6 +7,7 @@
  * vendored-from-elsewhere stylesheet.
  */
 
+import { DynamicProcessor, DynamicState } from '../dynamic';
 import { EngineType } from '../process';
 import { DerivedKnot, KnotStatus, SkeinTree } from '../tree';
 import { ansiToHtml, ansiToMarkers } from './ansi';
@@ -131,11 +132,94 @@ function reachedViaKeystroke(tree: SkeinTree, knot: DerivedKnot): boolean {
   return currentResponse?.inputType === 'key';
 }
 
+const dynamicProcessor = new DynamicProcessor();
+const EMPTY_DYNAMIC_STATE: DynamicState = { flags: new Set(), vars: {} };
+
+/**
+ * The nearest ancestor's captured @dynamic state, walking up via parentId until one is found or
+ * root is exhausted - mirrors dialog-tool's app.clj find-dynamic-state. Needed because a knot
+ * reached via a keystroke prompt has no capture of its own (session.ts's captureDynamicState
+ * skips those), so a descendant's diff still needs to compare against whatever the nearest
+ * capturing ancestor last saw rather than treating every knot below a keystroke as starting from
+ * an empty baseline. Root's own startup banner IS captured (see launchProcessAndCaptureBanner),
+ * specifically so the walk normally bottoms out there rather than at an empty baseline - without
+ * it, the first real command's diff would show every flag/var dgdebug sets up during init (e.g.
+ * "(game started)") as freshly "added" by that command, which is misleading. Reaching root
+ * without finding anything (a non-dgdebug engine, most likely) still falls back to
+ * EMPTY_DYNAMIC_STATE in renderDynamicChanges below, so this is safe either way.
+ */
+function findDynamicState(tree: SkeinTree, knotId: number | null): DynamicState | null {
+  let currentId = knotId;
+  while (currentId !== null) {
+    const state = tree.getDynamicState(currentId);
+    if (state) {
+      return state;
+    }
+    currentId = tree.getKnot(currentId)?.parentId ?? null;
+  }
+  return null;
+}
+
+/** Sorts predicates the way dialog-tool's app.clj compare-pred does: ignoring "#" (object-id disambiguator) characters, so e.g. "orb#2" sorts next to "orb#1" rather than after every non-numbered name. */
+function comparePred(a: string, b: string): number {
+  return a.replace(/#/g, '').localeCompare(b.replace(/#/g, ''));
+}
+
+const DYNAMIC_CHIP_CLASS: Record<'added' | 'removed' | 'changed', string> = {
+  added: 'border-success bg-success/20 text-success-content',
+  removed: 'border-warning bg-warning/20 text-warning-content',
+  changed: 'border-info bg-info/10'
+};
+
+/**
+ * The navbar's dynamic-state toggle's per-knot payload: which predicates were added, removed, or
+ * changed since the nearest ancestor's own capture - mirrors dialog-tool's app.clj render-dynamic
+ * (its own `(pos? id)` guard). Renders nothing for root - it has its own captured dynamic state
+ * now (see launchProcessAndCaptureBanner), but only as a baseline for the first real command's
+ * diff, not something to show a diff of itself (there's no earlier state to diff root's banner
+ * against, so every flag/var dgdebug's startup sets would show as "added" noise). Also renders
+ * nothing when this knot has no dynamic capture of its own for another reason (a keystroke-
+ * reached knot, or - for a freshly loaded skein - a knot never touched this session; see
+ * SkeinTree.getDynamicState's own doc comment), regardless of whether the toggle is on - callers
+ * gate that separately (see renderKnot).
+ */
+function renderDynamicChanges(tree: SkeinTree, knot: DerivedKnot): string {
+  if (knot.parentId === null) {
+    return '';
+  }
+  const after = tree.getDynamicState(knot.id);
+  if (!after) {
+    return '';
+  }
+  const before = findDynamicState(tree, knot.parentId) ?? EMPTY_DYNAMIC_STATE;
+  const { added, removed, changed } = dynamicProcessor.diff(before, after);
+
+  const tuples: Array<['added' | 'removed' | 'changed', string]> = [
+    ...Array.from(added, (predicate): ['added', string] => ['added', predicate]),
+    ...Array.from(removed, (predicate): ['removed', string] => ['removed', predicate]),
+    ...Array.from(changed, ([, afterValue]): ['changed', string] => ['changed', afterValue])
+  ].sort((a, b) => comparePred(a[1], b[1]));
+
+  if (tuples.length === 0) {
+    return '';
+  }
+
+  const chips = tuples
+    .map(([kind, predicate]) => {
+      const prefix = kind === 'added' ? '<span class="font-bold mr-1">+</span>' : kind === 'removed' ? '<span class="font-bold mr-1">&minus;</span>' : '';
+      return `<span class="rounded-box border ${DYNAMIC_CHIP_CLASS[kind]} px-2 py-1">${prefix}${escapeHtml(predicate)}</span>`;
+    })
+    .join('');
+
+  return `<div class="font-sans flex flex-wrap gap-1 mt-4 text-xs">${chips}</div>`;
+}
+
 function renderKnot(
   tree: SkeinTree,
   knot: DerivedKnot,
   activeKnotId: number | null,
-  transcriptMenuId: number | null
+  transcriptMenuId: number | null,
+  showDynamicState: boolean
 ): string {
   const active = knot.id === activeKnotId;
   const activeBorderClass = active ? ' border-l-primary' : '';
@@ -181,7 +265,9 @@ function renderKnot(
   // newlines), so its content must be built with no stray template-literal indentation/blank
   // lines of its own - unlike everywhere else in this file, a naive multi-line template with
   // conditionally-empty ${...} slots would leave visible leading whitespace before the text.
-  const responseContainerContent = [floatCluster, keystrokeChip, responseText].filter(Boolean).join('');
+  const dynamicChanges = showDynamicState ? renderDynamicChanges(tree, knot) : '';
+
+  const responseContainerContent = [floatCluster, keystrokeChip, responseText, dynamicChanges].filter(Boolean).join('');
 
   // Click-to-select and click-to-open-menu are both plain Datastar wiring ($knotId is this
   // literal, server-known id, then @post()) - no custom JS dispatch anywhere. There is no right-
@@ -263,13 +349,14 @@ function renderCommandInput(tree: SkeinTree): string {
 }
 
 /**
- * The navbar: ok/new/error badges and three equally-weighted primary actions - Save, Replay All,
- * Bless Transcript - a deliberately smaller set than dialog-tool's app.clj navbar + operations
- * toolbar. Session identity (which .skein file this is) lives in the webview panel's own tab
- * title now (extension.ts's panelTitle), not duplicated here - that frees the middle of the
- * navbar, currently empty flex space between the badges and the buttons, for the not-yet-built
- * knot search (see the technical-design.md Core Component 5 plan). Generic app actions still
- * deferred to native VS Code commands
+ * The navbar: ok/new/error badges, the dynamic-state toggle, and three equally-weighted primary
+ * actions - Save, Replay All, Bless Transcript - a deliberately smaller set than dialog-tool's
+ * app.clj navbar + operations toolbar. Session identity (which .skein file this is) lives in the
+ * webview panel's own tab title now (extension.ts's panelTitle), not duplicated here - that
+ * frees the middle of the navbar for the dynamic-state toggle (session.ts's showDynamicState/
+ * toggleShowDynamicState), with room still left beside it for the not-yet-built knot search (see
+ * the technical-design.md Core Component 5 plan). Generic app actions still deferred to native
+ * VS Code commands
  * (Undo/Redo/Reload/Quit/Jump - no webview<->extension-host bridge exists yet) and per-knot
  * operations (New Child, Edit Label, Toggle Lock, Delete, Splice Out, Replay to Here, and
  * single-knot Bless Knot) are dropped from here on purpose - they live in the per-knot actions
@@ -291,9 +378,10 @@ function renderCommandInput(tree: SkeinTree): string {
  * that route's existing behavior, not new logic - only the button's label, target, and (no longer
  * a dropdown) presentation changed to say so directly.
  */
-export function renderNavbar(info: SessionDisplayInfo, tree: SkeinTree): string {
+export function renderNavbar(info: SessionDisplayInfo, tree: SkeinTree, showDynamicState: boolean = false): string {
   const t = totals(tree);
   const spineLeafId = tree.getSelectedLeafId();
+  const dgdebug = info.engine === 'dgdebug';
   return `<nav class="bg-base-100 text-base-content border-base-200 divide-base-200 px-2 sm:px-4 py-2.5 w-full border-b shrink-0"
   data-spine-leaf-id="${spineLeafId}">
   <div class="w-full flex items-center gap-2">
@@ -302,6 +390,12 @@ export function renderNavbar(info: SessionDisplayInfo, tree: SkeinTree): string 
       <div class="bg-warning text-warning-content p-2 font-semibold" aria-label="${t.new} new knots">${t.new}</div>
       <div class="bg-error text-error-content p-2 font-semibold rounded-r-lg" aria-label="${t.error} error knots">${t.error}</div>
     </div>
+    <button type="button" class="btn btn-sm ${showDynamicState ? 'btn-primary' : 'btn-ghost'}" ${dgdebug ? '' : 'disabled'}
+      aria-pressed="${showDynamicState}"
+      data-on:click="@post('/actions/toggle-dynamic-state')"
+      title="${dgdebug ? 'Show which dynamic properties (flags/variables) changed after each knot' : 'Dynamic state requires the dgdebug engine'}">
+      <div class="icon icon-dynamic" aria-hidden="true"></div><span class="hidden lg:inline">Dynamic State</span>
+    </button>
     <div class="flex items-center gap-1 shrink-0 ml-auto">
       <button type="button" class="btn btn-primary" data-on:click="@post('/actions/save')" title="Save this skein to its file - the only thing that ever writes to disk (⌘S)">
         <div class="icon icon-save" aria-hidden="true"></div><span class="hidden lg:inline">Save</span>
@@ -317,10 +411,14 @@ export function renderNavbar(info: SessionDisplayInfo, tree: SkeinTree): string 
 </nav>`;
 }
 
-export function renderKnotList(tree: SkeinTree, transcriptMenuId: number | null = null): string {
+export function renderKnotList(
+  tree: SkeinTree,
+  transcriptMenuId: number | null = null,
+  showDynamicState: boolean = false
+): string {
   const activeId = tree.getActiveKnotId();
   return selectedKnots(tree)
-    .map((knot) => renderKnot(tree, knot, activeId, transcriptMenuId))
+    .map((knot) => renderKnot(tree, knot, activeId, transcriptMenuId, showDynamicState))
     .join('\n');
 }
 
@@ -342,10 +440,11 @@ export function renderApp(
   info: SessionDisplayInfo,
   tree: SkeinTree,
   graphMenuId: number | null = null,
-  transcriptMenuId: number | null = null
+  transcriptMenuId: number | null = null,
+  showDynamicState: boolean = false
 ): string {
   return `<div id="skein-app" class="flex flex-col h-screen">
-  ${renderNavbar(info, tree)}
+  ${renderNavbar(info, tree, showDynamicState)}
   <div class="flex-1 min-h-0 flex flex-row w-full">
     <div id="tree-pane-outer"
       class="shrink-0 h-full flex flex-row"
@@ -358,7 +457,7 @@ export function renderApp(
       <div id="tree-pane-handle" class="w-1 shrink-0 cursor-col-resize bg-base-300 hover:bg-primary transition-colors"></div>
     </div>
     <div class="flex-1 min-w-0 overflow-y-auto px-2">
-      ${renderKnotList(tree, transcriptMenuId)}
+      ${renderKnotList(tree, transcriptMenuId, showDynamicState)}
       ${renderCommandInput(tree)}
     </div>
   </div>
@@ -369,11 +468,12 @@ export function renderPage(
   info: SessionDisplayInfo | undefined,
   tree: SkeinTree | undefined,
   graphMenuId: number | null = null,
-  transcriptMenuId: number | null = null
+  transcriptMenuId: number | null = null,
+  showDynamicState: boolean = false
 ): string {
   const body =
     info && tree
-      ? renderApp(info, tree, graphMenuId, transcriptMenuId)
+      ? renderApp(info, tree, graphMenuId, transcriptMenuId, showDynamicState)
       : '<div id="skein-app" class="p-4">No skein session running.</div>';
 
   return `<!doctype html>

@@ -4,6 +4,7 @@
  */
 
 import { Map, Set } from 'immutable';
+import { DynamicState } from './dynamic';
 
 /**
  * Thrown by setLabel when the requested label is already used by a different knot - labels are
@@ -115,6 +116,13 @@ export class SkeinTree {
   // means that interaction is a single atomic tree operation instead of two systems that have to
   // be kept in sync by whoever calls them.
   private readonly collapsedKnotIds: Set<number>;
+  // Per-knot @dynamic capture (SkeinSession.captureDynamicState), keyed by knot id - presentation/
+  // debugging data, not part of WireKnot, so (like collapsedKnotIds) it's never written to the
+  // .skein file (fromKnots always starts empty) and never persists across a reload. Lives on the
+  // tree rather than as a session-level side channel so it rides along with undo/redo the same way
+  // a knot's response/state does - re-running a command is a structural edit (runCommand pushes an
+  // undo snapshot), and its freshly captured dynamic state should roll back with it.
+  private readonly dynamicStates: Map<number, DynamicState>;
 
   private constructor(
     engine: 'dgdebug' | 'frotz' | 'frotz-release',
@@ -122,7 +130,8 @@ export class SkeinTree {
     knots: Map<number, WireKnot>,
     knotStates: Map<number, KnotState>,
     activeKnotId: number | null,
-    collapsedKnotIds: Set<number>
+    collapsedKnotIds: Set<number>,
+    dynamicStates: Map<number, DynamicState>
   ) {
     this.engine = engine;
     this.seed = seed;
@@ -130,6 +139,7 @@ export class SkeinTree {
     this.knotStates = knotStates;
     this.activeKnotId = activeKnotId;
     this.collapsedKnotIds = collapsedKnotIds;
+    this.dynamicStates = dynamicStates;
   }
 
   /**
@@ -162,7 +172,8 @@ export class SkeinTree {
       Map<number, WireKnot>().set(0, initialKnot),
       Map<number, KnotState>().set(0, initialState),
       0,
-      Set<number>()
+      Set<number>(),
+      Map<number, DynamicState>()
     );
   }
 
@@ -212,7 +223,7 @@ export class SkeinTree {
       .set(parentId, updatedParentState);
     knotStates = SkeinTree.propagateTreeState(knots, knotStates, parentId);
 
-    return new SkeinTree(this.engine, this.seed, knots, knotStates, this.activeKnotId, this.collapsedKnotIds);
+    return new SkeinTree(this.engine, this.seed, knots, knotStates, this.activeKnotId, this.collapsedKnotIds, this.dynamicStates);
   }
 
   /**
@@ -233,7 +244,7 @@ export class SkeinTree {
     const knots = this.knots.set(id, updatedKnot);
     const knotStates = SkeinTree.propagateOwnStateChange(knots, this.knotStates, id, updatedKnot);
 
-    return new SkeinTree(this.engine, this.seed, knots, knotStates, this.activeKnotId, this.collapsedKnotIds);
+    return new SkeinTree(this.engine, this.seed, knots, knotStates, this.activeKnotId, this.collapsedKnotIds, this.dynamicStates);
   }
 
   /**
@@ -253,7 +264,7 @@ export class SkeinTree {
     const knots = this.knots.set(id, updatedKnot);
     const knotStates = SkeinTree.propagateOwnStateChange(knots, this.knotStates, id, updatedKnot);
 
-    return new SkeinTree(this.engine, this.seed, knots, knotStates, this.activeKnotId, this.collapsedKnotIds);
+    return new SkeinTree(this.engine, this.seed, knots, knotStates, this.activeKnotId, this.collapsedKnotIds, this.dynamicStates);
   }
 
   /**
@@ -280,7 +291,7 @@ export class SkeinTree {
     const knots = this.knots.set(id, updatedKnot);
     const knotStates = SkeinTree.propagateOwnStateChange(knots, this.knotStates, id, updatedKnot);
 
-    return new SkeinTree(this.engine, this.seed, knots, knotStates, this.activeKnotId, this.collapsedKnotIds);
+    return new SkeinTree(this.engine, this.seed, knots, knotStates, this.activeKnotId, this.collapsedKnotIds, this.dynamicStates);
   }
 
   /**
@@ -316,10 +327,12 @@ export class SkeinTree {
     let knots = this.knots;
     let knotStates = this.knotStates;
     let collapsedKnotIds = this.collapsedKnotIds;
+    let dynamicStates = this.dynamicStates;
     for (const descendantId of this.collectSubtreeIds(id)) {
       knots = knots.delete(descendantId);
       knotStates = knotStates.delete(descendantId);
       collapsedKnotIds = collapsedKnotIds.remove(descendantId);
+      dynamicStates = dynamicStates.delete(descendantId);
     }
 
     if (knot.parentId !== null) {
@@ -327,7 +340,7 @@ export class SkeinTree {
       knotStates = SkeinTree.propagateTreeState(knots, knotStates, knot.parentId);
     }
 
-    return new SkeinTree(this.engine, this.seed, knots, knotStates, this.activeKnotId, collapsedKnotIds);
+    return new SkeinTree(this.engine, this.seed, knots, knotStates, this.activeKnotId, collapsedKnotIds, dynamicStates);
   }
 
   /**
@@ -367,7 +380,15 @@ export class SkeinTree {
       knotStates = SkeinTree.propagateTreeState(knots, knotStates, knot.parentId);
     }
 
-    return new SkeinTree(this.engine, this.seed, knots, knotStates, this.activeKnotId, this.collapsedKnotIds.remove(id));
+    return new SkeinTree(
+      this.engine,
+      this.seed,
+      knots,
+      knotStates,
+      this.activeKnotId,
+      this.collapsedKnotIds.remove(id),
+      this.dynamicStates.delete(id)
+    );
   }
 
   /**
@@ -422,7 +443,7 @@ export class SkeinTree {
     // upward - covers both the newly inserted knot and its ancestors in one pass.
     knotStates = SkeinTree.propagateTreeState(knots, knotStates, newId);
 
-    return new SkeinTree(this.engine, this.seed, knots, knotStates, this.activeKnotId, this.collapsedKnotIds);
+    return new SkeinTree(this.engine, this.seed, knots, knotStates, this.activeKnotId, this.collapsedKnotIds, this.dynamicStates);
   }
 
   /**
@@ -448,7 +469,7 @@ export class SkeinTree {
       label
     };
 
-    return new SkeinTree(this.engine, this.seed, this.knots.set(id, updatedKnot), this.knotStates, this.activeKnotId, this.collapsedKnotIds);
+    return new SkeinTree(this.engine, this.seed, this.knots.set(id, updatedKnot), this.knotStates, this.activeKnotId, this.collapsedKnotIds, this.dynamicStates);
   }
 
   /** The knot currently carrying the given non-null label, if any - setLabel's uniqueness check. */
@@ -475,7 +496,7 @@ export class SkeinTree {
       locked
     };
 
-    return new SkeinTree(this.engine, this.seed, this.knots.set(id, updatedKnot), this.knotStates, this.activeKnotId, this.collapsedKnotIds);
+    return new SkeinTree(this.engine, this.seed, this.knots.set(id, updatedKnot), this.knotStates, this.activeKnotId, this.collapsedKnotIds, this.dynamicStates);
   }
 
   /**
@@ -483,6 +504,36 @@ export class SkeinTree {
    */
   public getKnot(id: number): WireKnot | null {
     return this.knots.get(id) || null;
+  }
+
+  /**
+   * Records the parsed @dynamic state captured immediately after id's own command ran -
+   * SkeinSession.captureDynamicState's storage half. Overwrites whatever was captured there
+   * before (a knot only ever has one "current" dynamic snapshot, same as its response).
+   */
+  public updateDynamicState(id: number, state: DynamicState): SkeinTree {
+    if (!this.knots.get(id)) {
+      throw new Error(`Knot ${id} not found`);
+    }
+    return new SkeinTree(
+      this.engine,
+      this.seed,
+      this.knots,
+      this.knotStates,
+      this.activeKnotId,
+      this.collapsedKnotIds,
+      this.dynamicStates.set(id, state)
+    );
+  }
+
+  /**
+   * The @dynamic state captured for id itself, or null if none has been captured this session
+   * (e.g. a freshly loaded skein, or a knot reached only via a keystroke prompt - dynamic state
+   * isn't persisted to the .skein file, see dynamicStates' own doc comment). render.ts's
+   * findDynamicState walks up to an ancestor when a specific knot has none of its own.
+   */
+  public getDynamicState(id: number): DynamicState | null {
+    return this.dynamicStates.get(id) ?? null;
   }
 
   /**
@@ -733,7 +784,7 @@ export class SkeinTree {
     // collapsedKnotIds always starts empty on rebuild-from-file - presentation state, not
     // persisted (see WireKnot/the field's own doc comment), matching dialog-tool's own
     // expanded-ids being recomputed at load time rather than read from the file.
-    return new SkeinTree(engine, seed, knots, knotStates, activeKnotId, Set<number>());
+    return new SkeinTree(engine, seed, knots, knotStates, activeKnotId, Set<number>(), Map<number, DynamicState>());
   }
 
   /**
@@ -812,7 +863,7 @@ export class SkeinTree {
    * Set active knot ID
    */
   public setActiveKnotId(id: number | null): SkeinTree {
-    return new SkeinTree(this.engine, this.seed, this.knots, this.knotStates, id, this.collapsedKnotIds);
+    return new SkeinTree(this.engine, this.seed, this.knots, this.knotStates, id, this.collapsedKnotIds, this.dynamicStates);
   }
 
   /**
@@ -853,7 +904,7 @@ export class SkeinTree {
         knotStates = knotStates.set(parentId, { ...parentState, selectedChild: childId });
       }
     }
-    return new SkeinTree(this.engine, this.seed, this.knots, knotStates, this.activeKnotId, this.collapsedKnotIds);
+    return new SkeinTree(this.engine, this.seed, this.knots, knotStates, this.activeKnotId, this.collapsedKnotIds, this.dynamicStates);
   }
 
   /**
@@ -873,7 +924,7 @@ export class SkeinTree {
       knotStates = knotStates.set(currentId, { ...state, selectedChild: childId });
       currentId = childId;
     }
-    return new SkeinTree(this.engine, this.seed, this.knots, knotStates, this.activeKnotId, this.collapsedKnotIds);
+    return new SkeinTree(this.engine, this.seed, this.knots, knotStates, this.activeKnotId, this.collapsedKnotIds, this.dynamicStates);
   }
 
   /**
@@ -895,7 +946,7 @@ export class SkeinTree {
     const state = afterPath.knotStates.get(id)!;
     const knotStates =
       state.selectedChild === null ? afterPath.knotStates : afterPath.knotStates.set(id, { ...state, selectedChild: null });
-    return new SkeinTree(this.engine, this.seed, this.knots, knotStates, id, this.collapsedKnotIds);
+    return new SkeinTree(this.engine, this.seed, this.knots, knotStates, id, this.collapsedKnotIds, this.dynamicStates);
   }
 
   /**
@@ -922,7 +973,7 @@ export class SkeinTree {
     const activeKnotId =
       collapsing && this.activeKnotId !== null && this.isDescendantOf(this.activeKnotId, id) ? id : this.activeKnotId;
 
-    return new SkeinTree(this.engine, this.seed, this.knots, this.knotStates, activeKnotId, collapsedKnotIds);
+    return new SkeinTree(this.engine, this.seed, this.knots, this.knotStates, activeKnotId, collapsedKnotIds, this.dynamicStates);
   }
 
   /** Whether id is a strict descendant of ancestorId (walks up via parentId; false for id === ancestorId). */

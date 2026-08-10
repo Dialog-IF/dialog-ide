@@ -89,7 +89,7 @@ describeIfDgdebug('Real dgdebug integration (no mocks)', () => {
         expect(knot.unblessedResponse).toContain('You are in an endless, featureless space');
         expect(knot.parentId).toBe(0);
 
-        const dynamicState = session.getDynamicState();
+        const dynamicState = session.getTree().getDynamicState(activeId);
         expect(dynamicState).not.toBeNull();
         expect(dynamicState!.flags.size).toBeGreaterThan(0);
       } finally {

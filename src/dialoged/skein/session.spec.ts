@@ -87,7 +87,7 @@ function fakeProgressHost() {
 const BANNER_RESPONSE = { command: '', response: 'Welcome to the game.\n', promptType: 'line' as const };
 
 async function startedSessionWith(tree: SkeinTree): Promise<SkeinSession> {
-  mockReadResponse.mockResolvedValueOnce(BANNER_RESPONSE);
+  mockReadResponse.mockResolvedValueOnce(BANNER_RESPONSE).mockResolvedValueOnce(dynamicResponse([]));
   const session = SkeinSession.createLoaded(tree, DGDEBUG_CONFIG);
   await session.start();
   // createLoaded sessions diff the live banner against knot 0's already-loaded response rather
@@ -126,17 +126,19 @@ describe('SkeinSession', () => {
 
   describe('start', () => {
     it('reads the project, expands sources, and captures the interpreter\'s initial response', async () => {
-      mockReadResponse.mockResolvedValueOnce(BANNER_RESPONSE);
+      mockReadResponse.mockResolvedValueOnce(BANNER_RESPONSE).mockResolvedValueOnce(dynamicResponse([]));
       const session = SkeinSession.createNew(DGDEBUG_CONFIG);
 
       await session.start();
 
-      expect(mockReadResponse).toHaveBeenCalledTimes(1);
+      // The banner itself, plus its own '@dynamic' capture (see session.ts's
+      // launchProcessAndCaptureBanner) - a baseline for the first real command's diff.
+      expect(mockReadResponse).toHaveBeenCalledTimes(2);
       expect(session.isRunningSession()).toBe(true);
     });
 
     it('replaces knot 0\'s placeholder text with the real, blessed startup banner', async () => {
-      mockReadResponse.mockResolvedValueOnce(BANNER_RESPONSE);
+      mockReadResponse.mockResolvedValueOnce(BANNER_RESPONSE).mockResolvedValueOnce(dynamicResponse([]));
       const session = SkeinSession.createNew(DGDEBUG_CONFIG);
 
       await session.start();
@@ -147,8 +149,18 @@ describe('SkeinSession', () => {
       expect(knot0.state).toBe('valid');
     });
 
+    it('captures @dynamic for knot 0 itself - a baseline for the first real command\'s diff, not something ever shown for root itself', async () => {
+      mockReadResponse.mockResolvedValueOnce(BANNER_RESPONSE).mockResolvedValueOnce(dynamicResponse(['  (game started) on']));
+      const session = SkeinSession.createNew(DGDEBUG_CONFIG);
+
+      await session.start();
+
+      expect(mockSendCommand).toHaveBeenNthCalledWith(1, '@dynamic');
+      expect(session.getTree().getDynamicState(0)!.flags.has('(game started)')).toBe(true);
+    });
+
     it('emits a change event once the startup banner is captured', async () => {
-      mockReadResponse.mockResolvedValueOnce(BANNER_RESPONSE);
+      mockReadResponse.mockResolvedValueOnce(BANNER_RESPONSE).mockResolvedValueOnce(dynamicResponse([]));
       const session = SkeinSession.createNew(DGDEBUG_CONFIG);
       const onChange = jest.fn();
       session.onChange(onChange);
@@ -170,7 +182,7 @@ describe('SkeinSession', () => {
       // banner should be diffed against, not silently overwritten. Regression coverage for: a
       // manually-edited-and-reloaded .skein file's knot 0 changes never showing up as a change.
       it('flags knot 0 as changed when the live banner no longer matches the loaded response, instead of silently re-blessing it', async () => {
-        mockReadResponse.mockResolvedValueOnce(BANNER_RESPONSE);
+        mockReadResponse.mockResolvedValueOnce(BANNER_RESPONSE).mockResolvedValueOnce(dynamicResponse([]));
         const loaded = SkeinTree.newTree('dgdebug', 1).blessKnot(0); // no-op: newTree's root starts blessed
         const session = SkeinSession.createLoaded(loaded, DGDEBUG_CONFIG);
 
@@ -183,7 +195,9 @@ describe('SkeinSession', () => {
       });
 
       it('leaves knot 0 valid when the live banner matches the loaded response', async () => {
-        mockReadResponse.mockResolvedValueOnce({ command: '', response: 'Welcome to the game. > ', promptType: 'line' as const });
+        mockReadResponse
+          .mockResolvedValueOnce({ command: '', response: 'Welcome to the game. > ', promptType: 'line' as const })
+          .mockResolvedValueOnce(dynamicResponse([]));
         const session = SkeinSession.createLoaded(SkeinTree.newTree('dgdebug', 1), DGDEBUG_CONFIG);
 
         await session.start();
@@ -197,6 +211,7 @@ describe('SkeinSession', () => {
     it('parents the first command under the root knot (the initial active knot)', async () => {
       mockReadResponse
         .mockResolvedValueOnce(BANNER_RESPONSE)
+        .mockResolvedValueOnce(dynamicResponse([]))
         .mockResolvedValueOnce({ command: 'look', response: 'Room A.\n', promptType: 'line' })
         .mockResolvedValueOnce(dynamicResponse([]));
       const session = SkeinSession.createNew(DGDEBUG_CONFIG);
@@ -212,6 +227,7 @@ describe('SkeinSession', () => {
     it('parents each subsequent command under the current active knot, not hardcoded to root', async () => {
       mockReadResponse
         .mockResolvedValueOnce(BANNER_RESPONSE)
+        .mockResolvedValueOnce(dynamicResponse([]))
         .mockResolvedValueOnce({ command: 'look', response: 'Room A.\n', promptType: 'line' })
         .mockResolvedValueOnce(dynamicResponse([]))
         .mockResolvedValueOnce({ command: 'north', response: 'Room B.\n', promptType: 'line' })
@@ -237,6 +253,7 @@ describe('SkeinSession', () => {
         .setActiveKnotId(0);
       mockReadResponse
         .mockResolvedValueOnce(BANNER_RESPONSE)
+        .mockResolvedValueOnce(dynamicResponse([]))
         .mockResolvedValueOnce({ command: 'look', response: 'Room A.\n', promptType: 'line' })
         .mockResolvedValueOnce(dynamicResponse([]));
       const session = SkeinSession.createLoaded(seeded, DGDEBUG_CONFIG);
@@ -255,6 +272,7 @@ describe('SkeinSession', () => {
         .setActiveKnotId(0);
       mockReadResponse
         .mockResolvedValueOnce(BANNER_RESPONSE)
+        .mockResolvedValueOnce(dynamicResponse([]))
         .mockResolvedValueOnce({ command: 'look', response: 'Room A, but darker now.\n', promptType: 'line' })
         .mockResolvedValueOnce(dynamicResponse([]));
       const session = SkeinSession.createLoaded(seeded, DGDEBUG_CONFIG);
@@ -269,9 +287,10 @@ describe('SkeinSession', () => {
       expect(knot1.unblessedResponse).toBe('Room A, but darker now.\n');
     });
 
-    it('queries @dynamic after each command for dgdebug and exposes the parsed state', async () => {
+    it('queries @dynamic after each command for dgdebug and stores the parsed state on the knot it belongs to', async () => {
       mockReadResponse
         .mockResolvedValueOnce(BANNER_RESPONSE)
+        .mockResolvedValueOnce(dynamicResponse([])) // session.start()'s own capture, for knot 0
         .mockResolvedValueOnce({ command: 'look', response: 'Room A.\n', promptType: 'line' })
         .mockResolvedValueOnce(dynamicResponse(['  (game started) on']));
       const session = SkeinSession.createNew(DGDEBUG_CONFIG);
@@ -279,15 +298,21 @@ describe('SkeinSession', () => {
 
       await session.runCommand('look');
 
-      expect(mockSendCommand).toHaveBeenNthCalledWith(1, 'look');
-      expect(mockSendCommand).toHaveBeenNthCalledWith(2, '@dynamic');
-      expect(session.getDynamicState()!.flags.has('(game started)')).toBe(true);
-      expect(session.getDynamicChanges()).toBeNull();
+      // Call 1 is the banner's own '@dynamic' (session.start()); 2 and 3 are 'look' and its capture.
+      expect(mockSendCommand).toHaveBeenNthCalledWith(2, 'look');
+      expect(mockSendCommand).toHaveBeenNthCalledWith(3, '@dynamic');
+      const knot1 = session.getTree().getDerivedKnot(1)!;
+      expect(session.getTree().getDynamicState(knot1.id)!.flags.has('(game started)')).toBe(true);
+      // Root's own startup banner is captured too now (a baseline for knot 1's diff - see
+      // session.ts's launchProcessAndCaptureBanner) - just empty here, since the mocked banner's
+      // '@dynamic' response above reported no flags at all.
+      expect(session.getTree().getDynamicState(0)!.flags.size).toBe(0);
     });
 
-    it('diffs dynamic state against the previous snapshot on the next command', async () => {
+    it('captures each command\'s own dynamic state separately, not overwriting the previous knot\'s', async () => {
       mockReadResponse
         .mockResolvedValueOnce(BANNER_RESPONSE)
+        .mockResolvedValueOnce(dynamicResponse([]))
         .mockResolvedValueOnce({ command: 'look', response: 'Room A.\n', promptType: 'line' })
         .mockResolvedValueOnce(dynamicResponse(['  (game started) on']))
         .mockResolvedValueOnce({ command: 'light torch', response: 'It flickers to life.\n', promptType: 'line' })
@@ -298,7 +323,23 @@ describe('SkeinSession', () => {
       await session.runCommand('look');
       await session.runCommand('light torch');
 
-      expect(session.getDynamicChanges()!.added).toEqual(new Set(['(torch lit)']));
+      const tree = session.getTree();
+      expect(tree.getDynamicState(1)!.flags.has('(torch lit)')).toBe(false);
+      expect(tree.getDynamicState(2)!.flags.has('(torch lit)')).toBe(true);
+    });
+
+    it('does not send @dynamic when the response ends on a keystroke prompt', async () => {
+      mockReadResponse
+        .mockResolvedValueOnce(BANNER_RESPONSE)
+        .mockResolvedValueOnce(dynamicResponse([]))
+        .mockResolvedValueOnce({ command: 'press any key', response: 'Press a key...', promptType: 'key' });
+      const session = SkeinSession.createNew(DGDEBUG_CONFIG);
+      await session.start();
+
+      await session.runCommand('press any key');
+
+      expect(mockSendCommand).toHaveBeenCalledTimes(2); // banner's own '@dynamic' plus the command itself, no more
+      expect(session.getTree().getDynamicState(1)).toBeNull();
     });
 
     it('throws if the session has not been started', async () => {
@@ -309,6 +350,7 @@ describe('SkeinSession', () => {
     it('does not restart the process when the active knot already matches where the process is', async () => {
       mockReadResponse
         .mockResolvedValueOnce(BANNER_RESPONSE)
+        .mockResolvedValueOnce(dynamicResponse([]))
         .mockResolvedValueOnce({ command: 'look', response: 'Room A.\n', promptType: 'line' })
         .mockResolvedValueOnce(dynamicResponse([]));
       const session = SkeinSession.createNew(DGDEBUG_CONFIG);
@@ -328,7 +370,9 @@ describe('SkeinSession', () => {
         .setActiveKnotId(1);
       mockReadResponse
         .mockResolvedValueOnce(BANNER_RESPONSE) // session.start()
+        .mockResolvedValueOnce(dynamicResponse([])) // session.start()'s own @dynamic, for knot 0
         .mockResolvedValueOnce(BANNER_RESPONSE) // replay's relaunch
+        .mockResolvedValueOnce(dynamicResponse([])) // the relaunch's own @dynamic, for knot 0 again
         .mockResolvedValueOnce({ command: 'look', response: 'Room A.\n', promptType: 'line' }) // replayed step
         .mockResolvedValueOnce(dynamicResponse([])) // replayTo's own @dynamic
         .mockResolvedValueOnce({ command: 'north', response: 'Room B.\n', promptType: 'line' }) // the actual new command
@@ -340,7 +384,9 @@ describe('SkeinSession', () => {
 
       expect(mockTerminate).toHaveBeenCalledTimes(1);
       expect(mockStart).toHaveBeenCalledTimes(2); // session.start() + the replay relaunch
-      expect(mockSendCommand.mock.calls.map((call) => call[0])).toEqual(['look', '@dynamic', 'north', '@dynamic']);
+      expect(mockSendCommand.mock.calls.map((call) => call[0])).toEqual([
+        '@dynamic', '@dynamic', 'look', '@dynamic', 'north', '@dynamic'
+      ]);
       const tree = session.getTree();
       expect(tree.getKnot(2)!.parentId).toBe(1);
       expect(tree.getActiveKnotId()).toBe(2);
@@ -355,7 +401,9 @@ describe('SkeinSession', () => {
         .setActiveKnotId(1);
       mockReadResponse
         .mockResolvedValueOnce(BANNER_RESPONSE) // session.start()
+        .mockResolvedValueOnce(dynamicResponse([])) // session.start()'s own @dynamic, for knot 0
         .mockResolvedValueOnce(BANNER_RESPONSE) // replay's relaunch
+        .mockResolvedValueOnce(dynamicResponse([])) // the relaunch's own @dynamic, for knot 0 again
         .mockResolvedValueOnce({ command: 'look', response: 'Room A, but dustier now.\n', promptType: 'line' })
         .mockResolvedValueOnce(dynamicResponse([]));
       const session = SkeinSession.createLoaded(seeded, DGDEBUG_CONFIG);
@@ -364,7 +412,7 @@ describe('SkeinSession', () => {
       await session.replayAll();
 
       expect(mockTerminate).toHaveBeenCalledTimes(1);
-      expect(mockSendCommand).toHaveBeenNthCalledWith(1, 'look');
+      expect(mockSendCommand).toHaveBeenNthCalledWith(3, 'look');
       const knot1 = session.getTree().getDerivedKnot(1)!;
       expect(knot1.unblessedResponse).toBe('Room A, but dustier now.\n');
       expect(knot1.state).toBe('error'); // differs from the blessed 'Room A.\n'
@@ -381,8 +429,11 @@ describe('SkeinSession', () => {
         .selectKnot(1); // active knot moves back up; knot 2 is still shown in the transcript
       mockReadResponse
         .mockResolvedValueOnce(BANNER_RESPONSE) // session.start()
+        .mockResolvedValueOnce(dynamicResponse([])) // session.start()'s own @dynamic, for knot 0
         .mockResolvedValueOnce(BANNER_RESPONSE) // replay's relaunch
+        .mockResolvedValueOnce(dynamicResponse([])) // the relaunch's own @dynamic, for knot 0 again
         .mockResolvedValueOnce({ command: 'look', response: 'Room A.\n', promptType: 'line' })
+        .mockResolvedValueOnce(dynamicResponse([]))
         .mockResolvedValueOnce({ command: 'take orb', response: 'Got it.\n', promptType: 'line' })
         .mockResolvedValueOnce(dynamicResponse([]));
       const session = SkeinSession.createLoaded(seeded, DGDEBUG_CONFIG);
@@ -390,8 +441,8 @@ describe('SkeinSession', () => {
 
       await session.replayAll();
 
-      expect(mockSendCommand).toHaveBeenNthCalledWith(1, 'look');
-      expect(mockSendCommand).toHaveBeenNthCalledWith(2, 'take orb');
+      expect(mockSendCommand).toHaveBeenNthCalledWith(3, 'look');
+      expect(mockSendCommand).toHaveBeenNthCalledWith(5, 'take orb');
       // Replaying the whole spine down to its leaf is independent from where the active knot sits -
       // replayAll is a refresh, not a navigation, so knot 1 stays active even though knot 2 got replayed too.
       expect(session.getTree().getActiveKnotId()).toBe(1);
@@ -404,7 +455,9 @@ describe('SkeinSession', () => {
         .setActiveKnotId(2);
       mockReadResponse
         .mockResolvedValueOnce(BANNER_RESPONSE)
+        .mockResolvedValueOnce(dynamicResponse([]))
         .mockResolvedValueOnce(BANNER_RESPONSE)
+        .mockResolvedValueOnce(dynamicResponse([]))
         .mockResolvedValueOnce({ command: 'look', response: 'Room A.\n', promptType: 'line' })
         .mockResolvedValueOnce(dynamicResponse([]));
       const session = SkeinSession.createLoaded(seeded, DGDEBUG_CONFIG);
@@ -412,7 +465,7 @@ describe('SkeinSession', () => {
 
       await session.replayToKnot(1);
 
-      expect(mockSendCommand).toHaveBeenNthCalledWith(1, 'look');
+      expect(mockSendCommand).toHaveBeenNthCalledWith(3, 'look');
       expect(session.getTree().getActiveKnotId()).toBe(1);
     });
 
@@ -423,7 +476,9 @@ describe('SkeinSession', () => {
         .setActiveKnotId(1);
       mockReadResponse
         .mockResolvedValueOnce(BANNER_RESPONSE) // session.start()
+        .mockResolvedValueOnce(dynamicResponse([])) // session.start()'s own @dynamic, for knot 0
         .mockResolvedValueOnce({ command: '', response: 'Welcome to the game, changed.\n', promptType: 'line' }) // replay's relaunch: a changed banner
+        .mockResolvedValueOnce(dynamicResponse([])) // the relaunch's own @dynamic, for knot 0 again
         .mockResolvedValueOnce({ command: 'look', response: 'Room A.\n', promptType: 'line' })
         .mockResolvedValueOnce(dynamicResponse([]));
       const session = SkeinSession.createLoaded(seeded, DGDEBUG_CONFIG);
@@ -448,8 +503,11 @@ describe('SkeinSession', () => {
     it('reports progress once per leaf, not once per command, through the injected progress host', async () => {
       mockReadResponse
         .mockResolvedValueOnce(BANNER_RESPONSE) // session.start()
+        .mockResolvedValueOnce(dynamicResponse([])) // session.start()'s own @dynamic, for knot 0
         .mockResolvedValueOnce(BANNER_RESPONSE) // replay's relaunch
+        .mockResolvedValueOnce(dynamicResponse([])) // the relaunch's own @dynamic, for knot 0 again
         .mockResolvedValueOnce({ command: 'look', response: 'Room A.\n', promptType: 'line' })
+        .mockResolvedValueOnce(dynamicResponse([]))
         .mockResolvedValueOnce({ command: 'take orb', response: 'Got it.\n', promptType: 'line' })
         .mockResolvedValueOnce(dynamicResponse([]));
       const { host, withProgressCalls, reports } = fakeProgressHost();
@@ -466,22 +524,31 @@ describe('SkeinSession', () => {
     it('stops replaying but leaves the active knot untouched once the token cancels mid-replay', async () => {
       mockReadResponse
         .mockResolvedValueOnce(BANNER_RESPONSE) // session.start()
+        .mockResolvedValueOnce(dynamicResponse([])) // session.start()'s own @dynamic, for knot 0
         .mockResolvedValueOnce(BANNER_RESPONSE) // replay's relaunch
+        .mockResolvedValueOnce(dynamicResponse([])) // the relaunch's own @dynamic, for knot 0 again
         .mockResolvedValueOnce({ command: 'look', response: 'Room A.\n', promptType: 'line' })
         .mockResolvedValueOnce(dynamicResponse([]));
       const { host, cancel } = fakeProgressHost();
-      // Progress only reports once per leaf (after it's already done), so it can't drive a
-      // mid-leaf cancellation - flip the token as a side effect of the first command actually
-      // being sent instead, which lands the cancellation check right before the second command.
-      mockSendCommand.mockImplementationOnce(() => cancel());
       const session = SkeinSession.createLoaded(seededTwoStepTree(), DGDEBUG_CONFIG, host);
       await session.start();
 
+      // Progress only reports once per leaf (after it's already done), so it can't drive a
+      // mid-leaf cancellation - flip the token as a side effect of the first *replayed* command
+      // actually being sent instead (not the relaunch's own '@dynamic' capture, which happens
+      // first but isn't part of the path loop this test means to interrupt), which lands the
+      // cancellation check right before the second command. Armed only now, after session.start()
+      // has already made its own '@dynamic' call, so it doesn't consume this queue early.
+      mockSendCommand
+        .mockImplementationOnce(() => {}) // relaunch's own '@dynamic' - not the trigger
+        .mockImplementationOnce(() => cancel()); // 'look' itself
+
       await session.replayAll();
 
-      // refreshDynamicState still runs once the (truncated) loop exits, sending its own '@dynamic'
-      // command - so 'look' plus that, but never 'take orb'.
-      expect(mockSendCommand).toHaveBeenNthCalledWith(1, 'look');
+      // replayPath's own @dynamic capture for 'look' still runs before the loop re-checks the
+      // cancellation token ahead of 'take orb' - so the relaunch's '@dynamic', 'look', and look's
+      // own '@dynamic', but never 'take orb'.
+      expect(mockSendCommand.mock.calls.map((call) => call[0])).toEqual(['@dynamic', '@dynamic', 'look', '@dynamic']);
       expect(mockSendCommand).not.toHaveBeenCalledWith('take orb');
       // seededTwoStepTree starts with knot 2 active - replayAll never moves it, cancelled or not.
       expect(session.getTree().getActiveKnotId()).toBe(2);
@@ -506,22 +573,25 @@ describe('SkeinSession', () => {
     }
 
     /**
-     * Scripts one independent leaf process: its own banner, then one response per command, in
-     * order. Callers still need to push the result onto processInstanceOverrides at the right
-     * index - see fakeProcessInstance's own doc comment for why construction order is
+     * Scripts one independent leaf process: its own banner and the banner's own '@dynamic'
+     * capture (see session.ts's replayAll - every leaf captures dynamic state for knot 0 too now,
+     * not just the session's own start()), then one response per command interleaved with its own
+     * '@dynamic' capture (replayPath's per-step capture runs for every leaf, not just the one that
+     * ends up kept), in order. Callers still need to push the result onto processInstanceOverrides
+     * at the right index - see fakeProcessInstance's own doc comment for why construction order is
      * deterministic (leafIds' ascending order) for a tree this small.
      */
     function scriptedLeafProcess(...commandResponses: { command: string; response: string; promptType: 'line' }[]) {
       const process = fakeProcessInstance();
-      process.readResponse.mockResolvedValueOnce(BANNER_RESPONSE);
+      process.readResponse.mockResolvedValueOnce(BANNER_RESPONSE).mockResolvedValueOnce(dynamicResponse([]));
       for (const response of commandResponses) {
-        process.readResponse.mockResolvedValueOnce(response);
+        process.readResponse.mockResolvedValueOnce(response).mockResolvedValueOnce(dynamicResponse([]));
       }
       return process;
     }
 
     it('replays every leaf concurrently, not just the active spine, and restores the active spine afterwards', async () => {
-      mockReadResponse.mockResolvedValueOnce(BANNER_RESPONSE); // session.start()'s own process
+      mockReadResponse.mockResolvedValueOnce(BANNER_RESPONSE).mockResolvedValueOnce(dynamicResponse([])); // session.start()'s own process
 
       // getLeafIds() is ascending, so leaf 2 is constructed (index 1) before leaf 3 (index 2) -
       // each on its own independent, concurrently-running process.
@@ -533,8 +603,6 @@ describe('SkeinSession', () => {
         { command: 'look', response: 'Room A.\n', promptType: 'line' },
         { command: 'inventory', response: 'Empty-handed.\n', promptType: 'line' }
       );
-      // Only the originally-active leaf's process (2) survives to run refreshDynamicState.
-      leaf2Process.readResponse.mockResolvedValueOnce(dynamicResponse([]));
       processInstanceOverrides = [{}, leaf2Process, leaf3Process];
 
       const session = SkeinSession.createLoaded(forkedTree(), DGDEBUG_CONFIG);
@@ -542,8 +610,12 @@ describe('SkeinSession', () => {
 
       await session.replayAll();
 
-      expect(leaf2Process.sendCommand.mock.calls.map((call) => call[0])).toEqual(['look', 'take orb', '@dynamic']);
-      expect(leaf3Process.sendCommand.mock.calls.map((call) => call[0])).toEqual(['look', 'inventory']);
+      expect(leaf2Process.sendCommand.mock.calls.map((call) => call[0])).toEqual([
+        '@dynamic', 'look', '@dynamic', 'take orb', '@dynamic'
+      ]);
+      expect(leaf3Process.sendCommand.mock.calls.map((call) => call[0])).toEqual([
+        '@dynamic', 'look', '@dynamic', 'inventory', '@dynamic'
+      ]);
       expect(mockTerminate).toHaveBeenCalledTimes(1); // the original session.start() process, superseded
       expect(leaf3Process.terminate).toHaveBeenCalledTimes(1); // not the active spine - thrown away
       expect(leaf2Process.terminate).not.toHaveBeenCalled(); // kept as the session's new live process
@@ -553,10 +625,12 @@ describe('SkeinSession', () => {
       expect(tree.getActiveKnotId()).toBe(2); // active spine restored, not left on leaf 3
       expect(tree.getSelectedLeafId()).toBe(2);
       expect(session.getProcessPositionId()).toBe(2);
+      // Every leaf's own dynamic capture lands on the tree, not just the kept leaf's.
+      expect(tree.getDynamicState(3)).not.toBeNull();
     });
 
     it('never emits a change event mid-pass - only once, after every leaf has been replayed', async () => {
-      mockReadResponse.mockResolvedValueOnce(BANNER_RESPONSE);
+      mockReadResponse.mockResolvedValueOnce(BANNER_RESPONSE).mockResolvedValueOnce(dynamicResponse([]));
       const leaf2Process = scriptedLeafProcess(
         { command: 'look', response: 'Room A.\n', promptType: 'line' },
         { command: 'take orb', response: 'Got it.\n', promptType: 'line' }
@@ -565,7 +639,6 @@ describe('SkeinSession', () => {
         { command: 'look', response: 'Room A.\n', promptType: 'line' },
         { command: 'inventory', response: 'Empty-handed.\n', promptType: 'line' }
       );
-      leaf2Process.readResponse.mockResolvedValueOnce(dynamicResponse([]));
       processInstanceOverrides = [{}, leaf2Process, leaf3Process];
 
       const session = SkeinSession.createLoaded(forkedTree(), DGDEBUG_CONFIG);
@@ -1088,7 +1161,7 @@ describe('SkeinSession', () => {
     });
 
     it('is a no-op when there is nothing to undo', async () => {
-      mockReadResponse.mockResolvedValueOnce(BANNER_RESPONSE);
+      mockReadResponse.mockResolvedValueOnce(BANNER_RESPONSE).mockResolvedValueOnce(dynamicResponse([]));
       const session = SkeinSession.createNew(DGDEBUG_CONFIG);
       await session.start();
       const treeBefore = session.getTree();
@@ -1113,7 +1186,7 @@ describe('SkeinSession', () => {
     });
 
     it('is a no-op when there is nothing to redo', async () => {
-      mockReadResponse.mockResolvedValueOnce(BANNER_RESPONSE);
+      mockReadResponse.mockResolvedValueOnce(BANNER_RESPONSE).mockResolvedValueOnce(dynamicResponse([]));
       const session = SkeinSession.createNew(DGDEBUG_CONFIG);
       await session.start();
       const treeBefore = session.getTree();
@@ -1176,6 +1249,7 @@ describe('SkeinSession', () => {
     it('running a new command pushes an undo point that removes the new knot', async () => {
       mockReadResponse
         .mockResolvedValueOnce(BANNER_RESPONSE)
+        .mockResolvedValueOnce(dynamicResponse([]))
         .mockResolvedValueOnce({ command: 'look', response: 'Room A.\n', promptType: 'line' })
         .mockResolvedValueOnce(dynamicResponse([]));
       const session = SkeinSession.createNew(DGDEBUG_CONFIG);

@@ -223,7 +223,8 @@ export class SkeinService implements ProgressHost {
           this.currentDisplayInfo(),
           this.activeSession?.getTree(),
           this.activeSession?.getGraphMenuId() ?? null,
-          this.activeSession?.getTranscriptMenuId() ?? null
+          this.activeSession?.getTranscriptMenuId() ?? null,
+          this.activeSession?.getShowDynamicState() ?? false
         )
       );
       return;
@@ -337,6 +338,11 @@ export class SkeinService implements ProgressHost {
 
     if (req.method === 'POST' && url.pathname === '/actions/close-menus') {
       await this.handleCloseMenus(req, res);
+      return;
+    }
+
+    if (req.method === 'POST' && url.pathname === '/actions/toggle-dynamic-state') {
+      await this.handleToggleDynamicState(req, res);
       return;
     }
 
@@ -595,6 +601,26 @@ export class SkeinService implements ProgressHost {
   }
 
   /**
+   * POST /actions/toggle-dynamic-state - no body. The navbar's dynamic-state toggle button
+   * (render.ts's renderNavbar); flips session.ts's showDynamicState, a pure display filter that
+   * doesn't touch the tree - dynamic state itself is always captured after every dgdebug command
+   * regardless of whether this is on (see session.ts's captureDynamicState).
+   */
+  private async handleToggleDynamicState(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+    if (!this.activeSession) {
+      res.writeHead(400);
+      res.end();
+      return;
+    }
+
+    await readRequestBody(req);
+    this.activeSession.toggleShowDynamicState();
+
+    res.writeHead(204);
+    res.end();
+  }
+
+  /**
    * POST /actions/undo and /actions/redo - main.js's document-level Cmd+Z/Shift+Cmd+Z listener.
    * No body/knotId (there's nothing to target - undo/redo always act on whatever's on top of
    * session.ts's own undo/redo stack); a no-op rather than an error when the stack is empty, same
@@ -669,7 +695,13 @@ export class SkeinService implements ProgressHost {
     const tree = this.activeSession?.getTree();
     const html =
       info && tree
-        ? renderApp(info, tree, this.activeSession!.getGraphMenuId(), this.activeSession!.getTranscriptMenuId())
+        ? renderApp(
+            info,
+            tree,
+            this.activeSession!.getGraphMenuId(),
+            this.activeSession!.getTranscriptMenuId(),
+            this.activeSession!.getShowDynamicState()
+          )
         : NO_ACTIVE_SESSION_FRAGMENT;
     const dataLines = html
       .split('\n')

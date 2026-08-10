@@ -7,7 +7,7 @@ import * as os from 'os';
 import { EventEmitter } from 'events';
 import { SkeinProcess, ProcessConfig, EngineType } from './process';
 import { SkeinTree, Response } from './tree';
-import { DynamicProcessor, DynamicState, DynamicChanges } from './dynamic';
+import { DynamicProcessor, DynamicState } from './dynamic';
 import { readProject, expandSources } from './project';
 import { ProgressHost, CancellationToken, noopProgressHost } from './progress';
 
@@ -32,6 +32,7 @@ interface LeafReplayResult {
   leafId: number;
   process: SkeinProcess;
   responses: Map<number, Response>;
+  dynamicStates: Map<number, DynamicState>;
   reachedId: number;
 }
 
@@ -91,8 +92,10 @@ export class SkeinSession {
   private process: SkeinProcess | null = null;
   private isRunning: boolean = false;
   private dynamicProcessor: DynamicProcessor;
-  private dynamicState: DynamicState | null = null;
-  private dynamicChanges: DynamicChanges | null = null;
+  // The navbar's dynamic-state toggle - purely a display filter (render.ts skips the added/
+  // removed/changed chips when this is false), not part of the tree, so it's never captured onto
+  // the undo/redo stack the way a knot's own dynamic state is (see tree.ts's dynamicStates).
+  private showDynamicState: boolean = false;
   private readonly changeEmitter = new EventEmitter();
   // Where the actual interpreter process currently is, as opposed to tree.getActiveKnotId() -
   // which is also the currently *displayed*/navigated-to knot, and can diverge from this once
@@ -203,6 +206,12 @@ export class SkeinSession {
    * time a replay runs, knot 0 already has *some* real blessed response (from an earlier start())
    * that a changed banner should be diffed against, not silently overwritten - the same
    * re-validation every other knot on the replay path gets.
+   *
+   * Also captures @dynamic for knot 0 itself now (see captureDynamicState) - not to show a diff on
+   * root (render.ts's renderKnot never renders one for knot 0, since diffing the startup banner
+   * against nothing would just show every flag/var dgdebug sets up during init as "added" noise),
+   * but so the first *real* command has a genuine baseline to diff against instead of an empty one
+   * - findDynamicState's ancestor walk starts here.
    */
   private async launchProcessAndCaptureBanner(tree: SkeinTree, blessRoot: boolean): Promise<SkeinTree> {
     this.process = new SkeinProcess(this.buildProcessConfig());
@@ -212,6 +221,10 @@ export class SkeinSession {
     let updated = tree.updateKnotResponse(0, { text: banner.response, inputType: banner.promptType });
     if (blessRoot) {
       updated = updated.blessKnot(0);
+    }
+    const dynamicState = await this.captureDynamicState(this.process, banner.promptType);
+    if (dynamicState) {
+      updated = updated.updateDynamicState(0, dynamicState);
     }
     return updated;
   }
@@ -292,7 +305,10 @@ export class SkeinSession {
       this.tree = this.tree.selectKnot(activeKnotId);
       this.processPositionId = activeKnotId;
 
-      await this.refreshDynamicState();
+      const dynamicState = await this.captureDynamicState(process, response.promptType);
+      if (dynamicState) {
+        this.tree = this.tree.updateDynamicState(activeKnotId, dynamicState);
+      }
 
       console.log(`Command "${command}" executed successfully`);
       this.changeEmitter.emit('change');
@@ -321,15 +337,23 @@ export class SkeinSession {
    * recorded rather than mid-command (dgdebug has no way to abort a command once sent) - the
    * returned reachedId is the last knot actually replayed, not necessarily targetId, so a caller
    * that trusts it never ends up showing a response that was never actually sent to the process.
+   *
+   * Also re-captures @dynamic for every step along the path (same as runCommand's own capture for
+   * a live command - see captureDynamicState), not just once at the end: a replayed knot's stored
+   * dynamic state should reflect what's true right after its own command, same as its response
+   * does, so browsing to any knot on a just-replayed path (including ones replayAll re-validated
+   * but didn't navigate to) shows dynamic data that's actually current rather than stale or
+   * missing.
    */
   private async replayPath(
     process: SkeinProcess,
     tree: SkeinTree,
     targetId: number,
     token?: CancellationToken
-  ): Promise<{ responses: Map<number, Response>; reachedId: number }> {
+  ): Promise<{ responses: Map<number, Response>; dynamicStates: Map<number, DynamicState>; reachedId: number }> {
     const path = tree.commandPath(targetId);
     const responses = new Map<number, Response>();
+    const dynamicStates = new Map<number, DynamicState>();
     let reachedId = 0;
     for (const { id, command } of path) {
       if (token?.isCancellationRequested) {
@@ -338,10 +362,40 @@ export class SkeinSession {
       process.sendCommand(command);
       const response = await process.readResponse();
       responses.set(id, { text: response.response, inputType: response.promptType });
+      const dynamicState = await this.captureDynamicState(process, response.promptType);
+      if (dynamicState) {
+        dynamicStates.set(id, dynamicState);
+      }
       reachedId = id;
     }
 
-    return { responses, reachedId };
+    return { responses, dynamicStates, reachedId };
+  }
+
+  /**
+   * Sends "@dynamic" and parses the response - the one place that actually talks to the process
+   * for dynamic state, shared by runCommand and replayPath's per-step capture. Two cases return
+   * null without sending anything: a non-dgdebug engine (the @dynamic debug command doesn't exist
+   * for dfrotz/frotz-release - in practice buildProcessConfig already refuses to start a session
+   * for either, but this stays defensive rather than assuming that never changes), and a response
+   * that ended on a keystroke prompt (matching dialog-tool's session.clj capture-dynamic: sending
+   * a line-mode command like "@dynamic" while the game is mid-keystroke-read isn't safe to do).
+   *
+   * Root's own startup banner (knot 0) is deliberately never captured this way - unlike every
+   * other knot, it's not reached by this method (launchProcessAndCaptureBanner doesn't call it),
+   * so it never has its own stored dynamic state. Capturing it would mean every session.start()
+   * and every replay's fresh per-leaf process launch needs an extra process round trip purely to
+   * seed a baseline that's only ever used as an ancestor fallback (render.ts's findDynamicState) -
+   * not worth doubling the startup cost of every replay for. The first real command's diff simply
+   * treats "no ancestor state captured yet" as an empty baseline instead.
+   */
+  private async captureDynamicState(process: SkeinProcess, promptType: 'line' | 'key'): Promise<DynamicState | null> {
+    if (this.config.engine !== 'dgdebug' || promptType === 'key') {
+      return null;
+    }
+    process.sendCommand(DYNAMIC_COMMAND);
+    const response = await process.readResponse();
+    return this.dynamicProcessor.parse(response.response);
   }
 
   /**
@@ -362,16 +416,18 @@ export class SkeinSession {
     await this.process.terminate();
     this.tree = await this.launchProcessAndCaptureBanner(this.tree, false);
 
-    const { responses, reachedId } = await this.replayPath(this.process, this.tree, targetId);
+    const { responses, dynamicStates, reachedId } = await this.replayPath(this.process, this.tree, targetId);
     let tree = this.tree;
     for (const [id, response] of responses) {
       tree = tree.updateKnotResponse(id, response);
+    }
+    for (const [id, state] of dynamicStates) {
+      tree = tree.updateDynamicState(id, state);
     }
 
     this.tree = tree.selectKnot(reachedId);
     this.processPositionId = reachedId;
     this.closeMenus();
-    await this.refreshDynamicState();
     this.changeEmitter.emit('change');
   }
 
@@ -439,13 +495,17 @@ export class SkeinSession {
         const process = new SkeinProcess(this.buildProcessConfig());
         await process.start();
         const banner = await process.readResponse();
-        const { responses, reachedId } = await this.replayPath(process, baseTree, leafId, token);
+        const bannerDynamicState = await this.captureDynamicState(process, banner.promptType);
+        const { responses, dynamicStates, reachedId } = await this.replayPath(process, baseTree, leafId, token);
         responses.set(0, { text: banner.response, inputType: banner.promptType });
+        if (bannerDynamicState) {
+          dynamicStates.set(0, bannerDynamicState);
+        }
 
         leavesReplayed++;
         progress.report({ message: `${leavesReplayed} of ${totalLeaves}`, increment: 100 / totalLeaves });
 
-        return { leafId, process, responses, reachedId };
+        return { leafId, process, responses, dynamicStates, reachedId };
       };
 
       const results = (await mapWithConcurrency(leafIds, REPLAY_ALL_CONCURRENCY, replayLeaf))
@@ -464,6 +524,9 @@ export class SkeinSession {
         for (const [id, response] of result.responses) {
           tree = tree.updateKnotResponse(id, response);
         }
+        for (const [id, state] of result.dynamicStates) {
+          tree = tree.updateDynamicState(id, state);
+        }
       }
 
       if (originalResult) {
@@ -477,7 +540,6 @@ export class SkeinSession {
       this.tree = tree;
 
       this.closeMenus();
-      await this.refreshDynamicState();
       this.changeEmitter.emit('change');
     });
   }
@@ -760,37 +822,18 @@ export class SkeinSession {
   }
 
   /**
-   * Re-fetches @dynamic state from the running process and diffs it against the previous
-   * snapshot. dgdebug-only (per technical-design.md's Dynamic State Tracking section) - dfrotz
-   * doesn't support the @dynamic command.
+   * The navbar's dynamic-state toggle (POST /actions/toggle-dynamic-state) - purely a display
+   * filter read by render.ts, independent of whether any dynamic state has actually been
+   * captured. See showDynamicState's own doc comment for why this isn't part of the tree/undo
+   * stack.
    */
-  private async refreshDynamicState(): Promise<void> {
-    if (this.config.engine !== 'dgdebug' || !this.process) {
-      return;
-    }
-
-    this.process.sendCommand(DYNAMIC_COMMAND);
-    const response = await this.process.readResponse();
-    const newState = this.dynamicProcessor.parse(response.response);
-
-    this.dynamicChanges = this.dynamicState ? this.dynamicProcessor.diff(this.dynamicState, newState) : null;
-    this.dynamicState = newState;
+  public toggleShowDynamicState(): void {
+    this.showDynamicState = !this.showDynamicState;
+    this.changeEmitter.emit('change');
   }
 
-  /**
-   * The most recently fetched dynamic state, or null if unavailable (non-dgdebug engine, or no
-   * command has run yet).
-   */
-  public getDynamicState(): DynamicState | null {
-    return this.dynamicState;
-  }
-
-  /**
-   * What changed in dynamic state since the previous command, or null if there's no prior
-   * snapshot to compare against.
-   */
-  public getDynamicChanges(): DynamicChanges | null {
-    return this.dynamicChanges;
+  public getShowDynamicState(): boolean {
+    return this.showDynamicState;
   }
 
   /**

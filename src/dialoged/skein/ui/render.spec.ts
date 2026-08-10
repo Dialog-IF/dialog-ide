@@ -100,6 +100,25 @@ describe('renderNavbar', () => {
     expect(html).toContain(`data-on:click="@post('/actions/save')"`);
     expect(html).toContain('icon-save');
   });
+
+  it('wires the dynamic-state toggle to its own route, reflecting showDynamicState in aria-pressed and styling', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1);
+    const off = renderNavbar(INFO, tree, false);
+    expect(off).toContain(`data-on:click="@post('/actions/toggle-dynamic-state')"`);
+    expect(off).toContain('aria-pressed="false"');
+    expect(off).toContain('btn-ghost');
+
+    const on = renderNavbar(INFO, tree, true);
+    expect(on).toContain('aria-pressed="true"');
+    expect(on).toContain('btn-primary');
+  });
+
+  it('disables the dynamic-state toggle for a non-dgdebug engine - @dynamic is a dgdebug-only debug command', () => {
+    const tree = SkeinTree.newTree('frotz', 1);
+    const html = renderNavbar({ ...INFO, engine: 'frotz' }, tree);
+    const toggle = html.split('icon-dynamic')[0];
+    expect(toggle).toContain('disabled');
+  });
 });
 
 describe('renderKnotList', () => {
@@ -338,6 +357,71 @@ describe('renderKnotList', () => {
     const knot1Section = html.split('id="knot-1"')[1];
     expect(knot1Section).toContain('icon-warning');
     expect(knot1Section).toContain(`<span class="text-info font-bold">${visible('You see nothing.\n')}</span>`);
+  });
+});
+
+describe('renderKnotList dynamic state', () => {
+  function treeWithDynamicKnots(): SkeinTree {
+    return SkeinTree.newTree('dgdebug', 1)
+      .addChild(0, 'look', { text: 'Room A.\n', inputType: 'line' }) // id 1
+      .updateDynamicState(1, { flags: new Set(['(game started)']), vars: {} })
+      .addChild(1, 'light torch', { text: 'It flickers to life.\n', inputType: 'line' }) // id 2
+      .updateDynamicState(2, { flags: new Set(['(game started)', '(torch lit)']), vars: {} })
+      .setActiveKnotId(2);
+  }
+
+  it('is omitted entirely when showDynamicState is false, regardless of captured state', () => {
+    const html = renderKnotList(treeWithDynamicKnots(), null, false);
+    expect(html).not.toContain('(torch lit)');
+  });
+
+  it('shows added predicates relative to the parent\'s own captured state when the toggle is on', () => {
+    const html = renderKnotList(treeWithDynamicKnots(), null, true);
+    const knot2Section = html.split('id="knot-2"')[1];
+    expect(knot2Section).toContain('(torch lit)');
+    expect(knot2Section).toContain('border-success'); // added
+    // (game started) was already true at the parent - not repeated as a change here.
+    expect(knot2Section).not.toContain('(game started)');
+  });
+
+  it('renders nothing for a knot with no dynamic capture of its own, even with the toggle on', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1).addChild(0, 'look', { text: 'a', inputType: 'line' });
+    const html = renderKnotList(tree, null, true);
+    const knot1Section = html.split('id="knot-1"')[1];
+    expect(knot1Section).not.toContain('flex flex-wrap gap-1 mt-4 text-xs');
+  });
+
+  it('never shows a diff for root, even though its own startup banner has captured dynamic state (a baseline for knot 1, not something to diff itself)', () => {
+    const tree = treeWithDynamicKnots().updateDynamicState(0, { flags: new Set(['(game started)']), vars: {} });
+    const html = renderKnotList(tree, null, true);
+    const knot0Section = html.split('id="knot-0"')[1].split('id="knot-1"')[0];
+    expect(knot0Section).not.toContain('flex flex-wrap gap-1 mt-4 text-xs');
+  });
+
+  it("diffs the first real command against root's own captured startup state, instead of an empty baseline", () => {
+    const tree = SkeinTree.newTree('dgdebug', 1)
+      .updateDynamicState(0, { flags: new Set(['(game started)']), vars: {} })
+      .addChild(0, 'look', { text: 'a', inputType: 'line' }) // id 1
+      .updateDynamicState(1, { flags: new Set(['(game started)']), vars: {} })
+      .setActiveKnotId(1);
+    const html = renderKnotList(tree, null, true);
+    const knot1Section = html.split('id="knot-1"')[1];
+    // (game started) was already true at root - not shown as newly "added" by 'look'.
+    expect(knot1Section).not.toContain('(game started)');
+  });
+
+  it('shows removed and changed predicates too, sorted together', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1)
+      .addChild(0, 'look', { text: 'a', inputType: 'line' }) // id 1
+      .updateDynamicState(1, { flags: new Set(['(lit)']), vars: { '(score)': '(score) is 0' } })
+      .addChild(1, 'wait', { text: 'b', inputType: 'line' }) // id 2
+      .updateDynamicState(2, { flags: new Set(), vars: { '(score)': '(score) is 5' } })
+      .setActiveKnotId(2);
+    const html = renderKnotList(tree, null, true);
+    const knot2Section = html.split('id="knot-2"')[1];
+    expect(knot2Section).toContain('border-warning'); // (lit) removed
+    expect(knot2Section).toContain('(score) is 5'); // changed value shown, not the old one
+    expect(knot2Section).not.toContain('(score) is 0');
   });
 });
 

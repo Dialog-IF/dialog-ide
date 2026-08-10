@@ -39,9 +39,11 @@ function createFakeSession(
     closeAllMenusCount: 0,
     toggleTreeNode: [] as number[],
     undoCount: 0,
-    redoCount: 0
+    redoCount: 0,
+    toggleShowDynamicStateCount: 0
   };
   const emit = () => listeners.forEach((fn) => fn());
+  let showDynamicState = false;
 
   // Mirrors session.ts's own graphMenuId/transcriptMenuId: every mutating action (including
   // plain navigation) closes both, matching the real closeMenus() called from setActiveKnot and
@@ -159,6 +161,12 @@ function createFakeSession(
     redo: () => {
       calls.redoCount++;
       closeMenus();
+      emit();
+    },
+    getShowDynamicState: () => showDynamicState,
+    toggleShowDynamicState: () => {
+      calls.toggleShowDynamicStateCount++;
+      showDynamicState = !showDynamicState;
       emit();
     }
   };
@@ -995,6 +1003,25 @@ describe('SkeinService', () => {
       expect(redoRes.status).toBe(204);
       expect(fake.calls.undoCount).toBe(1);
       expect(fake.calls.redoCount).toBe(1);
+    });
+  });
+
+  describe('POST /actions/toggle-dynamic-state', () => {
+    it('400s when no session is active', async () => {
+      const res = await post(`http://localhost:${service.getPort()}/actions/toggle-dynamic-state`, {});
+      expect(res.status).toBe(400);
+    });
+
+    it('calls session.toggleShowDynamicState and returns 204, with no knotId required', async () => {
+      const tree = SkeinTree.newTree('dgdebug', 1);
+      const fake = createFakeSession(tree);
+      service.setActiveSession(fake as unknown as SkeinSession, 'default');
+
+      const res = await post(`http://localhost:${service.getPort()}/actions/toggle-dynamic-state`, {});
+
+      expect(res.status).toBe(204);
+      expect(fake.calls.toggleShowDynamicStateCount).toBe(1);
+      expect(fake.getShowDynamicState()).toBe(true);
     });
   });
 
