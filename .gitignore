@@ -5,3 +5,4 @@
 .lsp
 node_modules
 dist
+media/style.css
