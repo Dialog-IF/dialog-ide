@@ -263,9 +263,13 @@ function renderCommandInput(tree: SkeinTree): string {
 }
 
 /**
- * The navbar: session identity, ok/new/error badges, and three equally-weighted primary actions -
- * Save, Replay All, Bless Transcript - a deliberately smaller set than dialog-tool's app.clj
- * navbar + operations toolbar. Generic app actions still deferred to native VS Code commands
+ * The navbar: ok/new/error badges and three equally-weighted primary actions - Save, Replay All,
+ * Bless Transcript - a deliberately smaller set than dialog-tool's app.clj navbar + operations
+ * toolbar. Session identity (which .skein file this is) lives in the webview panel's own tab
+ * title now (extension.ts's panelTitle), not duplicated here - that frees the middle of the
+ * navbar, currently empty flex space between the badges and the buttons, for the not-yet-built
+ * knot search (see the technical-design.md Core Component 5 plan). Generic app actions still
+ * deferred to native VS Code commands
  * (Undo/Redo/Reload/Quit/Jump - no webview<->extension-host bridge exists yet) and per-knot
  * operations (New Child, Edit Label, Toggle Lock, Delete, Splice Out, Replay to Here, and
  * single-knot Bless Knot) are dropped from here on purpose - they live in the per-knot actions
@@ -290,11 +294,10 @@ function renderCommandInput(tree: SkeinTree): string {
 export function renderNavbar(info: SessionDisplayInfo, tree: SkeinTree): string {
   const t = totals(tree);
   const spineLeafId = tree.getSelectedLeafId();
-  return `<nav class="bg-base-100 text-base-content border-base-200 divide-base-200 px-2 sm:px-4 py-2.5 w-full border-b"
+  return `<nav class="bg-base-100 text-base-content border-base-200 divide-base-200 px-2 sm:px-4 py-2.5 w-full border-b shrink-0"
   data-spine-leaf-id="${spineLeafId}">
   <div class="w-full flex items-center gap-2">
-    <div class="self-center truncate text-xl font-semibold shrink min-w-0">${escapeHtml(info.sessionId)}.skein &middot; ${escapeHtml(info.engine)} &middot; seed ${info.seed}</div>
-    <div class="join shrink-0 mx-auto">
+    <div class="join shrink-0">
       <div class="bg-success text-success-content p-2 font-semibold rounded-l-lg" aria-label="${t.valid} ok knots">${t.valid}</div>
       <div class="bg-warning text-warning-content p-2 font-semibold" aria-label="${t.new} new knots">${t.new}</div>
       <div class="bg-error text-error-content p-2 font-semibold rounded-r-lg" aria-label="${t.error} error knots">${t.error}</div>
@@ -326,14 +329,14 @@ export function renderKnotList(tree: SkeinTree, transcriptMenuId: number | null 
  * change and sends it as a Datastar datastar-patch-elements event, which morphs it into the
  * live DOM by matching this id.
  *
- * Two-pane body, mirroring dialog-tool's skein-page: a sticky, resizable tree/graph pane on the
- * left (scrolls independently) and the transcript on the right (scrolls with the page, as it
- * always has). Unlike dialog-tool - whose two fixed toolbar rows push everything below down by a
- * fixed amount, needing a matching height offset (mt-28/h-[calc(100vh-7rem)]) - dialog-ide's
- * single navbar flows normally, so the tree pane just pins itself to the top of the viewport
- * (sticky top-0) and caps its own height at one screen (h-screen) rather than needing that
- * offset arithmetic. data-preserve-attr keeps Datastar's morph from resetting the inline width
- * that main.js's drag handler writes on resize.
+ * The whole app is a fixed-height (h-screen) flex column, not a normal scrolling page: the
+ * navbar is a shrink-0 row at the top that never scrolls out of view, and everything below it
+ * (the row wrapper, min-h-0 so it can't grow past what's left of the screen) fills the rest of
+ * the viewport exactly, no more and no less. The tree/graph pane and the transcript pane are
+ * each their own overflow-y-auto column within that row, so they scroll independently of each
+ * other and of the navbar - neither the transcript nor the document itself ever needs to scroll
+ * for the navbar to stay put. data-preserve-attr keeps Datastar's morph from resetting the
+ * inline width that main.js's drag handler writes on resize.
  */
 export function renderApp(
   info: SessionDisplayInfo,
@@ -341,11 +344,11 @@ export function renderApp(
   graphMenuId: number | null = null,
   transcriptMenuId: number | null = null
 ): string {
-  return `<div id="skein-app">
+  return `<div id="skein-app" class="flex flex-col h-screen">
   ${renderNavbar(info, tree)}
-  <div class="flex flex-row w-full">
+  <div class="flex-1 min-h-0 flex flex-row w-full">
     <div id="tree-pane-outer"
-      class="sticky top-0 shrink-0 h-screen flex flex-row"
+      class="shrink-0 h-full flex flex-row"
       style="width: 21rem"
       data-preserve-attr="style"
       data-init="sk.initTreePaneResize()">
@@ -354,7 +357,7 @@ export function renderApp(
       </div>
       <div id="tree-pane-handle" class="w-1 shrink-0 cursor-col-resize bg-base-300 hover:bg-primary transition-colors"></div>
     </div>
-    <div class="flex-1 min-w-0 px-2">
+    <div class="flex-1 min-w-0 overflow-y-auto px-2">
       ${renderKnotList(tree, transcriptMenuId)}
       ${renderCommandInput(tree)}
     </div>

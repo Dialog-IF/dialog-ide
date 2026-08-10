@@ -11,12 +11,14 @@ function visible(text: string): string {
 }
 
 describe('renderNavbar', () => {
-  it('shows the session id, engine, and seed', () => {
+  // Session identity lives in the webview panel's own tab title (extension.ts's panelTitle)
+  // now, not in the navbar itself - the middle of the navbar is deliberately empty flex space,
+  // reserved for the not-yet-built knot search.
+  it('does not duplicate session identity - that lives in the panel tab title now', () => {
     const tree = SkeinTree.newTree('dgdebug', 25002);
     const html = renderNavbar(INFO, tree);
-    expect(html).toContain('default.skein');
-    expect(html).toContain('dgdebug');
-    expect(html).toContain('25002');
+    expect(html).not.toContain('default.skein');
+    expect(html).not.toContain('seed 25002');
   });
 
   it('counts knots by status into the ok/new/error badges', () => {
@@ -343,9 +345,20 @@ describe('renderApp', () => {
   it('wraps the navbar and knot list in the #skein-app patch target', () => {
     const tree = SkeinTree.newTree('dgdebug', 1);
     const html = renderApp(INFO, tree);
-    expect(html).toMatch(/^<div id="skein-app">/);
-    expect(html).toContain('default.skein');
+    expect(html).toMatch(/^<div id="skein-app" class="[^"]*"/);
+    expect(html).toContain('aria-label="1 ok knots"');
     expect(html).toContain('id="knot-0"');
+  });
+
+  // #skein-app fills exactly one viewport (h-screen flex column) and the navbar is a shrink-0
+  // row within it - so the navbar can never scroll out of view, since neither it nor the
+  // document around it scrolls; only the tree pane and transcript pane (each their own
+  // overflow-y-auto column below it) do.
+  it('sizes the app to the viewport and keeps the navbar outside any scrolling area', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1);
+    const html = renderApp(INFO, tree);
+    expect(html).toMatch(/<div id="skein-app" class="[^"]*\bflex\b[^"]*\bflex-col\b[^"]*\bh-screen\b/);
+    expect(html).toMatch(/<nav class="[^"]*\bshrink-0\b/);
   });
 
   it('always renders the command input for a line-expecting active knot - "time travel" (jumping to an earlier knot and typing a different command) needs no special confirmation', () => {

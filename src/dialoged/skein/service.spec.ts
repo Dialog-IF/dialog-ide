@@ -231,9 +231,6 @@ describe('SkeinService', () => {
       service.setActiveSession(fake as unknown as SkeinSession, 'default');
 
       const res = await get(`http://localhost:${service.getPort()}/`);
-      expect(res.body).toContain('default.skein');
-      expect(res.body).toContain('dgdebug');
-      expect(res.body).toContain('25002');
       expect(res.body).toContain('id="knot-0"');
     });
   });
@@ -277,7 +274,7 @@ describe('SkeinService', () => {
         await waitFor(() => chunks.length > 0);
         const payload = chunks.join('');
         expect(payload).toContain('event: datastar-patch-elements');
-        expect(payload).toContain('data: elements <div id="skein-app">');
+        expect(payload).toContain('data: elements <div id="skein-app" class="');
       } finally {
         req.destroy();
       }
@@ -385,7 +382,7 @@ describe('SkeinService', () => {
         await waitFor(() => chunks.join('').includes('resetAndFocusCommandInput'));
         const payload = chunks.join('');
         // Content patch (from runCommand's emitted 'change') arrives before the script patch.
-        expect(payload.indexOf('data: elements <div id="skein-app">')).toBeLessThan(
+        expect(payload.indexOf('data: elements <div id="skein-app" class="')).toBeLessThan(
           payload.indexOf('resetAndFocusCommandInput')
         );
         expect(payload).toContain('data: mode append');

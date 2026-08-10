@@ -66,6 +66,20 @@ describe('renderTreePane', () => {
     expect(knot1).not.toContain(`disabled data-on:click="$knotId = 1; @post('/actions/toggle-lock')"`);
   });
 
+  // tree.ts's newTree bakes command: 'START' and label: 'START' into the root knot - real,
+  // typed-command knots show a label chip and a command span side by side because the two are
+  // genuinely different text, but root's placeholder command is just its label repeated, so the
+  // pill should show it once ("START"), not twice ("START START").
+  it("shows the root knot's label once, not duplicated by its synthetic 'START' command", () => {
+    const tree = SkeinTree.newTree('dgdebug', 1);
+    const html = renderTreePane(tree);
+    const root = nodeHtml(html, 0);
+    // The label chip (bold, boxed "START") still shows - only the plain command span next to it,
+    // which would otherwise repeat the same placeholder text, is suppressed for root.
+    expect(root).toContain('bg-neutral text-neutral-content px-1 rounded shrink-0">START</span>');
+    expect(root).not.toContain('<span class="truncate font-mono text-xs">START</span>');
+  });
+
   it("wires the menu's New Child item to its own route, and Edit Label to the modal (not prompt()), carrying the current label", () => {
     const tree = SkeinTree.newTree('dgdebug', 1)
       .addChild(0, 'look', { text: 'a', inputType: 'line' })

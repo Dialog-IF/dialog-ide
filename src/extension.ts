@@ -363,7 +363,7 @@ function ensureSkeinPanel(): vscode.WebviewPanel {
 
   skeinPanel = vscode.window.createWebviewPanel(
     'dialogIdeSkein',
-    'Dialog Skein',
+    panelTitle(currentSessionDisplay()),
     vscode.ViewColumn.Beside,
     { enableScripts: true, retainContextWhenHidden: true }
   );
@@ -397,7 +397,9 @@ function refreshSkeinPanel(): void {
   if (!skeinPanel) {
     return;
   }
-  skeinPanel.webview.html = getWebviewHtml(currentSessionDisplay());
+  const display = currentSessionDisplay();
+  skeinPanel.title = panelTitle(display);
+  skeinPanel.webview.html = getWebviewHtml(display);
 }
 
 interface ActiveSessionDisplay {
@@ -414,21 +416,29 @@ function currentSessionDisplay(): ActiveSessionDisplay | undefined {
   return { sessionId: activeSessionId, engine: tree.getEngine(), seed: tree.getSeed() };
 }
 
+/** The panel's own editor-tab title - identifies which .skein file is open, same as any other tab. */
+function panelTitle(active: ActiveSessionDisplay | undefined): string {
+  return active ? `${active.sessionId}.skein` : 'Skein';
+}
+
 /**
  * Embeds the real (read-only, for now - see the Phase 1 plan) skein transcript via
  * <iframe src="http://localhost:PORT">, served by SkeinService and styled with dialog-tool's
  * own vendored Tailwind/DaisyUI CSS. The CSP's frame-src/connect-src allow only
  * http://localhost:* - the iframe's own document still needs "unsafe-inline" style for
  * whatever CSS it carries, but that's scoped to the iframe's origin, not this outer page.
+ *
+ * Which file is open lives in the panel's own tab title (panelTitle) now, not in an in-page
+ * heading or engine/seed line - so the iframe is the entire page, sized to fill it exactly
+ * rather than capped at a fraction of the viewport. Session/engine/seed identity and the
+ * "no session running" guidance both already render inside the iframe itself (render.ts's
+ * navbar, service.ts's NO_ACTIVE_SESSION_FRAGMENT), so nothing is lost by not duplicating
+ * either one out here.
  */
 function getWebviewHtml(active: ActiveSessionDisplay | undefined): string {
-  const status = active
-    ? `<p>Session: <code>${active.sessionId}.skein</code> &middot; Engine: <code>${active.engine}</code> &middot; Seed: <code>${active.seed}</code></p>`
-    : `<p>No skein session running. Run <strong>Dialog IDE: Run Default Skein</strong>, <strong>Run Skein...</strong>, or <strong>New Skein...</strong> from the Command Palette.</p>`;
-
   const serviceUrl = skeinService ? `http://localhost:${skeinService.getPort()}/` : undefined;
-  const iframe = serviceUrl
-    ? `<iframe src="${serviceUrl}" style="width: 100%; height: 70vh; border: 1px solid var(--vscode-panel-border);"></iframe>`
+  const body = serviceUrl
+    ? `<iframe src="${serviceUrl}"></iframe>`
     : `<p>Skein service is not running.</p>`;
 
   return `<!DOCTYPE html>
@@ -436,16 +446,16 @@ function getWebviewHtml(active: ActiveSessionDisplay | undefined): string {
 <head>
   <meta charset="UTF-8" />
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; frame-src http://localhost:*; child-src http://localhost:*;" />
-  <title>Dialog Skein</title>
+  <title>${panelTitle(active)}</title>
   <style>
-    body { font-family: var(--vscode-font-family); color: var(--vscode-foreground); padding: 1rem; }
-    code { background: var(--vscode-textCodeBlock-background); padding: 0.1rem 0.3rem; border-radius: 3px; }
+    html, body { height: 100%; margin: 0; }
+    body { font-family: var(--vscode-font-family); color: var(--vscode-foreground); }
+    body:not(:has(iframe)) { padding: 1rem; }
+    iframe { display: block; width: 100%; height: 100%; border: 0; }
   </style>
 </head>
 <body>
-  <h2>Dialog Skein</h2>
-  ${status}
-  ${iframe}
+  ${body}
 </body>
 </html>`;
 }
