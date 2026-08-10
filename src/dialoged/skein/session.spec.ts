@@ -3,15 +3,54 @@ const mockSendCommand = jest.fn();
 const mockReadResponse = jest.fn();
 const mockTerminate = jest.fn();
 
+/**
+ * Per-construction-order mock overrides, for replayAll's parallel-leaf tests, which need several
+ * independently-scripted "processes" alive at once rather than the one shared queue every other
+ * (sequential, one-process-at-a-time) test relies on. Index 0 is whichever SkeinProcess is
+ * constructed first, and so on - see fakeProcessInstance's own doc comment for how a test lines
+ * an override up with a specific leaf. A construction with no override just gets the shared
+ * mock* functions above, exactly like every non-parallel test already expects.
+ */
+let processInstanceOverrides: Partial<{
+  start: jest.Mock;
+  sendCommand: jest.Mock;
+  readResponse: jest.Mock;
+  terminate: jest.Mock;
+}>[] = [];
+let processConstructionCount = 0;
+
 jest.mock('./process', () => ({
-  SkeinProcess: jest.fn().mockImplementation(() => ({
-    start: mockStart,
-    sendCommand: mockSendCommand,
-    readResponse: mockReadResponse,
-    terminate: mockTerminate,
-    isProcessRunning: jest.fn().mockReturnValue(true)
-  }))
+  SkeinProcess: jest.fn().mockImplementation(() => {
+    const override = processInstanceOverrides[processConstructionCount++] ?? {};
+    return {
+      start: override.start ?? mockStart,
+      sendCommand: override.sendCommand ?? mockSendCommand,
+      readResponse: override.readResponse ?? mockReadResponse,
+      terminate: override.terminate ?? mockTerminate,
+      isProcessRunning: jest.fn().mockReturnValue(true)
+    };
+  })
 }));
+
+/**
+ * A fully independent mock process instance - its own start/sendCommand/readResponse/terminate,
+ * not the shared mock* functions - for scripting one of replayAll's concurrently-running leaves.
+ * Push these onto processInstanceOverrides in the exact order SkeinProcess gets constructed:
+ * session.start() (and, for replayTo/runCommand's catch-up, this.process's own restarts) always
+ * claims the earliest slots, since those still run before replayAll spawns anything; then, within
+ * mapWithConcurrency's first synchronous batch (up to REPLAY_ALL_CONCURRENCY workers), each
+ * worker calls `new SkeinProcess` as the very first thing it does, in items' own order - so for a
+ * test tree small enough that every leaf starts in that first batch, replayAll's own construction
+ * order matches SkeinTree.getLeafIds()'s ascending id order exactly.
+ */
+function fakeProcessInstance() {
+  return {
+    start: jest.fn().mockResolvedValue(undefined),
+    sendCommand: jest.fn(),
+    readResponse: jest.fn(),
+    terminate: jest.fn().mockResolvedValue(undefined)
+  };
+}
 
 import * as path from 'path';
 import { SkeinSession, SessionConfig } from './session';
@@ -81,6 +120,8 @@ describe('SkeinSession', () => {
     mockSendCommand.mockReset();
     mockReadResponse.mockReset();
     mockTerminate.mockReset().mockResolvedValue(undefined);
+    processInstanceOverrides = [];
+    processConstructionCount = 0;
   });
 
   describe('start', () => {
@@ -445,64 +486,86 @@ describe('SkeinSession', () => {
   });
 
   describe('replayAll across a forked tree', () => {
-    it('replays every leaf, not just the active spine, and restores the active spine afterwards', async () => {
-      // root -(look)-> 1 -(take orb)-> 2
-      //                 \-(inventory)-> 3
-      // addChild always makes the newest child selected, so building 3 after 2 leaves 3 as the
-      // tree's "first" spine on load - selectKnot(2) below moves the active spine back onto 2,
-      // which replayAll must still land back on once both leaves have been replayed.
-      const seeded = SkeinTree.newTree('dgdebug', 1)
+    /**
+     * root -(look)-> 1 -(take orb)-> 2
+     *                 \-(inventory)-> 3
+     * addChild always makes the newest child selected, so building 3 after 2 leaves 3 as the
+     * tree's "first" spine on load - selectKnot(2) below moves the active spine back onto 2,
+     * which replayAll must still land back on once both leaves have been replayed.
+     */
+    function forkedTree() {
+      return SkeinTree.newTree('dgdebug', 1)
         .addChild(0, 'look', { text: 'Room A.\n', inputType: 'line' })
         .addChild(1, 'take orb', { text: 'Got it.\n', inputType: 'line' })
         .addChild(1, 'inventory', { text: 'Empty-handed.\n', inputType: 'line' })
         .blessKnot(3)
         .selectKnot(2);
-      mockReadResponse
-        .mockResolvedValueOnce(BANNER_RESPONSE) // session.start()
-        // leaf 3 ('inventory') is replayed first - it isn't the active spine, so it goes first.
-        .mockResolvedValueOnce(BANNER_RESPONSE) // relaunch
-        .mockResolvedValueOnce({ command: 'look', response: 'Room A.\n', promptType: 'line' })
-        .mockResolvedValueOnce({ command: 'inventory', response: 'Empty-handed.\n', promptType: 'line' })
-        // leaf 2 ('take orb') is replayed last, since it's the originally-active spine.
-        .mockResolvedValueOnce(BANNER_RESPONSE) // relaunch
-        .mockResolvedValueOnce({ command: 'look', response: 'Room A.\n', promptType: 'line' })
-        .mockResolvedValueOnce({ command: 'take orb', response: 'Got it.\n', promptType: 'line' })
-        // dynamic state (and everything else) is only refreshed once, after both leaves - not
-        // once per leaf - since nothing about it should be user-visible mid-replay.
-        .mockResolvedValueOnce(dynamicResponse([]));
-      const session = SkeinSession.createLoaded(seeded, DGDEBUG_CONFIG);
+    }
+
+    /**
+     * Scripts one independent leaf process: its own banner, then one response per command, in
+     * order. Callers still need to push the result onto processInstanceOverrides at the right
+     * index - see fakeProcessInstance's own doc comment for why construction order is
+     * deterministic (leafIds' ascending order) for a tree this small.
+     */
+    function scriptedLeafProcess(...commandResponses: { command: string; response: string; promptType: 'line' }[]) {
+      const process = fakeProcessInstance();
+      process.readResponse.mockResolvedValueOnce(BANNER_RESPONSE);
+      for (const response of commandResponses) {
+        process.readResponse.mockResolvedValueOnce(response);
+      }
+      return process;
+    }
+
+    it('replays every leaf concurrently, not just the active spine, and restores the active spine afterwards', async () => {
+      mockReadResponse.mockResolvedValueOnce(BANNER_RESPONSE); // session.start()'s own process
+
+      // getLeafIds() is ascending, so leaf 2 is constructed (index 1) before leaf 3 (index 2) -
+      // each on its own independent, concurrently-running process.
+      const leaf2Process = scriptedLeafProcess(
+        { command: 'look', response: 'Room A.\n', promptType: 'line' },
+        { command: 'take orb', response: 'Got it.\n', promptType: 'line' }
+      );
+      const leaf3Process = scriptedLeafProcess(
+        { command: 'look', response: 'Room A.\n', promptType: 'line' },
+        { command: 'inventory', response: 'Empty-handed.\n', promptType: 'line' }
+      );
+      // Only the originally-active leaf's process (2) survives to run refreshDynamicState.
+      leaf2Process.readResponse.mockResolvedValueOnce(dynamicResponse([]));
+      processInstanceOverrides = [{}, leaf2Process, leaf3Process];
+
+      const session = SkeinSession.createLoaded(forkedTree(), DGDEBUG_CONFIG);
       await session.start();
 
       await session.replayAll();
 
-      expect(mockTerminate).toHaveBeenCalledTimes(2); // one restart per leaf
-      expect(mockSendCommand.mock.calls.map((call) => call[0])).toEqual([
-        'look', 'inventory',
-        'look', 'take orb', '@dynamic'
-      ]);
+      expect(leaf2Process.sendCommand.mock.calls.map((call) => call[0])).toEqual(['look', 'take orb', '@dynamic']);
+      expect(leaf3Process.sendCommand.mock.calls.map((call) => call[0])).toEqual(['look', 'inventory']);
+      expect(mockTerminate).toHaveBeenCalledTimes(1); // the original session.start() process, superseded
+      expect(leaf3Process.terminate).toHaveBeenCalledTimes(1); // not the active spine - thrown away
+      expect(leaf2Process.terminate).not.toHaveBeenCalled(); // kept as the session's new live process
+
       const tree = session.getTree();
       expect(tree.getDerivedKnot(3)!.state).toBe('valid'); // the non-active branch got re-validated too
       expect(tree.getActiveKnotId()).toBe(2); // active spine restored, not left on leaf 3
       expect(tree.getSelectedLeafId()).toBe(2);
+      expect(session.getProcessPositionId()).toBe(2);
     });
 
     it('never emits a change event mid-pass - only once, after every leaf has been replayed', async () => {
-      const seeded = SkeinTree.newTree('dgdebug', 1)
-        .addChild(0, 'look', { text: 'Room A.\n', inputType: 'line' })
-        .addChild(1, 'take orb', { text: 'Got it.\n', inputType: 'line' })
-        .addChild(1, 'inventory', { text: 'Empty-handed.\n', inputType: 'line' })
-        .blessKnot(3)
-        .selectKnot(2);
-      mockReadResponse
-        .mockResolvedValueOnce(BANNER_RESPONSE)
-        .mockResolvedValueOnce(BANNER_RESPONSE)
-        .mockResolvedValueOnce({ command: 'look', response: 'Room A.\n', promptType: 'line' })
-        .mockResolvedValueOnce({ command: 'inventory', response: 'Empty-handed.\n', promptType: 'line' })
-        .mockResolvedValueOnce(BANNER_RESPONSE)
-        .mockResolvedValueOnce({ command: 'look', response: 'Room A.\n', promptType: 'line' })
-        .mockResolvedValueOnce({ command: 'take orb', response: 'Got it.\n', promptType: 'line' })
-        .mockResolvedValueOnce(dynamicResponse([]));
-      const session = SkeinSession.createLoaded(seeded, DGDEBUG_CONFIG);
+      mockReadResponse.mockResolvedValueOnce(BANNER_RESPONSE);
+      const leaf2Process = scriptedLeafProcess(
+        { command: 'look', response: 'Room A.\n', promptType: 'line' },
+        { command: 'take orb', response: 'Got it.\n', promptType: 'line' }
+      );
+      const leaf3Process = scriptedLeafProcess(
+        { command: 'look', response: 'Room A.\n', promptType: 'line' },
+        { command: 'inventory', response: 'Empty-handed.\n', promptType: 'line' }
+      );
+      leaf2Process.readResponse.mockResolvedValueOnce(dynamicResponse([]));
+      processInstanceOverrides = [{}, leaf2Process, leaf3Process];
+
+      const session = SkeinSession.createLoaded(forkedTree(), DGDEBUG_CONFIG);
       await session.start();
 
       let changeCount = 0;

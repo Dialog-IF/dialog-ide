@@ -3,9 +3,10 @@
  * Orchestrates command execution and maintains session state.
  */
 
+import * as os from 'os';
 import { EventEmitter } from 'events';
 import { SkeinProcess, ProcessConfig, EngineType } from './process';
-import { SkeinTree } from './tree';
+import { SkeinTree, Response } from './tree';
 import { DynamicProcessor, DynamicState, DynamicChanges } from './dynamic';
 import { readProject, expandSources } from './project';
 import { ProgressHost, CancellationToken, noopProgressHost } from './progress';
@@ -15,6 +16,50 @@ const DYNAMIC_COMMAND = '@dynamic';
 // debugger - not the project's configured build target (:zblorb/:aa/...) - so files suffixed
 // for a specific compile target (e.g. "effects.zblorb.dg") are excluded from a dgdebug run.
 const DGDEBUG_TARGET_FILTER = 'dgdebug';
+// How many leaves replayAll replays concurrently - mirrors dialog-tool's own parallel replay-all
+// (several dgdebug processes at a time, merged afterward), scaled to the machine rather than a
+// flat constant, but capped well below "one process per core" since each dgdebug also does real
+// disk/parse work of its own at startup and a huge tree could otherwise spawn dozens at once.
+const REPLAY_ALL_CONCURRENCY = Math.max(2, Math.min(8, os.cpus().length));
+
+/**
+ * One leaf's worth of independent replay: every knot response captured along its root-to-leaf
+ * path (including knot 0's banner), the id it actually reached, and the still-running process
+ * that produced them - replayAll decides afterward whether to keep that process (if this was the
+ * originally-active spine's own leaf) or terminate it once its results are merged in.
+ */
+interface LeafReplayResult {
+  leafId: number;
+  process: SkeinProcess;
+  responses: Map<number, Response>;
+  reachedId: number;
+}
+
+/**
+ * Runs worker(item) for every item in items, at most limit at a time, returning results in
+ * items' own order regardless of which one actually finishes first. Just enough of a bounded
+ * worker-pool to replay several leaves' dgdebug processes concurrently in replayAll without
+ * spawning one per leaf all at once for a large tree - not a generic dependency, so it stays
+ * this small and local rather than pulling in a library for it.
+ */
+async function mapWithConcurrency<T, R>(items: T[], limit: number, worker: (item: T) => Promise<R>): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let nextIndex = 0;
+
+  async function runNext(): Promise<void> {
+    for (;;) {
+      const index = nextIndex++;
+      if (index >= items.length) {
+        return;
+      }
+      results[index] = await worker(items[index]);
+    }
+  }
+
+  const workerCount = Math.max(1, Math.min(limit, items.length));
+  await Promise.all(Array.from({ length: workerCount }, runNext));
+  return results;
+}
 
 /**
  * Session configuration
@@ -258,65 +303,70 @@ export class SkeinSession {
   }
 
   /**
-   * The bare replay primitive, shared by replayTo (a single target, applied to session state
-   * immediately) and replayAll's per-leaf loop (which accumulates a whole multi-leaf result
-   * locally - see replayAll's own doc comment for why - and only commits it once, at the very
-   * end). Restarts the process from scratch (dgdebug has no way to rewind, only
-   * restart-and-replay, matching dialog-tool's own do-replay-to!) and resends every command from
-   * root to targetId in order against tree, recording each step's response - which also
-   * re-validates it (a replayed response that no longer matches what's blessed there flips the
-   * knot to 'error', catching source edits that changed earlier output). Returns the updated tree
-   * and the id it actually reached, rather than mutating this.tree or emitting anything - callers
-   * decide what to do with the result.
+   * The bare replay primitive: resends every command from root to targetId in order against an
+   * already-started process, recording each step's response - which also re-validates it (a
+   * replayed response that no longer matches what's blessed there flips the knot to 'error',
+   * catching source edits that changed earlier output). Doesn't include knot 0's banner (callers
+   * capture that themselves alongside starting the process - see launchProcessAndCaptureBanner
+   * for the this.process-owning case, replayAll for the independent-process one) and never
+   * touches this.tree or emits anything - just returns what it found, as a plain id->Response
+   * map rather than a whole tree, so replayAll's per-leaf tasks can each replay against their own
+   * independent process and merge many of these afterward without any of them touching shared
+   * tree state while they're still in flight.
+   *
+   * tree is only read here (commandPath(targetId)) - never mutated - so it's safe for several
+   * concurrent calls to share the same one, as replayAll's parallel leaves do.
    *
    * When cancellation lands mid-loop, replay stops after the in-flight command's response is
    * recorded rather than mid-command (dgdebug has no way to abort a command once sent) - the
    * returned reachedId is the last knot actually replayed, not necessarily targetId, so a caller
    * that trusts it never ends up showing a response that was never actually sent to the process.
-   *
-   * No progress reporting happens in here, deliberately: a per-command report (there can be
-   * thousands, across a large tree's worth of leaves) means a broadcastScript SSE write per
-   * command - real, measurable overhead on top of the dgdebug round-trip itself, for updates
-   * nobody's watching that closely anyway. Callers that want progress report it themselves, at
-   * whatever granularity actually matches something worth showing - see replayAll.
    */
-  private async replayPathAgainstFreshProcess(
+  private async replayPath(
+    process: SkeinProcess,
     tree: SkeinTree,
     targetId: number,
     token?: CancellationToken
-  ): Promise<{ tree: SkeinTree; reachedId: number }> {
-    await this.process!.terminate();
-    tree = await this.launchProcessAndCaptureBanner(tree, false);
-
+  ): Promise<{ responses: Map<number, Response>; reachedId: number }> {
     const path = tree.commandPath(targetId);
+    const responses = new Map<number, Response>();
     let reachedId = 0;
     for (const { id, command } of path) {
       if (token?.isCancellationRequested) {
         break;
       }
-      this.process!.sendCommand(command);
-      const response = await this.process!.readResponse();
-      tree = tree.updateKnotResponse(id, { text: response.response, inputType: response.promptType });
+      process.sendCommand(command);
+      const response = await process.readResponse();
+      responses.set(id, { text: response.response, inputType: response.promptType });
       reachedId = id;
     }
 
-    return { tree, reachedId };
+    return { responses, reachedId };
   }
 
   /**
-   * Applies a single-target replayPathAgainstFreshProcess to session state immediately: this is
-   * the one real primitive behind Replay to Here (context menu) and runCommand's automatic
-   * catch-up when the active knot isn't where the process actually is. Unlike replayAll, there's
-   * only ever one path here, so committing this.tree/processPositionId and broadcasting a single
-   * 'change' right away (rather than batching) is both correct and cheap - and quick enough that
-   * it's never worth a progress dialog (see replayAll for the one caller that wants one).
+   * Applies a single-target replayPath to session state immediately: this is the one real
+   * primitive behind Replay to Here (context menu) and runCommand's automatic catch-up when the
+   * active knot isn't where the process actually is. Unlike replayAll, there's only ever one
+   * path here, on this.process itself (dgdebug has no way to rewind, only restart-and-replay,
+   * matching dialog-tool's own do-replay-to!), so committing this.tree/processPositionId and
+   * broadcasting a single 'change' right away is both correct and cheap - and quick enough that
+   * it's never worth a progress dialog (see replayAll for the one caller that wants one, and
+   * that parallelizes across several processes instead of reusing this.process at all).
    */
   private async replayTo(targetId: number): Promise<void> {
     if (!this.process) {
       throw new Error('Session not running');
     }
 
-    const { tree, reachedId } = await this.replayPathAgainstFreshProcess(this.tree, targetId);
+    await this.process.terminate();
+    this.tree = await this.launchProcessAndCaptureBanner(this.tree, false);
+
+    const { responses, reachedId } = await this.replayPath(this.process, this.tree, targetId);
+    let tree = this.tree;
+    for (const [id, response] of responses) {
+      tree = tree.updateKnotResponse(id, response);
+    }
 
     this.tree = tree.selectKnot(reachedId);
     this.processPositionId = reachedId;
@@ -327,43 +377,40 @@ export class SkeinSession {
 
   /**
    * Re-runs every command along every path in the tree - the navbar's "Replay All", implementing
-   * technical-design.md's "replay all paths" (as opposed to just "replay current path"). Each
-   * leaf (tree.getLeafIds(), ascending id order) gets its own full restart-and-replay-from-root -
-   * dgdebug has no way to rewind, and, matching how every other replay in this codebase already
-   * works, there's no cross-leaf reuse of shared prefixes either. Since dgdebug re-reads its
-   * source files on every launch, this doubles as picking up any edits made to the project's .dg
-   * files since the process last started, across every branch, not just the one visible in the
-   * transcript.
+   * technical-design.md's "replay all paths" (as opposed to just "replay current path"). Unlike
+   * every other replay in this codebase, this doesn't restart-and-replay one path at a time on a
+   * single process: each leaf gets its own independent process, and up to REPLAY_ALL_CONCURRENCY
+   * of them run at once (mapWithConcurrency), matching dialog-tool's own parallel replay-all -
+   * several dgdebug processes racing through their own root-to-leaf path concurrently, each
+   * producing its own id->Response map, merged into one tree only once every leaf is done. Since
+   * dgdebug re-reads its source files on every launch, this also doubles as picking up any edits
+   * made to the project's .dg files since the process last started, across every branch, not just
+   * the one visible in the transcript.
    *
-   * Unlike replayTo, this never touches this.tree or broadcasts a 'change' mid-pass: every leaf
-   * is replayed against a purely local tree value (replayPathAgainstFreshProcess never mutates
-   * session state on its own), and the result is committed - this.tree assigned,
-   * processPositionId set, dynamic state refreshed, 'change' emitted - exactly once, after every
-   * leaf has been replayed. Only the progress bar should visibly move mid-replay; nothing about
-   * the transcript or graph pane should change until the whole pass is done. For a tree with many
-   * branches this also means the (potentially large) page-render cost is paid once instead of
-   * once per leaf, and it makes the whole operation atomic from the rest of the session's point of
-   * view - nothing else on the event loop between awaits can observe, or push an undo snapshot
-   * against, a halfway-replayed tree.
+   * Every leaf replays against the same base tree snapshot (baseTree, taken once up front) rather
+   * than each other's results - they're independent by construction, not just by accident of
+   * scheduling, so there's nothing to coordinate between them while they're in flight. Merging
+   * happens once, single-threaded, after mapWithConcurrency resolves: baseTree, folded with every
+   * leaf's response map in leafIds' order, except the originally-active leaf's own map goes last
+   * so it wins any knot shared with another branch (there normally isn't a real difference to
+   * win, since the same command against the same source should produce the same response, but
+   * this keeps the outcome deterministic either way). This.tree, processPositionId, dynamic
+   * state, and 'change' are all still only ever touched once, after the whole pass - see the
+   * previous revision of this method for why that matters (nothing should visibly change
+   * mid-replay beyond the progress bar, and nothing else on the event loop should be able to
+   * observe a halfway-replayed tree).
    *
-   * Replaying the originally-active spine's own leaf last (rather than in getLeafIds' plain
-   * ascending order) means it's always the last thing folded into the accumulated tree, so its
-   * own reachedId is what selectKnot uses to set the final displayed spine - the view lands back
-   * where the user had it open, not on whatever other branch happened to replay last. If
-   * cancellation lands before the original leaf's own pass ever starts, the displayed spine is
-   * left untouched entirely (only the data already re-validated in other branches is kept);
-   * mid-way through the original leaf's own pass, it lands on that leaf's own truncated reachedId,
-   * exactly like replayTo's single-path cancellation. processPositionId always tracks the actual
-   * live process, regardless of which branch that ends up being - runCommand's catch-up check
-   * stays correct either way. (When there's only one leaf - the common case, no forks yet - this
-   * reduces to exactly the single-spine replay this method used to be, with no extra work.)
+   * The originally-active leaf's own process is kept and installed as the new this.process
+   * (after terminating the old one) instead of being thrown away like the others - so the live
+   * process ends up exactly where the displayed spine is, same as before parallelizing, and the
+   * very next command doesn't need yet another silent catch-up replay. If cancellation lands
+   * before that leaf's own task ever starts, this.process and the displayed spine are left
+   * completely untouched - only whatever other, already-finished leaves' data is kept.
    *
-   * Progress is reported once per leaf, not once per command - see
-   * replayPathAgainstFreshProcess's own doc comment for why per-command reporting is deliberately
-   * not an option here: with potentially thousands of commands across a large tree's leaves, that
-   * many SSE broadcasts is real overhead on top of the replay itself, for a progress bar nobody
-   * can actually read that granularly anyway. One report per leaf is both cheap and exactly as
-   * informative as this dialog needs to be.
+   * Progress is reported once per leaf's completion (in whatever order they actually finish, not
+   * launch order), not once per command - a per-command report would be a broadcastScript SSE
+   * write for each of potentially thousands of commands, real overhead for a progress bar nobody
+   * can read that granularly anyway.
    *
    * Wrapped in progressHost.withProgress so a real session (see extension.ts's
    * vscodeProgressHost) shows a cancellable native progress notification; tests and every other
@@ -374,35 +421,57 @@ export class SkeinSession {
       throw new Error('Session not running');
     }
 
-    const originalLeafId = this.tree.getSelectedLeafId();
-    const orderedLeafIds = [
-      ...this.tree.getLeafIds().filter((id) => id !== originalLeafId),
-      originalLeafId
-    ];
-    const totalLeaves = orderedLeafIds.length;
+    const baseTree = this.tree;
+    const originalLeafId = baseTree.getSelectedLeafId();
+    const leafIds = baseTree.getLeafIds();
+    const totalLeaves = leafIds.length;
 
     await this.progressHost.withProgress({ title: 'Replaying all paths...', cancellable: true }, async (progress, token) => {
-      let tree = this.tree;
-      let lastReachedId = this.processPositionId;
-      let originalReachedId: number | null = null;
       let leavesReplayed = 0;
 
-      for (const leafId of orderedLeafIds) {
+      const replayLeaf = async (leafId: number): Promise<LeafReplayResult | undefined> => {
         if (token.isCancellationRequested) {
-          break;
+          return undefined;
         }
-        const result = await this.replayPathAgainstFreshProcess(tree, leafId, token);
-        tree = result.tree;
-        lastReachedId = result.reachedId;
-        if (leafId === originalLeafId) {
-          originalReachedId = result.reachedId;
-        }
+        const process = new SkeinProcess(this.buildProcessConfig());
+        await process.start();
+        const banner = await process.readResponse();
+        const { responses, reachedId } = await this.replayPath(process, baseTree, leafId, token);
+        responses.set(0, { text: banner.response, inputType: banner.promptType });
+
         leavesReplayed++;
         progress.report({ message: `${leavesReplayed} of ${totalLeaves}`, increment: 100 / totalLeaves });
+
+        return { leafId, process, responses, reachedId };
+      };
+
+      const results = (await mapWithConcurrency(leafIds, REPLAY_ALL_CONCURRENCY, replayLeaf))
+        .filter((result): result is LeafReplayResult => result !== undefined);
+      const originalResult = results.find((result) => result.leafId === originalLeafId);
+
+      await Promise.all(
+        results.filter((result) => result !== originalResult).map((result) => result.process.terminate())
+      );
+
+      const orderedResults = originalResult
+        ? [...results.filter((result) => result !== originalResult), originalResult]
+        : results;
+      let tree = baseTree;
+      for (const result of orderedResults) {
+        for (const [id, response] of result.responses) {
+          tree = tree.updateKnotResponse(id, response);
+        }
       }
 
-      this.tree = originalReachedId !== null ? tree.selectKnot(originalReachedId) : tree;
-      this.processPositionId = lastReachedId;
+      if (originalResult) {
+        await this.process!.terminate();
+        this.process = originalResult.process;
+        this.processPositionId = originalResult.reachedId;
+        this.tree = tree.selectKnot(originalResult.reachedId);
+      } else {
+        this.tree = tree;
+      }
+
       this.closeMenus();
       await this.refreshDynamicState();
       this.changeEmitter.emit('change');
