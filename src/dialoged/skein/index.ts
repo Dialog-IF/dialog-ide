@@ -4,6 +4,7 @@
 
 export * from './process';
 export * from './session';
+export * from './compile-error';
 export * from './tree';
 export * from './service';
 export * from './dynamic';

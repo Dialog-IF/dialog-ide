@@ -8,6 +8,7 @@ import { EventEmitter } from 'events';
 import { SkeinProcess, ProcessConfig, EngineType } from './process';
 import { SkeinTree, Response } from './tree';
 import { DynamicProcessor, DynamicState } from './dynamic';
+import { DialogCompileError } from './compile-error';
 import { readProject, expandSources } from './project';
 import { ProgressHost, CancellationToken, noopProgressHost } from './progress';
 
@@ -218,6 +219,12 @@ export class SkeinSession {
     await this.process.start();
 
     const banner = await this.process.readResponse();
+    if (!this.process.isProcessRunning()) {
+      // The pipe closed before a real banner ever arrived - dgdebug aborted while re-parsing the
+      // source files it was just launched with, and what came through instead is its own
+      // compile-error text (see DialogCompileError's doc comment).
+      throw new DialogCompileError(banner.response);
+    }
     let updated = tree.updateKnotResponse(0, { text: banner.response, inputType: banner.promptType });
     if (blessRoot) {
       updated = updated.blessKnot(0);
@@ -517,6 +524,9 @@ export class SkeinSession {
         const process = new SkeinProcess(this.buildProcessConfig());
         await process.start();
         const banner = await process.readResponse();
+        if (!process.isProcessRunning()) {
+          throw new DialogCompileError(banner.response);
+        }
         const bannerDynamicState = await this.captureDynamicState(process, banner.promptType);
         const { responses, dynamicStates, reachedId } = await this.replayPath(process, baseTree, leafId, token);
         responses.set(0, { text: banner.response, inputType: banner.promptType });
@@ -635,6 +645,9 @@ export class SkeinSession {
     const tracedProcess = new SkeinProcess(this.buildProcessConfig(['--trace']));
     await tracedProcess.start();
     const tracedBanner = await tracedProcess.readResponse();
+    if (!tracedProcess.isProcessRunning()) {
+      throw new DialogCompileError(tracedBanner.response);
+    }
     await tracedProcess.terminate();
 
     if (this.process) {

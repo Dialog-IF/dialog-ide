@@ -8,6 +8,7 @@
 import * as path from 'path';
 import * as vscode from 'vscode';
 import {
+  DialogCompileError,
   EngineType,
   PersistenceManager,
   readProject,
@@ -39,12 +40,31 @@ let activeSession: SkeinSession | undefined;
 let activeSessionId: string | undefined;
 let activeProjectRoot: string | undefined;
 
+// Squiggly + Problems-panel entry for the source location of the most recent DialogCompileError
+// (see session.ts's throw sites) - dialog-tool's equivalent was a modal dialog; a real editor
+// diagnostic is the more native way to surface "here's what's wrong and where" in VS Code.
+// Cleared by clearCompileErrorDiagnostics whenever anything about the session succeeds again
+// (session.ts's onChange only ever fires on a successful mutation - see setActiveSession).
+let compileErrorDiagnostics: vscode.DiagnosticCollection;
+
+function clearCompileErrorDiagnostics(): void {
+  compileErrorDiagnostics?.clear();
+}
+
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
+  compileErrorDiagnostics = vscode.languages.createDiagnosticCollection('dialog-compile-error');
+  context.subscriptions.push(compileErrorDiagnostics);
+
   skeinService = new SkeinService({
     port: 0,
     host: 'localhost',
     mediaRoot: path.join(context.extensionPath, 'media'),
     grammarPath: resolveDialogGrammarPath(),
+    onCompileError: (error) => {
+      handleCompileError(error).catch((handlerError) => {
+        console.error('Failed to report compile error:', handlerError);
+      });
+    },
     // VS Code doesn't auto-show a newly contributed panel-area view - without this, a user has
     // to discover it manually (via the panel's own "Views" menu) the first time. Revealing it
     // whenever a trace is actually requested means it just appears exactly when it becomes
@@ -161,7 +181,9 @@ async function runLoadedSession(projectRoot: string, sessionId: string): Promise
   const manager = new PersistenceManager(projectRoot);
   const tree = await manager.loadSession(sessionId);
   const session = SkeinSession.createLoaded(tree, sessionConfigFromTree(tree, projectRoot), skeinService);
-  await session.start();
+  if (!(await runSessionStep(() => session.start()))) {
+    return;
+  }
 
   // Wire up the panel/status bar before replaying so the loaded transcript is on screen right
   // away, with the replay's progress notification and subsequent SSE updates layering on top of
@@ -180,7 +202,10 @@ async function runLoadedSession(projectRoot: string, sessionId: string): Promise
   // restart.
   const activeKnotId = session.getTree().getActiveKnotId();
   if (activeKnotId !== null && activeKnotId !== 0) {
-    await session.replayAll();
+    // A compile error here (the session is already active, just possibly stale/behind) is left
+    // for the user to fix and retry via Replay All - not fatal to the session the way one during
+    // start() is, so this deliberately doesn't tear anything down on failure.
+    await runSessionStep(() => session.replayAll());
   }
 }
 
@@ -240,7 +265,9 @@ async function newSkeinSession(projectRoot: string): Promise<void> {
   }
 
   const session = SkeinSession.createNew({ engine: engineChoice.engine, seed, projectRoot }, skeinService);
-  await session.start();
+  if (!(await runSessionStep(() => session.start()))) {
+    return;
+  }
   await manager.saveSession(session.getTree(), sessionId);
 
   setActiveSession(session, sessionId, projectRoot);
@@ -350,6 +377,7 @@ async function stopActiveSession(): Promise<void> {
     return;
   }
 
+  activeSession.offChange(clearCompileErrorDiagnostics);
   await activeSession.stop();
   activeSession = undefined;
   activeSessionId = undefined;
@@ -364,9 +392,68 @@ function setActiveSession(session: SkeinSession, sessionId: string, projectRoot:
   activeSessionId = sessionId;
   activeProjectRoot = projectRoot;
   skeinService?.setActiveSession(session, sessionId, saveActiveSession);
+  session.onChange(clearCompileErrorDiagnostics);
   refreshStatusBar();
   ensureSkeinPanel();
   refreshSkeinPanel();
+}
+
+/**
+ * Runs a session action that might hit a DialogCompileError - session.start()/replayAll() are
+ * the only session calls extension.ts makes directly rather than through service.ts's own action
+ * handlers (see service.ts's reportIfCompileError for the same reaction wired up there). Reports
+ * the error and returns false when that happened, so the caller can bail out of whatever setup
+ * was still pending without also getting withErrorHandling's generic error toast; true otherwise.
+ */
+async function runSessionStep(action: () => Promise<void>): Promise<boolean> {
+  try {
+    await action();
+    return true;
+  } catch (error) {
+    if (error instanceof DialogCompileError) {
+      await handleCompileError(error);
+      return false;
+    }
+    throw error;
+  }
+}
+
+/**
+ * Reacts to a DialogCompileError (a fresh dgdebug launch aborted while re-parsing the project's
+ * source - see session.ts's throw sites) by opening the offending file and annotating the error
+ * onto it as a real editor diagnostic - squiggly underline plus a Problems-panel entry - rather
+ * than dialog-tool's old modal dialog. error.filePath is already absolute (project.ts's
+ * expandSources only ever hands dgdebug absolute paths), but a relative fallback is kept here in
+ * case a future dgdebug/dialogc version ever reports one differently.
+ */
+async function handleCompileError(error: DialogCompileError): Promise<void> {
+  vscode.window.showErrorMessage(`Dialog compile error: ${error.message}`);
+
+  if (!error.filePath) {
+    compileErrorDiagnostics.clear();
+    return;
+  }
+
+  const fullPath = path.isAbsolute(error.filePath)
+    ? error.filePath
+    : path.join(activeProjectRoot ?? '', error.filePath);
+
+  try {
+    const document = await vscode.workspace.openTextDocument(fullPath);
+    const editor = await vscode.window.showTextDocument(document, { preview: false });
+    const lineIndex = Math.min(Math.max(0, (error.line ?? 1) - 1), document.lineCount - 1);
+    const range = document.lineAt(lineIndex).range;
+
+    editor.selection = new vscode.Selection(range.start, range.start);
+    editor.revealRange(range, vscode.TextEditorRevealType.InCenter);
+
+    const diagnostic = new vscode.Diagnostic(range, error.message, vscode.DiagnosticSeverity.Error);
+    diagnostic.source = 'dialog';
+    compileErrorDiagnostics.set(document.uri, [diagnostic]);
+  } catch (openError) {
+    console.error('Failed to open compile-error source location:', openError);
+    compileErrorDiagnostics.clear();
+  }
 }
 
 /**

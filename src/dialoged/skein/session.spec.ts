@@ -2,6 +2,10 @@ const mockStart = jest.fn();
 const mockSendCommand = jest.fn();
 const mockReadResponse = jest.fn();
 const mockTerminate = jest.fn();
+// Defaults to true (a healthy process) for every test that doesn't care about this - see the
+// 'DialogCompileError' describe block below for the tests that override it to simulate dgdebug
+// dying before a real banner ever arrives.
+const mockIsProcessRunning = jest.fn();
 
 /**
  * Per-construction-order mock overrides, for replayAll's parallel-leaf tests, which need several
@@ -16,6 +20,7 @@ let processInstanceOverrides: Partial<{
   sendCommand: jest.Mock;
   readResponse: jest.Mock;
   terminate: jest.Mock;
+  isProcessRunning: jest.Mock;
 }>[] = [];
 let processConstructionCount = 0;
 
@@ -27,7 +32,7 @@ jest.mock('./process', () => ({
       sendCommand: override.sendCommand ?? mockSendCommand,
       readResponse: override.readResponse ?? mockReadResponse,
       terminate: override.terminate ?? mockTerminate,
-      isProcessRunning: jest.fn().mockReturnValue(true)
+      isProcessRunning: override.isProcessRunning ?? mockIsProcessRunning
     };
   })
 }));
@@ -48,12 +53,14 @@ function fakeProcessInstance() {
     start: jest.fn().mockResolvedValue(undefined),
     sendCommand: jest.fn(),
     readResponse: jest.fn(),
-    terminate: jest.fn().mockResolvedValue(undefined)
+    terminate: jest.fn().mockResolvedValue(undefined),
+    isProcessRunning: jest.fn().mockReturnValue(true)
   };
 }
 
 import * as path from 'path';
 import { SkeinSession, SessionConfig } from './session';
+import { DialogCompileError } from './compile-error';
 import { LabelConflictError, SkeinTree } from './tree';
 import { ProgressHost } from './progress';
 
@@ -120,6 +127,7 @@ describe('SkeinSession', () => {
     mockSendCommand.mockReset();
     mockReadResponse.mockReset();
     mockTerminate.mockReset().mockResolvedValue(undefined);
+    mockIsProcessRunning.mockReset().mockReturnValue(true);
     processInstanceOverrides = [];
     processConstructionCount = 0;
   });
@@ -174,6 +182,46 @@ describe('SkeinSession', () => {
       const session = SkeinSession.createNew(FROTZ_CONFIG);
       await expect(session.start()).rejects.toThrow('frotz is not yet supported');
       expect(session.isRunningSession()).toBe(false);
+    });
+
+    describe('DialogCompileError (dgdebug dies before a real banner arrives)', () => {
+      // dgdebug re-parses every source file on each launch, so a dead pipe right after the first
+      // readResponse() is the one moment a compile-time source error can surface - see
+      // session.ts's launchProcessAndCaptureBanner. What actually comes through as "banner.response"
+      // in that case is dgdebug's own tag-stripped error text, not a real startup banner.
+      const ERROR_TEXT = 'Error: src/orb.dg, line 25: Unterminated rule expression.\n';
+
+      it('throws DialogCompileError instead of treating the error text as the startup banner', async () => {
+        mockReadResponse.mockResolvedValueOnce({ command: '', response: ERROR_TEXT, promptType: 'line' as const });
+        mockIsProcessRunning.mockReturnValue(false);
+        const session = SkeinSession.createNew(DGDEBUG_CONFIG);
+
+        await expect(session.start()).rejects.toThrow(DialogCompileError);
+        expect(session.isRunningSession()).toBe(false);
+      });
+
+      it('parses the file path and line number out of dgdebug\'s error text', async () => {
+        mockReadResponse.mockResolvedValueOnce({ command: '', response: ERROR_TEXT, promptType: 'line' as const });
+        mockIsProcessRunning.mockReturnValue(false);
+        const session = SkeinSession.createNew(DGDEBUG_CONFIG);
+
+        await expect(session.start()).rejects.toMatchObject({
+          filePath: 'src/orb.dg',
+          line: 25
+        });
+      });
+
+      it('never blesses or otherwise mutates knot 0 with the error text', async () => {
+        mockReadResponse.mockResolvedValueOnce({ command: '', response: ERROR_TEXT, promptType: 'line' as const });
+        mockIsProcessRunning.mockReturnValue(false);
+        const session = SkeinSession.createNew(DGDEBUG_CONFIG);
+
+        await expect(session.start()).rejects.toThrow(DialogCompileError);
+
+        // newTree's untouched synthetic placeholder, not the error text - launchProcessAndCaptureBanner
+        // throws before ever calling updateKnotResponse/blessKnot.
+        expect(session.getTree().getDerivedKnot(0)!.response).toBe('Welcome to the game. > ');
+      });
     });
 
     describe('loaded session root revalidation', () => {

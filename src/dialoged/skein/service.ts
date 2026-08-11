@@ -8,6 +8,7 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import { IGrammar } from 'vscode-textmate';
 import { SkeinSession } from './session';
+import { DialogCompileError } from './compile-error';
 import { LabelConflictError, SkeinTree } from './tree';
 import { renderApp, renderPage, SessionDisplayInfo } from './ui/render';
 import { renderTraceApp, renderTracePage, CurrentTraceState } from './ui/traceRender';
@@ -43,6 +44,12 @@ export interface ServiceConfig {
    *  manually via the panel's own "Views" menu once, the first time. This class has no vscode
    *  API access itself (see CLAUDE.md's engine/IDE-integration split), hence the callback. */
   onTraceRequested?: () => void;
+  /** Called whenever an action against the active session fails with a DialogCompileError (a
+   *  replay/restart hit a source error - see session.ts's DialogCompileError throw sites) -
+   *  extension.ts uses this to open the offending file and annotate the error there. This class
+   *  has no vscode API access itself (see CLAUDE.md's engine/IDE-integration split), hence the
+   *  callback. */
+  onCompileError?: (error: DialogCompileError) => void;
 }
 
 /**
@@ -482,6 +489,17 @@ export class SkeinService implements ProgressHost {
   }
 
   /**
+   * Every action's catch block does the same two things beyond its own cleanup (log, respond
+   * 500) - except a DialogCompileError also needs to reach extension.ts, the only layer with
+   * vscode API access, so it can open the offending source file and annotate the error there.
+   */
+  private reportIfCompileError(error: unknown): void {
+    if (error instanceof DialogCompileError) {
+      this.config.onCompileError?.(error);
+    }
+  }
+
+  /**
    * POST /actions/send-command - the one action route this pass needs. Datastar's @post()
    * sends the page's current signals as a JSON body; the only signal on this page is
    * newCommand (see render.ts's renderCommandInput). Runs the command against the active
@@ -511,6 +529,7 @@ export class SkeinService implements ProgressHost {
       await this.activeSession.runCommand(command);
     } catch (error) {
       console.error('Failed to run command:', error);
+      this.reportIfCompileError(error);
       res.writeHead(500);
       res.end();
       return;
@@ -557,6 +576,7 @@ export class SkeinService implements ProgressHost {
       await fn(this.activeSession, knotId);
     } catch (error) {
       console.error('Knot action failed:', error);
+      this.reportIfCompileError(error);
       res.writeHead(500);
       res.end();
       return;
@@ -639,6 +659,7 @@ export class SkeinService implements ProgressHost {
       await this.activeSession.replayAll();
     } catch (error) {
       console.error('Replay All failed:', error);
+      this.reportIfCompileError(error);
       res.writeHead(500);
       res.end();
       return;
@@ -765,6 +786,7 @@ export class SkeinService implements ProgressHost {
       raw = await this.activeSession.traceKnot(knotId);
     } catch (error) {
       console.error('Trace knot failed:', error);
+      this.reportIfCompileError(error);
       this.traceLoading = false;
       this.broadcastTrace();
       res.writeHead(500);
@@ -818,6 +840,7 @@ export class SkeinService implements ProgressHost {
       raw = await this.activeSession.traceStartup();
     } catch (error) {
       console.error('Trace startup failed:', error);
+      this.reportIfCompileError(error);
       this.traceLoading = false;
       this.broadcastTrace();
       res.writeHead(500);

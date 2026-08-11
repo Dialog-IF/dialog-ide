@@ -10,6 +10,8 @@
  */
 
 import { execFileSync } from 'child_process';
+import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import { SkeinProcess } from './process';
 import { SkeinSession } from './session';
@@ -151,6 +153,41 @@ describeIfDgdebug('Real dgdebug integration (no mocks)', () => {
       } finally {
         await session.stop();
       }
+    });
+  });
+
+  describe('DialogCompileError against the real dgdebug binary', () => {
+    // Works against a throwaway copy of the fixture project (never the shared FIXTURE_ROOT other
+    // tests in this file also use) since it deliberately corrupts a source file to force dgdebug
+    // to abort - see session.ts's launchProcessAndCaptureBanner for where this is detected.
+    let tempRoot: string;
+
+    beforeEach(() => {
+      tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'dgdebug-compile-error-test-'));
+      fs.cpSync(FIXTURE_ROOT, tempRoot, { recursive: true });
+    });
+
+    afterEach(() => {
+      fs.rmSync(tempRoot, { recursive: true, force: true });
+    });
+
+    it('rejects session.start() with a DialogCompileError carrying the real file path and line number', async () => {
+      const orbPath = path.join(tempRoot, 'src', 'orb.dg');
+      // A stray, unbalanced ")" is flagged immediately at its own line - unlike an unterminated
+      // rule expression (e.g. a dangling "("), which dgdebug only reports once its parser gives
+      // up at EOF, landing on a line past the actual bad text. wc -l's count is exactly the new
+      // line's 1-indexed number, since orb.dg's existing content already ends with a newline.
+      const originalLineCount = Number(execFileSync('wc', ['-l', orbPath]).toString().trim().split(/\s+/)[0]);
+      fs.appendFileSync(orbPath, ')\n');
+
+      const session = SkeinSession.createNew({ engine: 'dgdebug', seed: 42, projectRoot: tempRoot });
+
+      await expect(session.start()).rejects.toMatchObject({
+        name: 'DialogCompileError',
+        filePath: orbPath,
+        line: originalLineCount + 1
+      });
+      expect(session.isRunningSession()).toBe(false);
     });
   });
 });
