@@ -571,6 +571,26 @@ export class SkeinTree {
   }
 
   /**
+   * What kind of input id's own response leaves the interpreter expecting next: 'line' for a
+   * normal command, 'key' for a single-keystroke prompt (e.g. "[MORE]" or "Press any key").
+   * Reads whichever of response/unblessedResponse is current, same as render.ts's own knot-state
+   * lookups, since most live knots won't have a blessed response yet. null (no active knot, or a
+   * knot with no response recorded yet - e.g. a freshly created tree) defaults to 'line', the only
+   * sensible starting state. This is the single source of truth callers use to decide whether a
+   * command must be sent to the process as a keystroke rather than a line (SkeinSession.runCommand/
+   * replayPath/traceKnot) and whether to render the keystroke command-input widget instead of the
+   * normal one (render.ts's activeInputType/reachedViaKeystroke).
+   */
+  public promptTypeAt(id: number | null): 'line' | 'key' {
+    if (id === null) {
+      return 'line';
+    }
+    const knot = this.knots.get(id);
+    const response = knot?.response ?? knot?.unblessedResponse;
+    return response?.inputType ?? 'line';
+  }
+
+  /**
    * Records the parsed @dynamic state captured immediately after id's own command ran -
    * SkeinSession.captureDynamicState's storage half. Overwrites whatever was captured there
    * before (a knot only ever has one "current" dynamic snapshot, same as its response).

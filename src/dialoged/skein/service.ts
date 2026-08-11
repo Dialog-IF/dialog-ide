@@ -83,6 +83,31 @@ function normalizeCommand(text: string): string {
   return text.trim().replace(/\s+/g, ' ');
 }
 
+// The keystroke command-input's own special-name buttons (render.ts's renderKeystrokeInput) -
+// deliberately not run through normalizeCommand above, which would collapse/trim away the one
+// keystroke (a literal space) that's pure whitespace.
+const SPECIAL_KEYSTROKES = new Set(['enter', 'space', 'backspace']);
+
+/**
+ * Validates and normalizes a keystroke reply's raw signal value: either one of the three special
+ * names (from renderKeystrokeInput's buttons) or a single character (from its text field's own
+ * keydown handler) - anything else (an empty/missing signal, or multiple characters) isn't a
+ * valid single keystroke, so this returns null rather than forwarding it on to the process.
+ * Normalizes a literal space character to the same "space" text the button sends, so the knot's
+ * stored command reads the same regardless of which the user actually used - not just for
+ * cosmetics: tree.ts's findChildId matches commands by exact text, so leaving the two forms
+ * distinct would let the same reply be recorded as two different sibling knots.
+ */
+function normalizeKeystroke(text: string): string | null {
+  if (text === ' ') {
+    return 'space';
+  }
+  if (text.length === 1 || SPECIAL_KEYSTROKES.has(text)) {
+    return text;
+  }
+  return null;
+}
+
 /** Parses a JSON request body into a plain object, tolerating empty/invalid bodies as `{}`. */
 function parseJsonBody(body: string): Record<string, unknown> {
   try {
@@ -344,6 +369,11 @@ export class SkeinService implements ProgressHost {
       return;
     }
 
+    if (req.method === 'POST' && url.pathname === '/actions/send-keystroke') {
+      await this.handleSendKeystroke(req, res);
+      return;
+    }
+
     if (req.method === 'POST' && url.pathname === '/actions/select-knot') {
       await this.handleKnotAction(req, res, (session, knotId) => session.setActiveKnot(knotId), {
         focusAfter: true
@@ -562,6 +592,50 @@ export class SkeinService implements ProgressHost {
       await this.activeSession.runCommand(command);
     } catch (error) {
       console.error('Failed to run command:', error);
+      this.reportIfCompileError(error);
+      res.writeHead(500);
+      res.end();
+      return;
+    }
+
+    this.broadcastScript('sk.resetAndFocusCommandInput()');
+    res.writeHead(204);
+    res.end();
+  }
+
+  /**
+   * POST /actions/send-keystroke - the keystroke command-input's counterpart to send-command
+   * (render.ts's renderKeystrokeInput, shown instead of the normal text field whenever the active
+   * knot's response ends on a keystroke prompt - see tree.ts's promptTypeAt). Its signal is
+   * newKeystroke, not newCommand, and deliberately skipped through normalizeKeystroke rather than
+   * normalizeCommand - collapsing whitespace would destroy a literal space reply.
+   *
+   * Otherwise identical to handleSendCommand: session.ts's runCommand itself decides whether to
+   * actually send this as a keystroke (based on the same promptTypeAt check, not which route was
+   * hit - see its own doc comment), so this route's only job is picking the right widget's signal
+   * and validating it's a single reply rather than typed line text.
+   */
+  private async handleSendKeystroke(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+    if (!this.activeSession) {
+      res.writeHead(400);
+      res.end();
+      return;
+    }
+
+    const signals = parseJsonBody(await readRequestBody(req));
+    const rawKeystroke = signals.newKeystroke;
+    const keystroke = normalizeKeystroke(typeof rawKeystroke === 'string' ? rawKeystroke : '');
+
+    if (keystroke === null) {
+      res.writeHead(204);
+      res.end();
+      return;
+    }
+
+    try {
+      await this.activeSession.runCommand(keystroke);
+    } catch (error) {
+      console.error('Failed to send keystroke:', error);
       this.reportIfCompileError(error);
       res.writeHead(500);
       res.end();

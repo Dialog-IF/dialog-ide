@@ -395,6 +395,43 @@ describe('SkeinSession', () => {
       await expect(session.runCommand('look')).rejects.toThrow('Session not running');
     });
 
+    it('sends a single visible character as a keystroke reply, with no trailing newline, when the active knot is a keystroke prompt', async () => {
+      mockReadResponse
+        .mockResolvedValueOnce(BANNER_RESPONSE)
+        .mockResolvedValueOnce(dynamicResponse([]))
+        .mockResolvedValueOnce({ command: 'start combat', response: 'Press any key...\n', promptType: 'key' })
+        // No '@dynamic' here - captureDynamicState skips a keystroke response (see the earlier
+        // 'does not send @dynamic...' test) - the very next call is the keystroke reply itself.
+        .mockResolvedValueOnce({ command: 'x', response: 'A hit!\n', promptType: 'line' })
+        .mockResolvedValueOnce(dynamicResponse([]));
+      const session = SkeinSession.createNew(DGDEBUG_CONFIG);
+      await session.start();
+      await session.runCommand('start combat');
+
+      await session.runCommand('x');
+
+      expect(mockSendCommand).toHaveBeenNthCalledWith(3, 'x', true);
+      // The knot's own stored command is the literal key the user pressed, same as a line command.
+      expect(session.getTree().getKnot(2)!.command).toBe('x');
+    });
+
+    it('resolves "enter"/"space"/"backspace" to the actual byte(s) sent, but keeps the friendly name as the knot\'s stored command', async () => {
+      mockReadResponse
+        .mockResolvedValueOnce(BANNER_RESPONSE)
+        .mockResolvedValueOnce(dynamicResponse([]))
+        .mockResolvedValueOnce({ command: 'start combat', response: 'Press any key...\n', promptType: 'key' })
+        .mockResolvedValueOnce({ command: 'enter', response: 'Room A.\n', promptType: 'line' })
+        .mockResolvedValueOnce(dynamicResponse([]));
+      const session = SkeinSession.createNew(DGDEBUG_CONFIG);
+      await session.start();
+      await session.runCommand('start combat');
+
+      await session.runCommand('enter');
+
+      expect(mockSendCommand).toHaveBeenNthCalledWith(3, '\n', true);
+      expect(session.getTree().getKnot(2)!.command).toBe('enter');
+    });
+
     it('does not restart the process when the active knot already matches where the process is', async () => {
       mockReadResponse
         .mockResolvedValueOnce(BANNER_RESPONSE)
@@ -782,6 +819,18 @@ describe('SkeinSession', () => {
     it('returns null for the root knot, which has no parent to replay to', async () => {
       const session = await startedSessionWith(seededTree());
       expect(await session.traceKnot(0)).toBeNull();
+    });
+
+    it('returns null for a knot reached via a keystroke prompt without touching the process - "(trace on)"/"(trace off)" are line-mode commands, unsafe while the process is mid-keystroke-read', async () => {
+      const seeded = SkeinTree.newTree('dgdebug', 1)
+        .addChild(0, 'start combat', { text: 'Press any key...\n', inputType: 'key' })
+        .addChild(1, 'x', { text: 'A hit!\n', inputType: 'line' })
+        .setActiveKnotId(2);
+      const session = await startedSessionWith(seeded);
+      mockSendCommand.mockClear();
+
+      expect(await session.traceKnot(2)).toBeNull();
+      expect(mockSendCommand).not.toHaveBeenCalled();
     });
 
     it('throws if the session has not been started', async () => {

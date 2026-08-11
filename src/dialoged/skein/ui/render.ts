@@ -120,17 +120,12 @@ function totals(tree: SkeinTree): Record<KnotStatus, number> {
  * A knot was "reached via keystroke" when its parent's response ended on a keystroke prompt -
  * dialog-ide's DerivedKnot.inputType describes a knot's own (blessed-only) response, not the
  * command that produced it, so this looks at the parent rather than the knot itself (dialog-tool
- * tracks this directly as a `parent-prompt` field; dialog-ide doesn't). DerivedKnot.inputType
- * also only reflects a *blessed* response, which most live knots won't have yet - so this reads
- * the parent's raw WireKnot instead, checking whichever of response/unblessedResponse is current.
+ * tracks this directly as a `parent-prompt` field; dialog-ide doesn't). tree.promptTypeAt reads
+ * whichever of response/unblessedResponse is current, since most live knots won't have a blessed
+ * response yet.
  */
 function reachedViaKeystroke(tree: SkeinTree, knot: DerivedKnot): boolean {
-  if (knot.parentId === null) {
-    return false;
-  }
-  const parent = tree.getKnot(knot.parentId);
-  const currentResponse = parent?.response ?? parent?.unblessedResponse;
-  return currentResponse?.inputType === 'key';
+  return tree.promptTypeAt(knot.parentId) === 'key';
 }
 
 const dynamicProcessor = new DynamicProcessor();
@@ -245,7 +240,7 @@ function renderKnot(
     knot.label
       ? `<span class="font-bold bg-neutral text-neutral-content px-1 py-0.5 rounded text-sm">${escapeHtml(knot.label)}</span>`
       : ''
-  }${renderKnotMenu(knot.id, knot.unblessedResponse !== null, knot.id === transcriptMenuId, '/actions/open-transcript-menu', active, knot.label, knot.command, 'prominent')}</div>`;
+  }${renderKnotMenu(knot.id, knot.unblessedResponse !== null, knot.id === transcriptMenuId, '/actions/open-transcript-menu', active, knot.label, knot.command, 'prominent', tree.promptTypeAt(knot.parentId) === 'key')}</div>`;
 
   const keystrokeChip =
     reachedViaKeystroke(tree, knot)
@@ -302,31 +297,82 @@ function renderKnot(
 }
 
 /**
- * What kind of input the active knot currently expects next - same current-response-or-
- * unblessed pattern reachedViaKeystroke uses for a knot's parent, applied to the active knot
- * itself. Defaults to 'line' when there's no active knot or no response info yet.
+ * What kind of input the active knot currently expects next. Defaults to 'line' when there's no
+ * active knot or no response info yet - see tree.ts's promptTypeAt.
  */
 function activeInputType(tree: SkeinTree): 'line' | 'key' {
-  const activeId = tree.getActiveKnotId();
-  const knot = activeId !== null ? tree.getKnot(activeId) : null;
-  const currentResponse = knot?.response ?? knot?.unblessedResponse;
-  return currentResponse?.inputType ?? 'line';
+  return tree.promptTypeAt(tree.getActiveKnotId());
+}
+
+// Buttons for the keystroke widget's replies that don't correspond to a single visible character
+// - matches session.ts's KEYSTROKE_KEY_CODES, which is what actually resolves these same friendly
+// names to the byte(s) sent to the process. A plain letter/digit/symbol key needs no button at
+// all (the input below sends it directly), but Enter/Backspace produce no visible character to
+// type into a maxlength=1 field, and a literal space typed there is easy to miss having landed.
+const SPECIAL_KEYSTROKE_BUTTONS: Array<{ key: string; label: string }> = [
+  { key: 'enter', label: 'Enter' },
+  { key: 'space', label: 'Space' },
+  { key: 'backspace', label: 'Backspace' }
+];
+
+/**
+ * The keystroke variant of the command input - rendered instead of renderCommandInput's normal
+ * text field when activeInputType is 'key' (a "[MORE]"/"Press any key" style prompt, which reads
+ * exactly one keystroke rather than a line - see io.ts's PromptType). Mirrors dialog-tool's
+ * command-input.clj new-keystroke-input (a single-character field plus buttons for Enter/Space/
+ * Backspace), but drives all of it - including Enter/Backspace - straight off the field's own
+ * data-on:keydown rather than dialog-tool's keypress-driven field plus separate click-only
+ * buttons: keypress is deprecated and, in every current browser, simply never fires for Enter or
+ * Backspace at all (only keydown reliably does), so a keypress-only field would leave a keyboard
+ * user no way to submit either one without reaching for the mouse. The buttons stay - not as the
+ * only way in, but for discoverability (a first-time user may not realize Enter/Backspace are
+ * being captured at all) and for anyone using a pointer instead of the keyboard.
+ *
+ * Each matched branch evt.preventDefault()s before acting - there's nothing to correct or clear,
+ * each keystroke is submitted the moment it's pressed, same as clicking a button, so the browser
+ * must not also type the character in, erase one, or (for Enter) submit an enclosing form. Every
+ * unmatched key - Tab included - is left alone, so this never traps keyboard focus in the field.
+ * The physical space bar falls through to the plain evt.key.length === 1 branch (browsers report
+ * `evt.key === ' '` for it) rather than a dedicated case - handleSendKeystroke/normalizeKeystroke
+ * on the server normalizes that literal space to the same "space" text the button sends, so
+ * either input method records the identical command. Every other named key (Shift, ArrowLeft,
+ * F5, ...) reports evt.key.length > 1 and isn't a real game keystroke, so it's simply ignored.
+ *
+ * Shares #new-command-input's id with the normal widget (only one is ever rendered at a time) so
+ * main.js's sk.resetAndFocusCommandInput keeps working unchanged for both.
+ */
+function renderKeystrokeInput(): string {
+  const buttons = SPECIAL_KEYSTROKE_BUTTONS.map(
+    ({ key, label }) =>
+      `<button type="button" class="btn btn-sm" data-on:click="$newKeystroke = '${key}'; @post('/actions/send-keystroke')">${label}</button>`
+  ).join('\n  ');
+
+  return `<div class="flex items-center gap-2 mt-4 mb-8">
+  <span class="text-gray-400" aria-hidden="true">Key:</span>
+  <input id="new-command-input" type="text" aria-label="Enter keystroke" maxlength="1" size="2"
+         class="w-12 text-center rounded-md border-base-300 shadow-sm focus:border-primary focus:ring-primary sm:text-sm p-2 border"
+         data-init="el.focus(); el.scrollIntoView({block: 'nearest', behavior: 'smooth'})"
+         data-on:keydown="if (evt.key === 'Enter') { evt.preventDefault(); $newKeystroke = 'enter'; @post('/actions/send-keystroke') }
+           else if (evt.key === 'Backspace') { evt.preventDefault(); $newKeystroke = 'backspace'; @post('/actions/send-keystroke') }
+           else if (evt.key.length === 1) { evt.preventDefault(); $newKeystroke = evt.key; @post('/actions/send-keystroke') }" />
+  <span class="text-sm text-base-content/60">or</span>
+  ${buttons}
+</div>`;
 }
 
 /**
  * The command input, rendered right after the transcript - matches dialog-tool's
- * command-input.clj placement and markup (minus the keystroke variant, deferred - see the
- * Command Input plan). Submits on the input's native "change" event (fires on Enter/blur),
- * matching dialog-tool's own data-on:change. data-init="el.focus(); el.scrollIntoView(...)" covers
- * the initial page load - a long transcript can otherwise leave the input below the fold, focused
- * but not visible; after each submission, service.ts's execute-script broadcast (main.js's
- * sk.resetAndFocusCommandInput) clears and refocuses it the same way. Re-scrolling the *input*
- * into view is only right when a just-run command's response is the newest thing on screen
- * (right above it) - select-knot/new-child instead pass their own knotId through so it scrolls
- * that knot's transcript row into view (see resetAndFocusCommandInput's own doc comment), since
- * the transcript keeps showing the whole spine regardless of which knot on it was clicked.
- * Datastar's morph preserves this element's identity across patches (same id), so focus survives
- * ordinary re-renders on its own.
+ * command-input.clj placement and markup. Submits on the input's native "change" event (fires on
+ * Enter/blur), matching dialog-tool's own data-on:change. data-init="el.focus();
+ * el.scrollIntoView(...)" covers the initial page load - a long transcript can otherwise leave
+ * the input below the fold, focused but not visible; after each submission, service.ts's
+ * execute-script broadcast (main.js's sk.resetAndFocusCommandInput) clears and refocuses it the
+ * same way. Re-scrolling the *input* into view is only right when a just-run command's response
+ * is the newest thing on screen (right above it) - select-knot/new-child instead pass their own
+ * knotId through so it scrolls that knot's transcript row into view (see
+ * resetAndFocusCommandInput's own doc comment), since the transcript keeps showing the whole
+ * spine regardless of which knot on it was clicked. Datastar's morph preserves this element's
+ * identity across patches (same id), so focus survives ordinary re-renders on its own.
  *
  * Always shown (for a 'line'-expecting active knot), regardless of whether the active knot is
  * where the process actually is - "time travel" (jumping to an earlier knot and typing a
@@ -336,7 +382,7 @@ function activeInputType(tree: SkeinTree): 'line' | 'key' {
  */
 function renderCommandInput(tree: SkeinTree): string {
   if (activeInputType(tree) === 'key') {
-    return `<div class="mt-4 mb-8 text-sm text-base-content/60">Keystroke input isn't supported yet.</div>`;
+    return renderKeystrokeInput();
   }
 
   return `<div class="flex items-center gap-2 mt-4 mb-8">

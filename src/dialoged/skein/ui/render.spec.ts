@@ -648,13 +648,28 @@ describe('renderApp', () => {
     expect(html).toContain(`data-on:change="@post('/actions/send-command')"`);
   });
 
-  it('shows a disabled placeholder instead of the input when the active knot expects a keystroke', () => {
+  it('shows the keystroke widget instead of the normal input when the active knot expects a keystroke', () => {
     const tree = SkeinTree.newTree('dgdebug', 1)
       .addChild(0, 'start combat', { text: 'Press any key...\n', inputType: 'key' })
       .setActiveKnotId(1);
     const html = renderApp(INFO, tree);
-    expect(html).not.toContain('id="new-command-input"');
-    expect(html).toContain("Keystroke input isn't supported yet");
+    // Same id as the normal widget (see renderKeystrokeInput's doc comment - main.js's
+    // resetAndFocusCommandInput keeps working unchanged for either), but a 1-character field
+    // rather than the free-text one, plus buttons for the replies with no visible character.
+    expect(html).toContain('id="new-command-input"');
+    expect(html).toContain('maxlength="1"');
+    expect(html).not.toContain(`data-on:change="@post('/actions/send-command')"`);
+    expect(html).toContain("@post('/actions/send-keystroke')");
+    expect(html).toContain('>Enter</button>');
+    expect(html).toContain('>Space</button>');
+    expect(html).toContain('>Backspace</button>');
+    // The field's own keydown handles Enter/Backspace directly too, not just the buttons -
+    // keypress (what dialog-tool's own widget relies on) never fires for either in a real
+    // browser, so a keyboard-only user needs keydown to reach them at all.
+    expect(html).toContain(`evt.key === 'Enter'`);
+    expect(html).toContain(`evt.key === 'Backspace'`);
+    expect(html).toContain("$newKeystroke = 'enter'");
+    expect(html).toContain("$newKeystroke = 'backspace'");
   });
 
   it('includes the resizable tree pane and its drag handle alongside the transcript', () => {

@@ -123,7 +123,7 @@ function nodeColorClass(status: KnotStatus, treeState: KnotStatus, onSpine: bool
  * pointing at what's hidden) mirrors dialog-tool exactly; a plain Unicode glyph rather than a new
  * SVG/.icon-* asset since none of the existing icons are a bare single chevron.
  */
-function renderTreeNode(knot: DerivedKnot, spine: Set<number>, activeKnotId: number | null, graphMenuId: number | null): string {
+function renderTreeNode(tree: SkeinTree, knot: DerivedKnot, spine: Set<number>, activeKnotId: number | null, graphMenuId: number | null): string {
   const active = knot.id === activeKnotId;
   const hasChildren = knot.children.length > 0;
   const collapsed = knot.collapsed;
@@ -165,7 +165,7 @@ function renderTreeNode(knot: DerivedKnot, spine: Set<number>, activeKnotId: num
     data-on:click="if (!evt.target.closest('details')) { ${selectCall} }"
     data-on:keydown="if (evt.key === 'Enter' || evt.key === ' ') { evt.preventDefault(); ${selectCall} }"
     aria-label="${escapeHtml(knot.command)}${statusSuffix}"
-    aria-pressed="${active}">${statusIcon}${lockIcon}${labelChip}${commandLabel}<span class="ml-auto">${renderKnotMenu(knot.id, knot.unblessedResponse !== null, knot.id === graphMenuId, '/actions/open-graph-menu', active, knot.label, knot.command)}</span></div>
+    aria-pressed="${active}">${statusIcon}${lockIcon}${labelChip}${commandLabel}<span class="ml-auto">${renderKnotMenu(knot.id, knot.unblessedResponse !== null, knot.id === graphMenuId, '/actions/open-graph-menu', active, knot.label, knot.command, 'compact', tree.promptTypeAt(knot.parentId) === 'key')}</span></div>
   ${toggleButton}
 </div>`;
 }
@@ -194,7 +194,7 @@ ${children.map((child) => `<div class="flex flex-col items-center">${renderSubtr
   }
 
   return `<div class="flex flex-col items-center gap-10 min-w-max">
-${renderTreeNode(knot, spine, activeKnotId, graphMenuId)}
+${renderTreeNode(tree, knot, spine, activeKnotId, graphMenuId)}
 ${childrenHtml}
 </div>`;
 }

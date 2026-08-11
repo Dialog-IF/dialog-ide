@@ -507,6 +507,28 @@ describe('SkeinTree.findChildId', () => {
   });
 });
 
+describe('SkeinTree.promptTypeAt', () => {
+  it("defaults to 'line' for the root of a freshly created tree", () => {
+    expect(SkeinTree.newTree('dgdebug', 1).promptTypeAt(0)).toBe('line');
+  });
+
+  it("defaults to 'line' for null (no active knot)", () => {
+    expect(SkeinTree.newTree('dgdebug', 1).promptTypeAt(null)).toBe('line');
+  });
+
+  it("reports 'key' from a knot's unblessedResponse when it has no blessed response yet - most live knots won't", () => {
+    const tree = SkeinTree.newTree('dgdebug', 1).addChild(0, 'start combat', { text: 'Press any key...\n', inputType: 'key' });
+    expect(tree.promptTypeAt(1)).toBe('key');
+  });
+
+  it("still reports 'key' once the response is blessed", () => {
+    const tree = SkeinTree.newTree('dgdebug', 1)
+      .addChild(0, 'start combat', { text: 'Press any key...\n', inputType: 'key' })
+      .blessKnot(1);
+    expect(tree.promptTypeAt(1)).toBe('key');
+  });
+});
+
 describe('SkeinTree.commandPath', () => {
   it('returns the command path from root to id, excluding root', () => {
     const tree = SkeinTree.newTree('dgdebug', 1)

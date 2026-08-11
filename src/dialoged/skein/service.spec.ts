@@ -433,6 +433,68 @@ describe('SkeinService', () => {
     });
   });
 
+  describe('POST /actions/send-keystroke', () => {
+    it('400s when no session is active', async () => {
+      const res = await post(`http://localhost:${service.getPort()}/actions/send-keystroke`, { newKeystroke: 'x' });
+      expect(res.status).toBe(400);
+    });
+
+    it('runs a single-character keystroke against the active session and returns 204', async () => {
+      const tree = SkeinTree.newTree('dgdebug', 1);
+      const fake = createFakeSession(tree);
+      service.setActiveSession(fake as unknown as SkeinSession, 'default');
+
+      const res = await post(`http://localhost:${service.getPort()}/actions/send-keystroke`, { newKeystroke: 'x' });
+
+      expect(res.status).toBe(204);
+      expect(fake.runCommandCalls).toEqual(['x']);
+    });
+
+    it.each(['enter', 'space', 'backspace'])('runs the special keystroke name "%s" as-is', async (name) => {
+      const tree = SkeinTree.newTree('dgdebug', 1);
+      const fake = createFakeSession(tree);
+      service.setActiveSession(fake as unknown as SkeinSession, 'default');
+
+      await post(`http://localhost:${service.getPort()}/actions/send-keystroke`, { newKeystroke: name });
+
+      expect(fake.runCommandCalls).toEqual([name]);
+    });
+
+    it('normalizes a literal space character to "space" - same as the dedicated button, so it isn\'t recorded as a different sibling command', async () => {
+      const tree = SkeinTree.newTree('dgdebug', 1);
+      const fake = createFakeSession(tree);
+      service.setActiveSession(fake as unknown as SkeinSession, 'default');
+
+      await post(`http://localhost:${service.getPort()}/actions/send-keystroke`, { newKeystroke: ' ' });
+
+      expect(fake.runCommandCalls).toEqual(['space']);
+    });
+
+    it('no-ops (204, no runCommand call) for a multi-character or empty keystroke', async () => {
+      const tree = SkeinTree.newTree('dgdebug', 1);
+      const fake = createFakeSession(tree);
+      service.setActiveSession(fake as unknown as SkeinSession, 'default');
+
+      const res = await post(`http://localhost:${service.getPort()}/actions/send-keystroke`, { newKeystroke: 'xy' });
+
+      expect(res.status).toBe(204);
+      expect(fake.runCommandCalls).toEqual([]);
+    });
+
+    it('500s when the session fails to run the keystroke', async () => {
+      const tree = SkeinTree.newTree('dgdebug', 1);
+      const fake = createFakeSession(tree, {
+        runCommand: () => {
+          throw new Error('process died');
+        }
+      });
+      service.setActiveSession(fake as unknown as SkeinSession, 'default');
+
+      const res = await post(`http://localhost:${service.getPort()}/actions/send-keystroke`, { newKeystroke: 'x' });
+      expect(res.status).toBe(500);
+    });
+  });
+
   describe('POST /actions/select-knot', () => {
     it('400s when no session is active', async () => {
       const res = await post(`http://localhost:${service.getPort()}/actions/select-knot`, { knotId: 1 });

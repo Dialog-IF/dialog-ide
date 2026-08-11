@@ -22,6 +22,23 @@ const DGDEBUG_TARGET_FILTER = 'dgdebug';
 // flat constant, but capped well below "one process per core" since each dgdebug also does real
 // disk/parse work of its own at startup and a huge tree could otherwise spawn dozens at once.
 const REPLAY_ALL_CONCURRENCY = Math.max(2, Math.min(8, os.cpus().length));
+// The three keystroke replies that don't correspond to a single printable character, mirroring
+// dialog-tool's session.clj command->key - everything else at a keystroke prompt is sent as the
+// single character it already is. Keyed by the friendly name stored as the knot's own command
+// (and shown on the keystroke command-input's buttons - see render.ts's renderKeystrokeInput),
+// resolved to the actual byte(s) written to the process only at send time (see resolveKeystroke
+// below) - never baked into the tree/skein file, so replaying a saved skein still works the same
+// way.
+const KEYSTROKE_KEY_CODES: Record<string, string> = {
+  enter: '\n',
+  space: ' ',
+  backspace: '\b'
+};
+
+/** Resolves a keystroke reply's friendly command text to what's actually written to the process. */
+function resolveKeystroke(command: string): string {
+  return KEYSTROKE_KEY_CODES[command] ?? command;
+}
 
 /**
  * One leaf's worth of independent replay: every knot response captured along its root-to-leaf
@@ -290,7 +307,16 @@ export class SkeinSession {
       // Captured as a local: replayTo above may have swapped in a new SkeinProcess instance, and
       // narrowing from the guard at the top of this method doesn't survive that reassignment.
       const process = this.process!;
-      process.sendCommand(command);
+      // parentId's own response (just brought fully up to date by the replay above, if one was
+      // needed) says what kind of input the interpreter is actually expecting next - not
+      // whichever widget the UI happened to submit from (render.ts's renderCommandInput picks
+      // that widget the same way, but the server never trusts the client's belief about it).
+      const keystroke = this.tree.promptTypeAt(parentId) === 'key';
+      if (keystroke) {
+        process.sendCommand(resolveKeystroke(command), true);
+      } else {
+        process.sendCommand(command);
+      }
       const response = await process.readResponse();
       const newResponse = { text: response.response, inputType: response.promptType };
 
@@ -370,12 +396,25 @@ export class SkeinSession {
     const responses = new Map<number, Response>();
     const dynamicStates = new Map<number, DynamicState>();
     let reachedId = 0;
+    // What kind of input the process is actually expecting next, tracked live from each step's
+    // own response rather than re-reading it from `tree` (which stays exactly as it was passed
+    // in throughout this whole loop - responses only get folded back into a tree once, after the
+    // loop, by replayProcessTo/replayAll). Seeded from the root/banner's prompt type, which - in
+    // every caller - tree already reflects freshly (launchProcessAndCaptureBanner always runs and
+    // updates tree immediately before replayPath is called).
+    let currentPromptType = tree.promptTypeAt(0);
     for (const { id, command } of path) {
       if (token?.isCancellationRequested) {
         break;
       }
-      process.sendCommand(command);
+      const keystroke = currentPromptType === 'key';
+      if (keystroke) {
+        process.sendCommand(resolveKeystroke(command), true);
+      } else {
+        process.sendCommand(command);
+      }
       const response = await process.readResponse();
+      currentPromptType = response.promptType;
       responses.set(id, { text: response.response, inputType: response.promptType });
       const dynamicState = await this.captureDynamicState(process, response.promptType);
       if (dynamicState) {
@@ -593,8 +632,11 @@ export class SkeinSession {
    * same as any other command execution), but the knot's own stored response/unblessedResponse
    * are never touched - the trace-laden text is only ever handed back to the caller.
    *
-   * Returns null for a non-dgdebug engine (tracing is dgdebug-only) or when knotId is the root
-   * (which has no parent to replay to).
+   * Returns null for a non-dgdebug engine (tracing is dgdebug-only), when knotId is the root
+   * (which has no parent to replay to), or when the knot was reached via a keystroke prompt:
+   * "(trace on)"/"(trace off)" are line-mode debugger commands, and the process would be sitting
+   * mid-keystroke-read right after replaying to parentId - sending them there isn't safe (same
+   * reasoning as captureDynamicState skipping "@dynamic" for a keystroke response).
    */
   public async traceKnot(knotId: number): Promise<string | null> {
     if (!this.isRunning) {
@@ -609,6 +651,9 @@ export class SkeinSession {
       return null;
     }
     const { command, parentId } = knot;
+    if (this.tree.promptTypeAt(parentId) === 'key') {
+      return null;
+    }
 
     await this.replayProcessTo(parentId);
 

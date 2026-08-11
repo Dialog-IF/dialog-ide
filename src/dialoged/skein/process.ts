@@ -216,15 +216,27 @@ export class SkeinProcess extends EventEmitter {
   }
 
   /**
-   * Send a command to the interpreter process
+   * Send a command to the interpreter process. `keystroke` marks command as a single-key reply
+   * to a keystroke prompt (see io.ts's PromptType) rather than a normal line of input - the
+   * caller (SkeinSession) is responsible for resolving a friendly key name ("enter"/"space"/
+   * "backspace") to the actual character(s) to send before calling this.
+   *
+   * Mirrors dialog-tool's process.clj command-loop: a keystroke reply is written with no
+   * trailing newline for dgdebug (it reads exactly one character off stdin and reacts
+   * immediately), but dfrotz still gets one even for a keystroke - dialog-tool's own comment
+   * there ("From what I can tell, dfrotz needs a newline, even after single keystrokes") is the
+   * only justification on record for that half, so this keeps the same behavior rather than
+   * guessing at a better one. Since dfrotz is family !== 'dgdebug', `needsNewline` covers both
+   * cases with one check.
    */
-  public sendCommand(command: string): void {
+  public sendCommand(command: string, keystroke: boolean = false): void {
     if (!this.process || !this.isRunning) {
       throw new Error('Process not running');
     }
 
     this.lastCommand = command;
-    this.process.stdin?.write(`${command}\n`);
+    const needsNewline = !keystroke || this.config.engine !== 'dgdebug';
+    this.process.stdin?.write(needsNewline ? `${command}\n` : command);
   }
 
   /**

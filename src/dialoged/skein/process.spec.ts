@@ -270,6 +270,24 @@ describe('SkeinProcess', () => {
       const proc = new SkeinProcess(DGDEBUG_CONFIG);
       expect(() => proc.sendCommand('look')).toThrow('Process not running');
     });
+
+    it('writes a dgdebug keystroke reply with no trailing newline - it reads exactly one character off stdin', async () => {
+      const proc = new SkeinProcess(DGDEBUG_CONFIG);
+      await proc.start();
+
+      proc.sendCommand('x', true);
+
+      expect(fakeChild.stdin.write).toHaveBeenCalledWith('x');
+    });
+
+    it('still writes a trailing newline for a dfrotz keystroke reply - it only reads whole lines, never raw keypresses', async () => {
+      const proc = new SkeinProcess({ engine: 'frotz', seed: 1, gamePath: '/tmp/g.zblorb' });
+      await proc.start();
+
+      proc.sendCommand('x', true);
+
+      expect(fakeChild.stdin.write).toHaveBeenCalledWith('x\n');
+    });
   });
 
   describe('terminate', () => {
