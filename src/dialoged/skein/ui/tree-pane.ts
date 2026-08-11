@@ -33,12 +33,20 @@ function escapeHtml(text: string): string {
 }
 
 /**
- * The active spine's knot ids, root to active leaf - used to tint off-spine nodes differently
- * from on-spine ones, matching tree_pane.clj's spine-ids'.
+ * The active spine's knot ids, root to its *selected* leaf - used to tint off-spine nodes
+ * differently from on-spine ones, matching tree_pane.clj's spine-ids'. Deliberately walks up from
+ * getSelectedLeafId(), not activeKnotId: activeKnotId (since selectKnot) can be any knot navigated
+ * to partway up the spine, but the spine itself - same "whole spine" render.ts's selectedKnots
+ * renders into the transcript, and what Bless Transcript/replayAll operate on - always continues
+ * on to whatever's already been explored past it (see getSelectedLeafId's own doc comment).
+ * Starting from activeKnotId instead used to leave every already-explored knot between it and the
+ * leaf marked off-spine (dim/neutral) even though the transcript still shows them as part of the
+ * same spine - activeKnotId is always an ancestor of (or equal to) the selected leaf, so walking
+ * up from the leaf instead still includes it and every real ancestor, just not stopping short.
  */
 function spineIds(tree: SkeinTree): Set<number> {
   const ids = new Set<number>();
-  let currentId = tree.getActiveKnotId();
+  let currentId: number | null = tree.getSelectedLeafId();
   while (currentId !== null) {
     ids.add(currentId);
     currentId = tree.getKnot(currentId)?.parentId ?? null;

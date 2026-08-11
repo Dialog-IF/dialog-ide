@@ -30,6 +30,28 @@ describe('renderTreePane', () => {
     expect(html).toContain('data-tree-node-id="2"');
   });
 
+  // Regression: spineIds used to walk up from activeKnotId (via parentId) rather than from the
+  // selected spine's actual leaf (getSelectedLeafId), so navigating back to an ancestor left every
+  // already-explored knot between it and the leaf marked off-spine (dim/neutral) even though the
+  // transcript still shows them as part of the same spine (render.ts's selectedKnots, which always
+  // walks root->selectedChild-leaf, not root->activeKnotId).
+  it('keeps already-explored knots below the active knot colored as on-spine, not off-spine, after navigating back to an ancestor', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1)
+      .addChild(0, 'look', { text: 'a', inputType: 'line' })
+      .blessKnot(1)
+      .addChild(1, 'take orb', { text: 'b', inputType: 'line' })
+      .blessKnot(2)
+      .setActiveKnotId(1); // back up to knot 1 - knot 2 is still selectedChild, still on-spine
+
+    const html = renderTreePane(tree);
+
+    const knot1 = nodeHtml(html, 1);
+    expect(knot1).toContain('bg-primary text-primary-content'); // active knot itself
+    const knot2 = nodeHtml(html, 2);
+    expect(knot2).toContain('bg-primary-content text-primary'); // on-spine, not active
+    expect(knot2).not.toContain('bg-neutral-content text-neutral'); // was: off-spine
+  });
+
   it('carries data-knot-id and data-parent-id for the arrow-drawing JS', () => {
     const tree = SkeinTree.newTree('dgdebug', 1).addChild(0, 'look', { text: 'a', inputType: 'line' });
     const html = renderTreePane(tree);
