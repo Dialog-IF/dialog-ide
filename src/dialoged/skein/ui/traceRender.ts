@@ -113,7 +113,7 @@ export function renderTraceApp(state: CurrentTraceState | null, loading: boolean
   }
 
   if (!state) {
-    return '<div id="trace-app" class="p-4 text-base-content/60">No trace yet - right-click a knot and choose Trace, or use Trace Startup.</div>';
+    return '<div id="trace-app" class="p-4 text-base-content/60">No trace yet - open a knot\'s "..." menu and choose Trace (root traces startup).</div>';
   }
 
   const root = getNode(state.tree, 0);

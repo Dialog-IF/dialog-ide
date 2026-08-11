@@ -40,4 +40,21 @@ describe('renderKnotMenu', () => {
       expect(html).toContain('data-current-command="&lt;script&gt;"');
     });
   });
+
+  describe('trigger sizing', () => {
+    it("defaults to the tree pane's original compact trigger when unspecified", () => {
+      const html = renderKnotMenu(1, true, false, '/actions/open-graph-menu');
+      expect(html).toContain('class="btn btn-xs btn-ghost py-0 px-0.5 min-h-0 h-4 w-4 leading-none"');
+      expect(html).toContain('class="icon icon-dots-vertical w-3 h-3"');
+    });
+
+    // The transcript's trigger sits on a plain bg-base-100 background (unlike the tree pane's
+    // colored pills), where the tiny compact trigger was easy to miss - 'prominent' bumps its size
+    // and gives it a persistent faint backdrop instead.
+    it("'prominent' renders a bigger trigger with a persistent backdrop, for the transcript", () => {
+      const html = renderKnotMenu(1, true, false, '/actions/open-transcript-menu', false, null, null, 'prominent');
+      expect(html).toContain('class="btn btn-xs btn-ghost py-0 px-1 min-h-0 h-6 w-6 leading-none bg-base-content/10"');
+      expect(html).toContain('class="icon icon-dots-vertical w-4 h-4"');
+    });
+  });
 });

@@ -113,6 +113,21 @@ const PANE_CONFIG: Record<KnotMenuOpenRoute, { pane: string; directionClass: str
   '/actions/open-transcript-menu': { pane: 'transcript', directionClass: 'dropdown-left' }
 };
 
+// Trigger button + icon sizing for the "..." menu trigger. 'compact' (the tree pane's tight,
+// fixed-width node pills - see tree-pane.ts's own min-w-16/max-w-48) keeps the original tiny
+// footprint; 'prominent' (the transcript's floatCluster - see render.ts's renderKnot) is a touch
+// bigger and carries a persistent faint backdrop (the same 10% base-content tint daisyUI's own
+// .btn-ghost only applies on hover - see button.css - made permanent here instead) so the trigger
+// reads as a real, findable control sitting on the transcript's plain bg-base-100 rather than
+// disappearing into it until the mouse happens to land on it.
+const TRIGGER_SIZE_CLASSES: Record<'compact' | 'prominent', { button: string; icon: string }> = {
+  compact: { button: 'btn btn-xs btn-ghost py-0 px-0.5 min-h-0 h-4 w-4 leading-none', icon: 'icon icon-dots-vertical w-3 h-3' },
+  prominent: {
+    button: 'btn btn-xs btn-ghost py-0 px-1 min-h-0 h-6 w-6 leading-none bg-base-content/10',
+    icon: 'icon icon-dots-vertical w-4 h-4'
+  }
+};
+
 /**
  * hint(label, key) - the keyboard-shortcut title suffix for a menu item, shown only when isActive
  * (main.js's Option+letter accelerators always act on the active knot - see its own doc comment -
@@ -126,18 +141,20 @@ export function renderKnotMenu(
   openRoute: KnotMenuOpenRoute,
   isActive: boolean = false,
   currentLabel: string | null = null,
-  currentCommand: string | null = null
+  currentCommand: string | null = null,
+  triggerSize: 'compact' | 'prominent' = 'compact'
 ): string {
   const isRoot = id === 0;
   const { pane, directionClass } = PANE_CONFIG[openRoute];
   const anchorName = `--knot-menu-${pane}-${id}`;
   const popoverId = `knot-menu-${pane}-${id}`;
   const hint = (label: string, key: string): string => (isActive ? ` title="${label} (${key})"` : '');
+  const { button: triggerButtonClass, icon: triggerIconClass } = TRIGGER_SIZE_CLASSES[triggerSize];
 
   return `<details class="dropdown ${directionClass} font-sans"${isOpen ? ' open' : ''} style="anchor-name: ${anchorName}">
-  <summary tabindex="0" role="button" class="btn btn-xs btn-ghost py-0 px-0.5 min-h-0 h-4 w-4 leading-none"
+  <summary tabindex="0" role="button" class="${triggerButtonClass}"
     data-on:click__prevent__stop="$knotId = ${id}; @post('${openRoute}')" aria-label="Knot actions">
-    <div class="icon icon-dots-vertical w-3 h-3" aria-hidden="true"></div>
+    <div class="${triggerIconClass}" aria-hidden="true"></div>
   </summary>
   <ul id="${popoverId}" popover="manual" tabindex="0" role="menu" class="dropdown-content knot-menu-popover menu bg-base-100 rounded-box p-2 w-52 shadow-xl z-10"
     style="position-anchor: ${anchorName}"
