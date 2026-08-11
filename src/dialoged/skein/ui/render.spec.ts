@@ -475,6 +475,23 @@ describe('renderKnotList', () => {
     expect(knot1Section).toContain('border-error');
   });
 
+  // Regression: a response differing only by a trailing newline still flips the knot to 'error'
+  // (tree.ts's responsesMatch is a strict string comparison), but used to render as a plain,
+  // unstyled diff - diffWords (unlike diff.ts's diffWordsWithSpace) ignores whitespace when
+  // computing the diff, so the extra newline was silently absorbed into an 'unchanged' segment
+  // and never got visibleWhitespace's "↵" marker, leaving no visible reason for the error border.
+  it('shows an extra trailing newline as a visible added span, not silently as unchanged text', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1)
+      .addChild(0, 'look', { text: 'Room A.\n', inputType: 'line' })
+      .blessKnot(1)
+      .updateKnotResponse(1, { text: 'Room A.\n\n', inputType: 'line' })
+      .setActiveKnotId(1);
+    const html = renderKnotList(tree);
+    const knot1Section = html.split('id="knot-1"')[1];
+    expect(knot1Section).toContain('border-error');
+    expect(knot1Section).toContain(`<span class="text-info font-bold">${visible('\n')}</span>`);
+  });
+
   it('renders a real word-level diff for a knot whose response changed - added/removed spans, unchanged text plain', () => {
     const tree = SkeinTree.newTree('dgdebug', 1)
       .addChild(0, 'take orb', { text: 'You take the White Orb.\n', inputType: 'line' })

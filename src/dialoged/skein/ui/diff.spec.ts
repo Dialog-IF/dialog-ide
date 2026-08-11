@@ -26,4 +26,33 @@ describe('diffText', () => {
   it('returns a single unchanged segment for identical text', () => {
     expect(diffText('same text', 'same text')).toEqual([{ type: 'unchanged', value: 'same text' }]);
   });
+
+  // Regression: diffWords (unlike diffWordsWithSpace) ignores whitespace when computing the diff,
+  // so a response differing only by a trailing newline used to diff as fully 'unchanged' - hiding
+  // exactly the difference that flipped the knot to 'error' in tree.ts's own strict string
+  // comparison (responsesMatch). render.ts's visibleWhitespace only makes a difference visible
+  // within an added/removed segment, so this has to actually be one, not folded into 'unchanged'.
+  it('surfaces an extra trailing newline as an added segment, not silently as unchanged', () => {
+    const segments = diffText('Room A.\n', 'Room A.\n\n');
+    expect(segments).toEqual([
+      { type: 'unchanged', value: 'Room A.\n' },
+      { type: 'added', value: '\n' }
+    ]);
+  });
+
+  it('surfaces a missing trailing newline as a removed segment', () => {
+    const segments = diffText('Room A.\n\n', 'Room A.\n');
+    expect(segments).toEqual([
+      { type: 'unchanged', value: 'Room A.\n' },
+      { type: 'removed', value: '\n' }
+    ]);
+  });
+
+  it('surfaces a leading whitespace-only difference too', () => {
+    const segments = diffText('Room A.', ' Room A.');
+    expect(segments).toEqual([
+      { type: 'added', value: ' ' },
+      { type: 'unchanged', value: 'Room A.' }
+    ]);
+  });
 });
