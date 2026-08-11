@@ -4,6 +4,10 @@
   "version": "1.0.0",
   "description": "VS Code extension for Dialog interactive fiction development with a Skein engine",
   "publisher": "hlship",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/hlship/dialog-ide.git"
+  },
   "engines": {
     "vscode": "^1.85.0"
   },
@@ -88,6 +92,7 @@
     "@types/jest": "^30.0.0",
     "@types/node": "^20.0.0",
     "@types/vscode": "^1.85.0",
+    "@vscode/vsce": "^3.9.2",
     "daisyui": "^5.7.16",
     "jest": "^30.4.2",
     "ts-jest": "^29.4.12",
@@ -96,7 +101,12 @@
   "files": [
     "dist/**/*",
     "media/**/*",
-    "README.md"
+    "README.md",
+    "LICENSE",
+    "node_modules/diff/**/*",
+    "node_modules/immutable/**/*",
+    "node_modules/vscode-oniguruma/**/*",
+    "node_modules/vscode-textmate/**/*"
   ],
   "dependencies": {
     "diff": "^9.0.0",
