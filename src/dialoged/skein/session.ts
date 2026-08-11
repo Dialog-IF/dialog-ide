@@ -827,6 +827,51 @@ export class SkeinSession {
   }
 
   /**
+   * Actions menu's "Edit Command...". Root's command is a synthetic placeholder, not a real
+   * command - mirrors the same root? guard every other structural action already has (toggleLock,
+   * setLabel, deleteKnot, spliceKnot). A blank command is rejected outright, unlike setLabel's
+   * "blank clears" convention - a knot has to have *some* command text. Renaming to the knot's own
+   * already-current command (after trimming) is a no-op: no reason to restart the process and
+   * replay just to reconfirm a response that's already current.
+   *
+   * On an actual change, tree.renameCommand throws CommandConflictError for a sibling collision
+   * without touching this.tree - computed before pushUndoSnapshot for the usual reason (a rejected
+   * rename must not waste an undo entry). Otherwise, pushes one snapshot capturing the *entire*
+   * pre-edit state (old command and old response together, so undo reverts both at once), then
+   * replays root-through-id on a fresh process to capture what the corrected command actually
+   * produces now - mirrors dialog-tool's edit-command! -> do-replay-to!. Only id itself is
+   * refreshed this way; its own descendants keep their previously recorded responses until
+   * separately replayed (Replay to Here / Replay All), same as do-replay-to! only ever walking
+   * root->knot-id. Doesn't navigate the active knot there either - editing a command isn't a click.
+   */
+  public async setCommand(id: number, command: string): Promise<void> {
+    if (id === 0) {
+      throw new Error('The root knot\'s command cannot be changed');
+    }
+    if (!this.isRunning) {
+      throw new Error('Session not running');
+    }
+    const trimmed = command.trim();
+    if (trimmed === '') {
+      throw new Error('Command cannot be blank');
+    }
+    const knot = this.tree.getKnot(id);
+    if (!knot) {
+      throw new Error(`Knot ${id} not found`);
+    }
+    if (trimmed === knot.command) {
+      return;
+    }
+
+    const renamed = this.tree.renameCommand(id, trimmed);
+    this.pushUndoSnapshot();
+    this.tree = renamed;
+    await this.replayProcessTo(id);
+    this.closeMenus();
+    this.changeEmitter.emit('change');
+  }
+
+  /**
    * Actions menu's "Delete". Root can't be deleted, and neither can a knot (or any of its
    * descendants) that's locked - tree.ts's deleteKnot throws KnotLockedError for that, without
    * touching the tree, so it's computed here before pushUndoSnapshot (same reasoning as

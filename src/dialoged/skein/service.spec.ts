@@ -2,7 +2,7 @@ import * as http from 'http';
 import * as path from 'path';
 import { SkeinService } from './service';
 import { SkeinSession } from './session';
-import { KnotLockedError, LabelConflictError, SkeinTree } from './tree';
+import { CommandConflictError, KnotLockedError, LabelConflictError, SkeinTree } from './tree';
 
 const MEDIA_ROOT = path.join(__dirname, '..', '..', '..', 'media');
 
@@ -19,6 +19,7 @@ function createFakeSession(
     replayToKnot?: (id: number) => void | Promise<void>;
     replayAll?: () => void | Promise<void>;
     setLabel?: (id: number, label: string | null) => void;
+    setCommand?: (id: number, command: string) => void | Promise<void>;
     deleteKnot?: (id: number) => void;
     traceKnot?: (id: number) => string | null | Promise<string | null>;
     traceStartup?: () => string | null | Promise<string | null>;
@@ -36,6 +37,7 @@ function createFakeSession(
     blessChanges: [] as number[],
     toggleLock: [] as number[],
     setLabel: [] as [number, string | null][],
+    setCommand: [] as [number, string][],
     deleteKnot: [] as number[],
     spliceKnot: [] as number[],
     replayToKnot: [] as number[],
@@ -134,6 +136,12 @@ function createFakeSession(
     setLabel: (id: number, label: string | null) => {
       calls.setLabel.push([id, label]);
       options.setLabel?.(id, label);
+      closeMenus();
+      emit();
+    },
+    setCommand: async (id: number, command: string) => {
+      calls.setCommand.push([id, command]);
+      await options.setCommand?.(id, command);
       closeMenus();
       emit();
     },
@@ -807,6 +815,68 @@ describe('SkeinService', () => {
       service.setActiveSession(fake as unknown as SkeinSession, 'default');
 
       const res = await post(`http://localhost:${service.getPort()}/actions/set-label`, { knotId: 1, label: 'checkpoint' });
+
+      expect(res.status).toBe(500);
+    });
+  });
+
+  describe('POST /actions/set-command', () => {
+    it('400s when no session is active', async () => {
+      const res = await post(`http://localhost:${service.getPort()}/actions/set-command`, { knotId: 1, command: 'look' });
+      expect(res.status).toBe(400);
+    });
+
+    it('renames the command (untrimmed body forwarded as-is - session.ts trims) and returns 204', async () => {
+      const tree = SkeinTree.newTree('dgdebug', 1).addChild(0, 'look', { text: 'a', inputType: 'line' });
+      const fake = createFakeSession(tree);
+      service.setActiveSession(fake as unknown as SkeinSession, 'default');
+
+      const res = await post(`http://localhost:${service.getPort()}/actions/set-command`, {
+        knotId: 1,
+        command: 'examine room'
+      });
+
+      expect(res.status).toBe(204);
+      expect(fake.calls.setCommand).toEqual([[1, 'examine room']]);
+    });
+
+    it('treats a missing/non-string command as an empty string, not a crash', async () => {
+      const tree = SkeinTree.newTree('dgdebug', 1).addChild(0, 'look', { text: 'a', inputType: 'line' });
+      const fake = createFakeSession(tree);
+      service.setActiveSession(fake as unknown as SkeinSession, 'default');
+
+      await post(`http://localhost:${service.getPort()}/actions/set-command`, { knotId: 1 });
+
+      expect(fake.calls.setCommand).toEqual([[1, '']]);
+    });
+
+    it('409s with a JSON {error} body for a sibling command collision - the modal reads this to show inline, not a generic 500', async () => {
+      const tree = SkeinTree.newTree('dgdebug', 1).addChild(0, 'look', { text: 'a', inputType: 'line' });
+      const fake = createFakeSession(tree, {
+        setCommand: () => {
+          throw new CommandConflictError('inventory');
+        }
+      });
+      service.setActiveSession(fake as unknown as SkeinSession, 'default');
+
+      const res = await post(`http://localhost:${service.getPort()}/actions/set-command`, { knotId: 1, command: 'inventory' });
+
+      expect(res.status).toBe(409);
+      expect(JSON.parse(res.body)).toEqual({
+        error: 'This knot\'s parent already has a child with the command "inventory".'
+      });
+    });
+
+    it('500s for any other setCommand failure', async () => {
+      const tree = SkeinTree.newTree('dgdebug', 1).addChild(0, 'look', { text: 'a', inputType: 'line' });
+      const fake = createFakeSession(tree, {
+        setCommand: () => {
+          throw new Error('disk full');
+        }
+      });
+      service.setActiveSession(fake as unknown as SkeinSession, 'default');
+
+      const res = await post(`http://localhost:${service.getPort()}/actions/set-command`, { knotId: 1, command: 'examine room' });
 
       expect(res.status).toBe(500);
     });

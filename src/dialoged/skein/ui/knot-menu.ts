@@ -125,7 +125,8 @@ export function renderKnotMenu(
   isOpen: boolean,
   openRoute: KnotMenuOpenRoute,
   isActive: boolean = false,
-  currentLabel: string | null = null
+  currentLabel: string | null = null,
+  currentCommand: string | null = null
 ): string {
   const isRoot = id === 0;
   const { pane, directionClass } = PANE_CONFIG[openRoute];
@@ -149,6 +150,9 @@ export function renderKnotMenu(
     <li${menuItemClass(isRoot)}><button type="button" role="menuitem"${hint('Edit Label', '⌥L')}${menuItemAttrs(isRoot)}
       data-current-label="${escapeHtml(currentLabel ?? '')}"
       data-on:click="sk.showLabelModal(${id}, el.dataset.currentLabel)">Edit Label&hellip;</button></li>
+    <li${menuItemClass(isRoot)}><button type="button" role="menuitem"${hint('Edit Command', '⌥E')}${menuItemAttrs(isRoot)}
+      data-current-command="${escapeHtml(currentCommand ?? '')}"
+      data-on:click="sk.showCommandModal(${id}, el.dataset.currentCommand)">Edit Command&hellip;</button></li>
     <li${menuItemClass(isRoot)}><button type="button" role="menuitem"${hint('Toggle Lock', '⌥K')}${menuItemAttrs(isRoot)} data-on:click="$knotId = ${id}; @post('/actions/toggle-lock')">Toggle Lock</button></li>
     <li${menuItemClass(isRoot)}><button type="button" role="menuitem"${menuItemAttrs(isRoot)} data-on:click="$knotId = ${id}; @post('/actions/splice-knot')">Splice Out</button></li>
     <li${menuItemClass(isRoot)}><button type="button" role="menuitem"${hint('Delete', '⌥D')}${menuItemAttrs(isRoot)} data-on:click="$knotId = ${id}; @post('/actions/delete-knot')">Delete</button></li>

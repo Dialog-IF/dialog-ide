@@ -330,6 +330,129 @@ window.sk = {
     document.getElementById('label-modal')?.remove();
   },
 
+  // Edit Command's modal - near-identical to showLabelModal above, with two deliberate
+  // differences: a blank command is rejected client-side (never even POSTed) rather than treated
+  // as "clear" the way a blank label is, since a knot has to have *some* command text; and a 409
+  // here (tree.ts's CommandConflictError - command uniqueness is scoped to siblings, not
+  // tree-wide like labels) means a different child of the same parent already uses that command.
+  // Success (204) relies on the session's own 'change' broadcast to refresh the knot's response
+  // (service.ts's setCommand replays it under the corrected text) - this modal never touches
+  // #skein-app directly, same as the label modal.
+  showCommandModal(knotId, currentCommand) {
+    this.hideCommandModal();
+    closeAllDropdowns();
+
+    const overlay = document.createElement('div');
+    overlay.id = 'command-modal';
+    overlay.className = 'fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-grayscale';
+
+    const panel = document.createElement('div');
+    panel.className = 'bg-base-100 rounded-lg shadow-xl max-w-full min-w-md mx-4';
+    panel.setAttribute('role', 'dialog');
+    panel.setAttribute('aria-modal', 'true');
+    panel.setAttribute('tabindex', '-1');
+
+    const header = document.createElement('div');
+    header.className = 'px-6 py-4 border-b border-base-200';
+    const heading = document.createElement('h3');
+    heading.className = 'text-lg font-medium text-base-content';
+    heading.textContent = 'Edit Command';
+    header.appendChild(heading);
+
+    const body = document.createElement('div');
+    body.className = 'px-6 py-4';
+
+    const errorEl = document.createElement('div');
+    errorEl.className = 'alert alert-error text-sm mb-3 hidden';
+    errorEl.setAttribute('role', 'alert');
+    errorEl.setAttribute('aria-live', 'assertive');
+    body.appendChild(errorEl);
+
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'input input-bordered w-full font-mono';
+    input.value = currentCommand || '';
+    input.placeholder = 'Command';
+    input.setAttribute('aria-label', 'Command');
+    body.appendChild(input);
+
+    const buttonRow = document.createElement('div');
+    buttonRow.className = 'flex justify-end gap-2 mt-4';
+
+    const cancelBtn = document.createElement('button');
+    cancelBtn.type = 'button';
+    cancelBtn.className = 'btn btn-neutral';
+    cancelBtn.textContent = 'Cancel';
+    cancelBtn.addEventListener('click', () => this.hideCommandModal());
+
+    const okBtn = document.createElement('button');
+    okBtn.type = 'button';
+    okBtn.className = 'btn btn-primary';
+    okBtn.textContent = 'OK';
+    const submit = async () => {
+      errorEl.classList.add('hidden');
+      if (input.value.trim() === '') {
+        errorEl.textContent = 'Command cannot be blank.';
+        errorEl.classList.remove('hidden');
+        input.focus();
+        return;
+      }
+      let res;
+      try {
+        res = await fetch('/actions/set-command', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ knotId, command: input.value })
+        });
+      } catch {
+        errorEl.textContent = 'Failed to reach the server.';
+        errorEl.classList.remove('hidden');
+        return;
+      }
+      if (res.status === 204) {
+        this.hideCommandModal();
+        return;
+      }
+      if (res.status === 409) {
+        const body = await res.json().catch(() => ({}));
+        errorEl.textContent = body.error || 'A sibling already uses that command.';
+      } else {
+        errorEl.textContent = 'Failed to save command.';
+      }
+      errorEl.classList.remove('hidden');
+      input.focus();
+      input.select();
+    };
+    okBtn.addEventListener('click', submit);
+
+    buttonRow.append(cancelBtn, okBtn);
+    body.appendChild(buttonRow);
+
+    panel.append(header, body);
+    overlay.appendChild(panel);
+    document.body.appendChild(overlay);
+
+    panel.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        this.hideCommandModal();
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        submit();
+      } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'a') {
+        e.preventDefault();
+        input.select();
+      }
+    });
+
+    input.focus();
+    input.select();
+  },
+
+  hideCommandModal() {
+    document.getElementById('command-modal')?.remove();
+  },
+
   // ---------------------------------------------------------------------------
   // Tree/graph pane: SVG connector lines + drag-to-pan.
   // Ported from dialog-tool's own main.js (initTreeGraph/drawTreeArrows) - same element ids
@@ -597,8 +720,14 @@ function currentLabelOf(knotId) {
   return document.querySelector(`#knot-${knotId} [data-current-label]`)?.dataset.currentLabel ?? '';
 }
 
+// ⌥E's target: the knot's current command, read off the "Edit Command" menu button's own
+// data-current-command attribute (knot-menu.ts) - same convention as currentLabelOf above.
+function currentCommandOf(knotId) {
+  return document.querySelector(`#knot-${knotId} [data-current-command]`)?.dataset.currentCommand ?? '';
+}
+
 document.addEventListener('keydown', (evt) => {
-  if (document.getElementById('progress-modal') || document.getElementById('label-modal')) return;
+  if (document.getElementById('progress-modal') || document.getElementById('label-modal') || document.getElementById('command-modal')) return;
 
   const mod = evt.metaKey || evt.ctrlKey;
   const opt = evt.altKey;
@@ -657,6 +786,9 @@ document.addEventListener('keydown', (evt) => {
     } else if (code === 'KeyL' && knotId !== 0) {
       evt.preventDefault();
       sk.showLabelModal(knotId, currentLabelOf(knotId));
+    } else if (code === 'KeyE' && knotId !== 0) {
+      evt.preventDefault();
+      sk.showCommandModal(knotId, currentCommandOf(knotId));
     }
   }
 });

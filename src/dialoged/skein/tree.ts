@@ -34,6 +34,19 @@ export class KnotLockedError extends Error {
 }
 
 /**
+ * Thrown by renameCommand when the knot's parent already has a *different* child using the
+ * requested command text. Unlike a label (tree-wide unique via findByLabel), command uniqueness
+ * is scoped to siblings sharing the same parent - the same scope findChildId itself uses to
+ * decide whether runCommand should reuse an existing child or create a new one.
+ */
+export class CommandConflictError extends Error {
+  constructor(command: string) {
+    super(`This knot's parent already has a child with the command "${command}".`);
+    this.name = 'CommandConflictError';
+  }
+}
+
+/**
  * Whether a freshly-captured response is identical to a knot's already-blessed response, in
  * which case there's nothing pending to diff or persist as unblessedResponse - see
  * responseAfterUpdate.
@@ -501,6 +514,36 @@ export class SkeinTree {
       }
     }
     return null;
+  }
+
+  /**
+   * Rename a knot's command - returns a new SkeinTree instance. Unlike a label (tree-wide unique
+   * via findByLabel), command uniqueness is scoped to siblings sharing the same parent - the same
+   * scope findChildId itself uses when runCommand decides whether to reuse an existing child or
+   * create a new one. A collision with a *different* sibling throws CommandConflictError; renaming
+   * to the knot's own already-current command is a no-op. Deliberately doesn't touch response/
+   * unblessedResponse or knot state at all - the caller (session.ts's setCommand) is responsible
+   * for replaying to refresh the knot's response under its new command, mirroring dialog-tool's
+   * tree/change-command (a pure rename, documented there as not affecting status "until the
+   * command is re-executed") always being paired with its caller's own do-replay-to!.
+   */
+  public renameCommand(id: number, command: string): SkeinTree {
+    const knot = this.knots.get(id);
+    if (!knot) {
+      throw new Error(`Knot ${id} not found`);
+    }
+    if (command === knot.command) {
+      return this;
+    }
+    if (knot.parentId !== null) {
+      const existingChildId = this.findChildId(knot.parentId, command);
+      if (existingChildId !== null) {
+        throw new CommandConflictError(command);
+      }
+    }
+
+    const updatedKnot: WireKnot = { ...knot, command };
+    return new SkeinTree(this.engine, this.seed, this.knots.set(id, updatedKnot), this.knotStates, this.activeKnotId, this.collapsedKnotIds, this.dynamicStates);
   }
 
   /**

@@ -9,7 +9,7 @@ import * as path from 'path';
 import { IGrammar } from 'vscode-textmate';
 import { SkeinSession } from './session';
 import { DialogCompileError } from './compile-error';
-import { KnotLockedError, LabelConflictError, SkeinTree } from './tree';
+import { CommandConflictError, KnotLockedError, LabelConflictError, SkeinTree } from './tree';
 import { renderApp, renderPage, SessionDisplayInfo } from './ui/render';
 import { renderTraceApp, renderTracePage, CurrentTraceState } from './ui/traceRender';
 import { ProgressHost, ProgressReporter, CancellationToken } from './progress';
@@ -375,6 +375,11 @@ export class SkeinService implements ProgressHost {
       return;
     }
 
+    if (req.method === 'POST' && url.pathname === '/actions/set-command') {
+      await this.handleSetCommand(req, res);
+      return;
+    }
+
     if (req.method === 'POST' && url.pathname === '/actions/delete-knot') {
       await this.handleKnotAction(req, res, (session, knotId) => session.deleteKnot(knotId));
       return;
@@ -649,6 +654,51 @@ export class SkeinService implements ProgressHost {
         return;
       }
       console.error('Failed to set label:', error);
+      res.writeHead(500);
+      res.end();
+      return;
+    }
+
+    res.writeHead(204);
+    res.end();
+  }
+
+  /**
+   * POST /actions/set-command - {knotId, command}. Unlike set-label, a blank command is rejected
+   * outright (session.ts's setCommand throws) rather than treated as "clear" - a knot has to have
+   * *some* command text. A sibling collision is an expected, user-facing rejection (command
+   * uniqueness is scoped to siblings, not tree-wide like labels - tree.ts's CommandConflictError):
+   * 409 with a JSON {error} body the command modal reads and displays inline, same shape as
+   * handleSetLabel's own 409 path. Unlike setLabel, this does touch the process (it replays the
+   * edited knot to capture its new response), so a genuine failure can be a DialogCompileError -
+   * reported the same way every other replay-triggering handler already does.
+   */
+  private async handleSetCommand(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+    if (!this.activeSession) {
+      res.writeHead(400);
+      res.end();
+      return;
+    }
+
+    const payload = parseJsonBody(await readRequestBody(req));
+    const knotId = parseKnotId(payload);
+    if (knotId === null) {
+      res.writeHead(400);
+      res.end();
+      return;
+    }
+    const command = typeof payload.command === 'string' ? payload.command : '';
+
+    try {
+      await this.activeSession.setCommand(knotId, command);
+    } catch (error) {
+      if (error instanceof CommandConflictError) {
+        res.writeHead(409, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ error: error.message }));
+        return;
+      }
+      console.error('Failed to set command:', error);
+      this.reportIfCompileError(error);
       res.writeHead(500);
       res.end();
       return;

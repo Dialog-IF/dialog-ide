@@ -157,7 +157,7 @@ function renderTreeNode(knot: DerivedKnot, spine: Set<number>, activeKnotId: num
     data-on:click="if (!evt.target.closest('details')) { ${selectCall} }"
     data-on:keydown="if (evt.key === 'Enter' || evt.key === ' ') { evt.preventDefault(); ${selectCall} }"
     aria-label="${escapeHtml(knot.command)}${statusSuffix}"
-    aria-pressed="${active}">${statusIcon}${lockIcon}${labelChip}${commandLabel}<span class="ml-auto">${renderKnotMenu(knot.id, knot.unblessedResponse !== null, knot.id === graphMenuId, '/actions/open-graph-menu', active, knot.label)}</span></div>
+    aria-pressed="${active}">${statusIcon}${lockIcon}${labelChip}${commandLabel}<span class="ml-auto">${renderKnotMenu(knot.id, knot.unblessedResponse !== null, knot.id === graphMenuId, '/actions/open-graph-menu', active, knot.label, knot.command)}</span></div>
   ${toggleButton}
 </div>`;
 }

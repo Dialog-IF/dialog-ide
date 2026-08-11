@@ -61,7 +61,7 @@ function fakeProcessInstance() {
 import * as path from 'path';
 import { SkeinSession, SessionConfig } from './session';
 import { DialogCompileError } from './compile-error';
-import { KnotLockedError, LabelConflictError, SkeinTree } from './tree';
+import { CommandConflictError, KnotLockedError, LabelConflictError, SkeinTree } from './tree';
 import { ProgressHost } from './progress';
 
 /**
@@ -1228,6 +1228,110 @@ describe('SkeinSession', () => {
       session.undo();
 
       expect(session.getTree().getKnot(1)!.label).toBeNull();
+    });
+  });
+
+  describe('setCommand', () => {
+    it("renames the command and replays to capture a fresh response under the new text", async () => {
+      const session = await startedSessionWith(
+        SkeinTree.newTree('dgdebug', 1).addChild(0, 'look', { text: 'Room A.\n', inputType: 'line' })
+      );
+      mockReadResponse
+        .mockResolvedValueOnce(BANNER_RESPONSE) // setCommand's relaunch
+        .mockResolvedValueOnce(dynamicResponse([])) // relaunch's own @dynamic, for knot 0
+        .mockResolvedValueOnce({ command: 'examine room', response: 'A dusty room.\n', promptType: 'line' })
+        .mockResolvedValueOnce(dynamicResponse([]));
+
+      await session.setCommand(1, 'examine room');
+
+      expect(mockSendCommand).toHaveBeenCalledWith('examine room');
+      const knot1 = session.getTree().getDerivedKnot(1)!;
+      expect(knot1.command).toBe('examine room');
+      expect(knot1.unblessedResponse).toBe('A dusty room.\n');
+    });
+
+    it('throws for the root knot', async () => {
+      const session = await startedSessionWith(SkeinTree.newTree('dgdebug', 1));
+      await expect(session.setCommand(0, 'look')).rejects.toThrow();
+    });
+
+    it('throws for a blank (or whitespace-only) command', async () => {
+      const session = await startedSessionWith(
+        SkeinTree.newTree('dgdebug', 1).addChild(0, 'look', { text: 'a', inputType: 'line' })
+      );
+      await expect(session.setCommand(1, '   ')).rejects.toThrow('Command cannot be blank');
+    });
+
+    it('propagates CommandConflictError for a command a different sibling already uses, without touching the process', async () => {
+      const session = await startedSessionWith(
+        SkeinTree.newTree('dgdebug', 1)
+          .addChild(0, 'look', { text: 'a', inputType: 'line' })
+          .addChild(0, 'inventory', { text: 'b', inputType: 'line' })
+      );
+
+      await expect(session.setCommand(2, 'look')).rejects.toThrow(CommandConflictError);
+      expect(session.getTree().getKnot(2)!.command).toBe('inventory');
+      expect(mockTerminate).not.toHaveBeenCalled();
+    });
+
+    it("is a no-op (no process restart) when renaming to the knot's own already-current command", async () => {
+      const session = await startedSessionWith(
+        SkeinTree.newTree('dgdebug', 1).addChild(0, 'look', { text: 'a', inputType: 'line' })
+      );
+
+      await session.setCommand(1, 'look');
+
+      expect(mockTerminate).not.toHaveBeenCalled();
+    });
+
+    it('trims surrounding whitespace before comparing/using the command text', async () => {
+      const session = await startedSessionWith(
+        SkeinTree.newTree('dgdebug', 1).addChild(0, 'look', { text: 'a', inputType: 'line' })
+      );
+
+      await session.setCommand(1, '  look  '); // same as the current command, once trimmed
+
+      expect(mockTerminate).not.toHaveBeenCalled();
+    });
+
+    it('does not navigate the active knot - editing a command is not a click', async () => {
+      const session = await startedSessionWith(
+        SkeinTree.newTree('dgdebug', 1)
+          .addChild(0, 'look', { text: 'Room A.\n', inputType: 'line' })
+          .addChild(0, 'inventory', { text: 'Empty-handed.\n', inputType: 'line' })
+          .setActiveKnotId(2)
+      );
+      mockReadResponse
+        .mockResolvedValueOnce(BANNER_RESPONSE)
+        .mockResolvedValueOnce(dynamicResponse([]))
+        .mockResolvedValueOnce({ command: 'examine room', response: 'A dusty room.\n', promptType: 'line' })
+        .mockResolvedValueOnce(dynamicResponse([]));
+
+      await session.setCommand(1, 'examine room');
+
+      expect(session.getTree().getActiveKnotId()).toBe(2);
+    });
+
+    // A rejected rename was never a real edit - undo must not treat it as one (same reasoning as
+    // setLabel's own equivalent test).
+    it('does not waste an undo entry on a rejected (conflicting) command', async () => {
+      const session = await startedSessionWith(
+        SkeinTree.newTree('dgdebug', 1)
+          .addChild(0, 'look', { text: 'a', inputType: 'line' })
+          .addChild(0, 'inventory', { text: 'b', inputType: 'line' })
+      );
+      mockReadResponse
+        .mockResolvedValueOnce(BANNER_RESPONSE)
+        .mockResolvedValueOnce(dynamicResponse([]))
+        .mockResolvedValueOnce({ command: 'examine room', response: 'a', promptType: 'line' })
+        .mockResolvedValueOnce(dynamicResponse([]));
+
+      await session.setCommand(1, 'examine room'); // a real, valid edit - pushes one undo entry
+      await expect(session.setCommand(2, 'examine room')).rejects.toThrow(CommandConflictError); // rejected
+
+      session.undo();
+
+      expect(session.getTree().getKnot(1)!.command).toBe('look');
     });
   });
 

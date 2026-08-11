@@ -93,6 +93,15 @@ describe('renderTreePane', () => {
     expect(knot1).toContain('data-on:click="sk.showLabelModal(1, el.dataset.currentLabel)"');
   });
 
+  it("wires the menu's Edit Command item to the modal, carrying the knot's current command", () => {
+    const tree = SkeinTree.newTree('dgdebug', 1).addChild(0, 'look', { text: 'a', inputType: 'line' });
+    const html = renderTreePane(tree);
+    const knot1 = html.split('data-tree-node-id="1"')[1];
+
+    expect(knot1).toContain('data-current-command="look"');
+    expect(knot1).toContain('data-on:click="sk.showCommandModal(1, el.dataset.currentCommand)"');
+  });
+
   // main.js's Option+letter accelerators always act on the active knot - see render.spec.ts's
   // equivalent test on the transcript side for the full rationale.
   it("shows keyboard-shortcut hints only on the active node's own menu items", () => {

@@ -1,5 +1,5 @@
 import { DynamicState } from './dynamic';
-import { KnotLockedError, LabelConflictError, SkeinTree, WireKnot } from './tree';
+import { CommandConflictError, KnotLockedError, LabelConflictError, SkeinTree, WireKnot } from './tree';
 
 const EMPTY_DYNAMIC_STATE: DynamicState = { flags: new Set(), vars: {} };
 
@@ -392,6 +392,60 @@ describe('SkeinTree.setLabel / setLockStatus', () => {
       .addChild(0, 'look', { text: 'a', inputType: 'line' });
     expect(tree.setLockStatus(1, true).getKnot(1)!.locked).toBe(true);
     expect(tree.setLockStatus(1, true).setLockStatus(1, false).getKnot(1)!.locked).toBe(false);
+  });
+});
+
+describe('SkeinTree.renameCommand', () => {
+  it("renames a knot's command", () => {
+    const tree = SkeinTree.newTree('dgdebug', 1)
+      .addChild(0, 'look', { text: 'a', inputType: 'line' }) // knot 1
+      .renameCommand(1, 'examine room');
+    expect(tree.getKnot(1)!.command).toBe('examine room');
+  });
+
+  // Command uniqueness is scoped to siblings sharing the same parent, not tree-wide like labels -
+  // matches findChildId's own scope, the same lookup runCommand uses to decide reuse-vs-create.
+  it('throws CommandConflictError when a different sibling already uses the requested command', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1)
+      .addChild(0, 'look', { text: 'a', inputType: 'line' }) // knot 1
+      .addChild(0, 'inventory', { text: 'b', inputType: 'line' }); // knot 2
+
+    expect(() => tree.renameCommand(2, 'look')).toThrow(CommandConflictError);
+    expect(() => tree.renameCommand(2, 'look')).toThrow(
+      'This knot\'s parent already has a child with the command "look".'
+    );
+  });
+
+  it('allows renaming to a command already used by a knot under a *different* parent', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1)
+      .addChild(0, 'look', { text: 'a', inputType: 'line' }) // knot 1
+      .addChild(1, 'inventory', { text: 'b', inputType: 'line' }); // knot 2, child of 1, not a sibling of 1
+
+    expect(() => tree.renameCommand(2, 'look')).not.toThrow();
+  });
+
+  it('renaming to a knot\'s own already-current command is a no-op, not a conflict with itself', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1)
+      .addChild(0, 'look', { text: 'a', inputType: 'line' }); // knot 1
+
+    expect(() => tree.renameCommand(1, 'look')).not.toThrow();
+    expect(tree.renameCommand(1, 'look')).toBe(tree); // genuinely the same instance - nothing changed
+  });
+
+  it('leaves response/unblessedResponse and knot state completely untouched - only the command text changes', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1)
+      .addChild(0, 'look', { text: 'a', inputType: 'line' })
+      .blessKnot(1);
+    const renamed = tree.renameCommand(1, 'examine room');
+
+    expect(renamed.getKnot(1)!.command).toBe('examine room');
+    expect(renamed.getDerivedKnot(1)!.response).toBe('a');
+    expect(renamed.getDerivedKnot(1)!.state).toBe('valid');
+  });
+
+  it('throws when the knot does not exist', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1);
+    expect(() => tree.renameCommand(999, 'look')).toThrow();
   });
 });
 

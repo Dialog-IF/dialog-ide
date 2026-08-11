@@ -225,6 +225,14 @@ describe('renderKnotList', () => {
     expect(knot1Section).toContain('data-on:click="sk.showLabelModal(1, el.dataset.currentLabel)"');
   });
 
+  it("wires Edit Command to the modal, carrying the knot's current command", () => {
+    const tree = SkeinTree.newTree('dgdebug', 1).addChild(0, 'look', { text: 'a', inputType: 'line' });
+    const html = renderKnotList(tree);
+    const knot1Section = html.split('id="knot-1"')[1].split('<div class="flex flex-row" id="knot-')[0];
+    expect(knot1Section).toContain('data-current-command="look"');
+    expect(knot1Section).toContain('data-on:click="sk.showCommandModal(1, el.dataset.currentCommand)"');
+  });
+
   it('opens knot 1\'s menu (and only knot 1\'s) when menuKnotId matches it', () => {
     const tree = SkeinTree.newTree('dgdebug', 1)
       .addChild(0, 'look', { text: 'a', inputType: 'line' })
