@@ -46,7 +46,25 @@
         "command": "dialog-ide.debugInTerminal",
         "title": "Dialog IDE: Debug in Terminal"
       }
-    ]
+    ],
+    "viewsContainers": {
+      "panel": [
+        {
+          "id": "dialogIdeTracePanel",
+          "title": "Trace",
+          "icon": "media/icons/bug-ant-solid.svg"
+        }
+      ]
+    },
+    "views": {
+      "dialogIdeTracePanel": [
+        {
+          "type": "webview",
+          "id": "dialogIdeTraceView",
+          "name": "Trace"
+        }
+      ]
+    }
   },
   "scripts": {
     "vscode:prepublish": "npm run build",
@@ -82,6 +100,8 @@
   ],
   "dependencies": {
     "diff": "^9.0.0",
-    "immutable": "^5.1.9"
+    "immutable": "^5.1.9",
+    "vscode-oniguruma": "^2.0.1",
+    "vscode-textmate": "^9.3.2"
   }
 }

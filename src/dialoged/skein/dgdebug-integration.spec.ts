@@ -14,6 +14,7 @@ import * as path from 'path';
 import { SkeinProcess } from './process';
 import { SkeinSession } from './session';
 import { readProject, expandSources } from './project';
+import { buildTraceTree, countNodes, parseTraceLines } from './trace';
 
 jest.setTimeout(15000);
 
@@ -92,6 +93,61 @@ describeIfDgdebug('Real dgdebug integration (no mocks)', () => {
         const dynamicState = session.getTree().getDynamicState(activeId);
         expect(dynamicState).not.toBeNull();
         expect(dynamicState!.flags.size).toBeGreaterThan(0);
+      } finally {
+        await session.stop();
+      }
+    });
+  });
+
+  describe('SkeinSession.traceKnot/traceStartup against the real dgdebug binary', () => {
+    it('traces a knot\'s command, returning real |-tagged trace lines, without touching the knot\'s own stored response', async () => {
+      const session = SkeinSession.createNew({ engine: 'dgdebug', seed: 42, projectRoot: FIXTURE_ROOT });
+      await session.start();
+
+      try {
+        await session.runCommand('look');
+        const tree = session.getTree();
+        const knotId = tree.getActiveKnotId()!;
+        const knotBefore = tree.getKnot(knotId);
+
+        const raw = await session.traceKnot(knotId);
+        expect(raw).not.toBeNull();
+        const lines = parseTraceLines(raw!);
+        expect(lines.length).toBeGreaterThan(0);
+        expect(lines.every((line) => ['enter', 'query', 'found', 'now'].includes(line.type))).toBe(true);
+
+        const traceTree = buildTraceTree(raw!);
+        expect(countNodes(traceTree)).toBe(lines.length);
+
+        // Tracing must never leak into the knot's own stored response.
+        expect(session.getTree().getKnot(knotId)).toEqual(knotBefore);
+        expect(session.getTree().getDerivedKnot(knotId)!.unblessedResponse).toContain(
+          'You are in an endless, featureless space'
+        );
+      } finally {
+        await session.stop();
+      }
+    });
+
+    it('traces startup and leaves the process healthy for a normal command afterward', async () => {
+      const session = SkeinSession.createNew({ engine: 'dgdebug', seed: 42, projectRoot: FIXTURE_ROOT });
+      await session.start();
+
+      try {
+        const raw = await session.traceStartup();
+        expect(raw).not.toBeNull();
+        const lines = parseTraceLines(raw!);
+        expect(lines.length).toBeGreaterThan(0);
+
+        expect(session.getTree().getActiveKnotId()).toBe(0);
+        expect(session.getProcessPositionId()).toBe(0);
+
+        // The restart left a genuinely healthy process, not a hung/half-traced one.
+        await session.runCommand('look');
+        const activeId = session.getTree().getActiveKnotId()!;
+        expect(session.getTree().getDerivedKnot(activeId)!.unblessedResponse).toContain(
+          'You are in an endless, featureless space'
+        );
       } finally {
         await session.stop();
       }

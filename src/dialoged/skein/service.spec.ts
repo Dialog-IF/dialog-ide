@@ -19,6 +19,9 @@ function createFakeSession(
     replayToKnot?: (id: number) => void | Promise<void>;
     replayAll?: () => void | Promise<void>;
     setLabel?: (id: number, label: string | null) => void;
+    traceKnot?: (id: number) => string | null | Promise<string | null>;
+    traceStartup?: () => string | null | Promise<string | null>;
+    getProjectRoot?: () => string;
   } = {}
 ) {
   const listeners: Array<() => void> = [];
@@ -40,7 +43,9 @@ function createFakeSession(
     toggleTreeNode: [] as number[],
     undoCount: 0,
     redoCount: 0,
-    toggleShowDynamicStateCount: 0
+    toggleShowDynamicStateCount: 0,
+    traceKnot: [] as number[],
+    traceStartupCount: 0
   };
   const emit = () => listeners.forEach((fn) => fn());
   let showDynamicState = false;
@@ -168,6 +173,19 @@ function createFakeSession(
       calls.toggleShowDynamicStateCount++;
       showDynamicState = !showDynamicState;
       emit();
+    },
+    getProjectRoot: () => options.getProjectRoot?.() ?? '/fake/project/root',
+    traceKnot: async (id: number) => {
+      calls.traceKnot.push(id);
+      const result = (await options.traceKnot?.(id)) ?? null;
+      emit();
+      return result;
+    },
+    traceStartup: async () => {
+      calls.traceStartupCount++;
+      const result = (await options.traceStartup?.()) ?? null;
+      emit();
+      return result;
     }
   };
 }
@@ -1025,6 +1043,294 @@ describe('SkeinService', () => {
     });
   });
 
+  describe('Trace panel routes (/trace, /trace/events, /trace/source-preview, /actions/trace-*)', () => {
+    const DGSAMPLE_ROOT = path.join(__dirname, '__fixtures__', 'project', 'dgsample');
+    const RAW_TRACE = [
+      '| 1 ENTER (look) src/orb.dg:5',
+      '| 2 QUERY (something) src/orb.dg:7',
+      '| 2 FOUND (something) src/orb.dg:7'
+    ].join('\n');
+
+    describe('GET /trace', () => {
+      it('shows a placeholder when nothing has been traced yet', async () => {
+        const res = await get(`http://localhost:${service.getPort()}/trace`);
+        expect(res.status).toBe(200);
+        expect(res.body).toContain('No trace yet');
+      });
+    });
+
+    describe('POST /actions/trace-knot', () => {
+      it('400s when no session is active', async () => {
+        const res = await post(`http://localhost:${service.getPort()}/actions/trace-knot`, { knotId: 0 });
+        expect(res.status).toBe(400);
+      });
+
+      it('400s when knotId is missing/invalid', async () => {
+        const tree = SkeinTree.newTree('dgdebug', 1);
+        const fake = createFakeSession(tree);
+        service.setActiveSession(fake as unknown as SkeinSession, 'default');
+
+        const res = await post(`http://localhost:${service.getPort()}/actions/trace-knot`, {});
+        expect(res.status).toBe(400);
+      });
+
+      it('400s when session.traceKnot returns null (e.g. root, or a non-dgdebug engine)', async () => {
+        const tree = SkeinTree.newTree('dgdebug', 1);
+        const fake = createFakeSession(tree, { traceKnot: () => null });
+        service.setActiveSession(fake as unknown as SkeinSession, 'default');
+
+        const res = await post(`http://localhost:${service.getPort()}/actions/trace-knot`, { knotId: 0 });
+        expect(res.status).toBe(400);
+      });
+
+      it('500s when session.traceKnot rejects', async () => {
+        const tree = SkeinTree.newTree('dgdebug', 1).addChild(0, 'look', { text: 'a', inputType: 'line' });
+        const fake = createFakeSession(tree, {
+          traceKnot: () => {
+            throw new Error('process died');
+          }
+        });
+        service.setActiveSession(fake as unknown as SkeinSession, 'default');
+
+        const res = await post(`http://localhost:${service.getPort()}/actions/trace-knot`, { knotId: 1 });
+        expect(res.status).toBe(500);
+      });
+
+      it("parses the raw response into the trace tree, labels it with the knot's own command, and broadcasts it over /trace/events", async () => {
+        const tree = SkeinTree.newTree('dgdebug', 1).addChild(0, 'look', { text: 'a', inputType: 'line' });
+        const fake = createFakeSession(tree, { traceKnot: (id) => (id === 1 ? RAW_TRACE : null) });
+        service.setActiveSession(fake as unknown as SkeinSession, 'default');
+
+        const chunks: string[] = [];
+        const req = http.get(`http://localhost:${service.getPort()}/trace/events`, (res) => {
+          res.on('data', (chunk) => chunks.push(chunk.toString()));
+        });
+        try {
+          await waitFor(() => chunks.length > 0);
+          chunks.length = 0;
+
+          const res = await post(`http://localhost:${service.getPort()}/actions/trace-knot`, { knotId: 1 });
+          expect(res.status).toBe(204);
+          expect(fake.calls.traceKnot).toEqual([1]);
+
+          await waitFor(() => chunks.join('').includes('(look)'));
+          const broadcast = chunks.join('');
+          expect(broadcast).toContain('(look)');
+          expect(broadcast).toContain('ENTER');
+
+          const page = await get(`http://localhost:${service.getPort()}/trace`);
+          expect(page.body).toContain('(look)');
+          expect(page.body).toContain('src/orb.dg:5');
+        } finally {
+          req.destroy();
+        }
+      });
+
+      it('displays an absolute source path relative to the project root, not verbatim', async () => {
+        const absoluteRawTrace = `| 1 ENTER (look) ${path.join(DGSAMPLE_ROOT, 'src', 'orb.dg')}:5`;
+        const tree = SkeinTree.newTree('dgdebug', 1).addChild(0, 'look', { text: 'a', inputType: 'line' });
+        const fake = createFakeSession(tree, {
+          traceKnot: (id) => (id === 1 ? absoluteRawTrace : null),
+          getProjectRoot: () => DGSAMPLE_ROOT
+        });
+        service.setActiveSession(fake as unknown as SkeinSession, 'default');
+
+        await post(`http://localhost:${service.getPort()}/actions/trace-knot`, { knotId: 1 });
+
+        const page = await get(`http://localhost:${service.getPort()}/trace`);
+        expect(page.body).toContain('src/orb.dg:5');
+        expect(page.body).not.toContain(DGSAMPLE_ROOT);
+      });
+
+      it('calls onTraceRequested (revealing the panel) before attempting the trace, even when it then 400s - but not when the request itself is malformed', async () => {
+        const onTraceRequested = jest.fn();
+        const revealingService = new SkeinService({ port: 0, host: 'localhost', mediaRoot: MEDIA_ROOT, onTraceRequested });
+        await revealingService.start();
+        try {
+          const tree = SkeinTree.newTree('dgdebug', 1).addChild(0, 'look', { text: 'a', inputType: 'line' });
+          const fake = createFakeSession(tree, { traceKnot: (id) => (id === 1 ? RAW_TRACE : null) });
+
+          // No active session yet - never gets far enough to reveal anything.
+          await post(`http://localhost:${revealingService.getPort()}/actions/trace-knot`, { knotId: 1 });
+          expect(onTraceRequested).not.toHaveBeenCalled();
+
+          revealingService.setActiveSession(fake as unknown as SkeinSession, 'default');
+
+          // Malformed body (no knotId) - a client error caught before any real work starts.
+          await post(`http://localhost:${revealingService.getPort()}/actions/trace-knot`, {});
+          expect(onTraceRequested).not.toHaveBeenCalled();
+
+          // Valid knotId that traceKnot then rejects (no such knot, per the fake above) - still
+          // reveals the panel first, since "show the spinner, then do the work" doesn't know the
+          // outcome yet at reveal time.
+          await post(`http://localhost:${revealingService.getPort()}/actions/trace-knot`, { knotId: 999 });
+          expect(onTraceRequested).toHaveBeenCalledTimes(1);
+
+          await post(`http://localhost:${revealingService.getPort()}/actions/trace-knot`, { knotId: 1 });
+          expect(onTraceRequested).toHaveBeenCalledTimes(2);
+        } finally {
+          await revealingService.stop();
+        }
+      });
+
+      it('broadcasts a loading state immediately, before the trace itself resolves', async () => {
+        const tree = SkeinTree.newTree('dgdebug', 1).addChild(0, 'look', { text: 'a', inputType: 'line' });
+        let resolveTrace: (value: string | null) => void = () => {};
+        const fake = createFakeSession(tree, {
+          traceKnot: () => new Promise<string | null>((resolve) => { resolveTrace = resolve; })
+        });
+        service.setActiveSession(fake as unknown as SkeinSession, 'default');
+
+        const chunks: string[] = [];
+        const req = http.get(`http://localhost:${service.getPort()}/trace/events`, (res) => {
+          res.on('data', (chunk) => chunks.push(chunk.toString()));
+        });
+        try {
+          await waitFor(() => chunks.length > 0);
+          chunks.length = 0;
+
+          const postPromise = post(`http://localhost:${service.getPort()}/actions/trace-knot`, { knotId: 1 });
+          await waitFor(() => chunks.join('').includes('loading-spinner'));
+
+          const pageWhileLoading = await get(`http://localhost:${service.getPort()}/trace`);
+          expect(pageWhileLoading.body).toContain('loading-spinner');
+
+          resolveTrace(RAW_TRACE);
+          await postPromise;
+
+          const pageAfter = await get(`http://localhost:${service.getPort()}/trace`);
+          expect(pageAfter.body).not.toContain('loading-spinner');
+          expect(pageAfter.body).toContain('(look)');
+        } finally {
+          req.destroy();
+        }
+      });
+    });
+
+    describe('POST /actions/trace-startup', () => {
+      it('400s when no session is active', async () => {
+        const res = await post(`http://localhost:${service.getPort()}/actions/trace-startup`, {});
+        expect(res.status).toBe(400);
+      });
+
+      it('400s when session.traceStartup returns null', async () => {
+        const tree = SkeinTree.newTree('dgdebug', 1);
+        const fake = createFakeSession(tree, { traceStartup: () => null });
+        service.setActiveSession(fake as unknown as SkeinSession, 'default');
+
+        const res = await post(`http://localhost:${service.getPort()}/actions/trace-startup`, {});
+        expect(res.status).toBe(400);
+      });
+
+      it('500s when session.traceStartup rejects', async () => {
+        const tree = SkeinTree.newTree('dgdebug', 1);
+        const fake = createFakeSession(tree, {
+          traceStartup: () => {
+            throw new Error('boom');
+          }
+        });
+        service.setActiveSession(fake as unknown as SkeinSession, 'default');
+
+        const res = await post(`http://localhost:${service.getPort()}/actions/trace-startup`, {});
+        expect(res.status).toBe(500);
+      });
+
+      it('parses the raw response, labelled "startup"', async () => {
+        const tree = SkeinTree.newTree('dgdebug', 1);
+        const fake = createFakeSession(tree, { traceStartup: () => RAW_TRACE });
+        service.setActiveSession(fake as unknown as SkeinSession, 'default');
+
+        const res = await post(`http://localhost:${service.getPort()}/actions/trace-startup`, {});
+        expect(res.status).toBe(204);
+        expect(fake.calls.traceStartupCount).toBe(1);
+
+        const page = await get(`http://localhost:${service.getPort()}/trace`);
+        expect(page.body).toContain('startup');
+        expect(page.body).toContain('(look)');
+      });
+    });
+
+    describe('POST /actions/trace-search, trace-toggle-node, trace-expand-all, trace-collapse-all', () => {
+      async function traced() {
+        const tree = SkeinTree.newTree('dgdebug', 1);
+        const fake = createFakeSession(tree, { traceStartup: () => RAW_TRACE });
+        service.setActiveSession(fake as unknown as SkeinSession, 'default');
+        await post(`http://localhost:${service.getPort()}/actions/trace-startup`, {});
+        return fake;
+      }
+
+      it('400s for each when nothing has been traced yet', async () => {
+        const searchRes = await post(`http://localhost:${service.getPort()}/actions/trace-search`, { searchTerm: 'x' });
+        const toggleRes = await post(`http://localhost:${service.getPort()}/actions/trace-toggle-node`, { nodeId: 1 });
+        const expandRes = await post(`http://localhost:${service.getPort()}/actions/trace-expand-all`, {});
+        const collapseRes = await post(`http://localhost:${service.getPort()}/actions/trace-collapse-all`, {});
+
+        expect([searchRes.status, toggleRes.status, expandRes.status, collapseRes.status]).toEqual([400, 400, 400, 400]);
+      });
+
+      it('trace-expand-all reveals children; trace-collapse-all hides them again', async () => {
+        await traced();
+
+        let page = await get(`http://localhost:${service.getPort()}/trace`);
+        expect(page.body).not.toContain('(something)'); // new nodes start collapsed
+
+        await post(`http://localhost:${service.getPort()}/actions/trace-expand-all`, {});
+        page = await get(`http://localhost:${service.getPort()}/trace`);
+        expect(page.body).toContain('(something)');
+
+        await post(`http://localhost:${service.getPort()}/actions/trace-collapse-all`, {});
+        page = await get(`http://localhost:${service.getPort()}/trace`);
+        expect(page.body).not.toContain('(something)');
+      });
+
+      it('trace-toggle-node expands just that one node', async () => {
+        await traced();
+
+        await post(`http://localhost:${service.getPort()}/actions/trace-toggle-node`, { nodeId: 1 });
+        const page = await get(`http://localhost:${service.getPort()}/trace`);
+        expect(page.body).toContain('(something)');
+      });
+
+      it('trace-search marks matches and expands their ancestors so results are visible', async () => {
+        await traced();
+
+        await post(`http://localhost:${service.getPort()}/actions/trace-search`, { searchTerm: 'something' });
+        const page = await get(`http://localhost:${service.getPort()}/trace`);
+        expect(page.body).toContain('(something)');
+        expect(page.body).toContain('trace-row-match');
+      });
+    });
+
+    describe('GET /trace/source-preview', () => {
+      it('404s when nothing has been traced yet', async () => {
+        const res = await get(`http://localhost:${service.getPort()}/trace/source-preview?nodeId=1`);
+        expect(res.status).toBe(404);
+      });
+
+      it('404s for a node with no source (the invisible root)', async () => {
+        const tree = SkeinTree.newTree('dgdebug', 1);
+        const fake = createFakeSession(tree, { traceStartup: () => RAW_TRACE, getProjectRoot: () => DGSAMPLE_ROOT });
+        service.setActiveSession(fake as unknown as SkeinSession, 'default');
+        await post(`http://localhost:${service.getPort()}/actions/trace-startup`, {});
+
+        const res = await get(`http://localhost:${service.getPort()}/trace/source-preview?nodeId=0`);
+        expect(res.status).toBe(404);
+      });
+
+      it('renders a snippet around the target line when a real file resolves against the project root', async () => {
+        const tree = SkeinTree.newTree('dgdebug', 1);
+        const fake = createFakeSession(tree, { traceStartup: () => RAW_TRACE, getProjectRoot: () => DGSAMPLE_ROOT });
+        service.setActiveSession(fake as unknown as SkeinSession, 'default');
+        await post(`http://localhost:${service.getPort()}/actions/trace-startup`, {});
+
+        const res = await get(`http://localhost:${service.getPort()}/trace/source-preview?nodeId=1`);
+        expect(res.status).toBe(200);
+        expect(res.body).toContain('trace-source-line');
+        expect(res.body).toContain('highlighted');
+      });
+    });
+  });
+
   describe('static asset routes', () => {
     it('serves the vendored style.css', async () => {
       const res = await get(`http://localhost:${service.getPort()}/style.css`);
@@ -1045,6 +1351,13 @@ describe('SkeinService', () => {
       expect(res.status).toBe(200);
       expect(res.headers['content-type']).toContain('text/javascript');
       expect(res.body).toContain('resetAndFocusCommandInput');
+    });
+
+    it('serves the trace panel\'s own client trace.js', async () => {
+      const res = await get(`http://localhost:${service.getPort()}/js/trace.js`);
+      expect(res.status).toBe(200);
+      expect(res.headers['content-type']).toContain('text/javascript');
+      expect(res.body).toContain('openSource');
     });
 
     it('serves a vendored icon by name', async () => {

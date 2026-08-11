@@ -145,6 +145,7 @@ export function renderKnotMenu(
     <li${menuItemClass(!hasUnblessed)}><button type="button" role="menuitem"${hint('Bless Knot', '⌥B')}${menuItemAttrs(!hasUnblessed)} data-on:click="$knotId = ${id}; @post('/actions/bless-knot')">Bless Knot</button></li>
     <li><button type="button" role="menuitem"${hint('New Child', '⌥A')} data-on:click="$knotId = ${id}; @post('/actions/new-child')">New Child</button></li>
     <li><button type="button" role="menuitem"${hint('Replay to Here', '⌥R')} data-on:click="$knotId = ${id}; @post('/actions/replay-to')">Replay to Here</button></li>
+    <li><button type="button" role="menuitem"${hint('Trace', '⌥T')} data-on:click="${isRoot ? `@post('/actions/trace-startup')` : `$knotId = ${id}; @post('/actions/trace-knot')`}">Trace</button></li>
     <li${menuItemClass(isRoot)}><button type="button" role="menuitem"${hint('Edit Label', '⌥L')}${menuItemAttrs(isRoot)}
       data-current-label="${escapeHtml(currentLabel ?? '')}"
       data-on:click="sk.showLabelModal(${id}, el.dataset.currentLabel)">Edit Label&hellip;</button></li>

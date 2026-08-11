@@ -43,7 +43,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   skeinService = new SkeinService({
     port: 0,
     host: 'localhost',
-    mediaRoot: path.join(context.extensionPath, 'media')
+    mediaRoot: path.join(context.extensionPath, 'media'),
+    grammarPath: resolveDialogGrammarPath(),
+    // VS Code doesn't auto-show a newly contributed panel-area view - without this, a user has
+    // to discover it manually (via the panel's own "Views" menu) the first time. Revealing it
+    // whenever a trace is actually requested means it just appears exactly when it becomes
+    // useful, not on every activation (which would fight with however the user has their panel
+    // laid out on every reload). '<viewId>.focus' is VS Code's own auto-generated command for
+    // any contributed view - if this ever rejects, the view contribution itself is broken, so
+    // that's worth logging rather than swallowing silently.
+    onTraceRequested: () => {
+      vscode.commands.executeCommand('dialogIdeTraceView.focus').then(undefined, (error) => {
+        console.error('Failed to reveal the Trace view:', error);
+      });
+    }
   });
   await skeinService.start();
 
@@ -51,6 +64,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   refreshStatusBar();
   statusBarItem.show();
   context.subscriptions.push(statusBarItem);
+
+  context.subscriptions.push(
+    vscode.window.registerWebviewViewProvider('dialogIdeTraceView', new TraceViewProvider(), {
+      webviewOptions: { retainContextWhenHidden: true }
+    })
+  );
 
   context.subscriptions.push(
     vscode.commands.registerCommand('dialog-ide.openSkein', () => ensureSkeinPanel()),
@@ -456,6 +475,100 @@ function getWebviewHtml(active: ActiveSessionDisplay | undefined): string {
 </head>
 <body>
   ${body}
+</body>
+</html>`;
+}
+
+/**
+ * Resolves the installed dialog-language-support extension's real TextMate grammar to a plain
+ * file path, handed down to SkeinService/syntax.ts for the trace panel's hover-preview snippet
+ * coloring (see syntax.ts's own doc comment for why this needs the vscode API - and therefore
+ * has to happen here, not in the vscode-agnostic skein/ layer - while the actual tokenizing
+ * doesn't). Safe to call synchronously in activate(): the extension is declared as an
+ * extensionDependencies entry (package.json), which guarantees VS Code activates it first.
+ * Returns undefined (falling back to plain, uncolored snippets) only if that extension somehow
+ * isn't installed/active.
+ */
+function resolveDialogGrammarPath(): string | undefined {
+  const grammarExtension = vscode.extensions.getExtension('sideburns3000.dialog-language-support');
+  return grammarExtension ? path.join(grammarExtension.extensionPath, 'syntaxes', 'dialog.tmLanguage.json') : undefined;
+}
+
+function createNonce(): string {
+  return Array.from({ length: 32 }, () => Math.floor(Math.random() * 16).toString(16)).join('');
+}
+
+/**
+ * Opens (or focuses an already-open tab for) file at the given 1-indexed line - the trace
+ * panel's click-to-source affordance (see media/js/trace.js's sk.trace.openSource, forwarded
+ * here by TraceViewProvider's onDidReceiveMessage). file is relative to the active session's
+ * project root, matching trace.ts's parseSource convention (the same convention dgdebug's own
+ * trace output uses).
+ */
+async function openSourceAtLine(file: string, line: number): Promise<void> {
+  if (!activeProjectRoot) {
+    return;
+  }
+  const fullPath = path.isAbsolute(file) ? file : path.join(activeProjectRoot, file);
+  const document = await vscode.workspace.openTextDocument(fullPath);
+  const editor = await vscode.window.showTextDocument(document, { preview: false });
+  const position = new vscode.Position(Math.max(0, line - 1), 0);
+  editor.selection = new vscode.Selection(position, position);
+  editor.revealRange(new vscode.Range(position, position), vscode.TextEditorRevealType.InCenter);
+}
+
+/**
+ * Provider for the native "Trace" panel-area view (package.json's viewsContainers.panel/views -
+ * a real tab beside Terminal/Output/Debug Console, per the approved trace-mode design). Same
+ * iframe-into-the-local-HTTP-service approach as the main skein WebviewPanel (getWebviewHtml
+ * above), pointed at /trace instead of / - except this one actually needs a postMessage bridge
+ * back to the extension host (unlike that one, which runs no JS at all): the trace page's own
+ * click handler can't call vscode.window.showTextDocument directly (webview content has no
+ * vscode API), so it posts {type:'openSource', file, line} up to this wrapper's window, which
+ * forwards it to the extension host via acquireVsCodeApi().postMessage.
+ */
+class TraceViewProvider implements vscode.WebviewViewProvider {
+  public resolveWebviewView(webviewView: vscode.WebviewView): void {
+    webviewView.webview.options = { enableScripts: true };
+    webviewView.webview.html = getTraceWebviewHtml();
+
+    webviewView.webview.onDidReceiveMessage((message: unknown) => {
+      const msg = message as { type?: string; file?: string; line?: number };
+      if (msg?.type === 'openSource' && typeof msg.file === 'string' && typeof msg.line === 'number') {
+        openSourceAtLine(msg.file, msg.line).catch((error) => {
+          vscode.window.showErrorMessage(error instanceof Error ? error.message : String(error));
+        });
+      }
+    });
+  }
+}
+
+function getTraceWebviewHtml(): string {
+  const serviceUrl = skeinService ? `http://localhost:${skeinService.getPort()}/trace` : undefined;
+  const body = serviceUrl ? `<iframe src="${serviceUrl}"></iframe>` : `<p>Skein service is not running.</p>`;
+  const nonce = createNonce();
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}'; frame-src http://localhost:*; child-src http://localhost:*;" />
+  <title>Trace</title>
+  <style>
+    html, body { height: 100%; margin: 0; }
+    body { font-family: var(--vscode-font-family); color: var(--vscode-foreground); }
+    body:not(:has(iframe)) { padding: 1rem; }
+    iframe { display: block; width: 100%; height: 100%; border: 0; }
+  </style>
+</head>
+<body>
+  ${body}
+  <script nonce="${nonce}">
+    const vscodeApi = acquireVsCodeApi();
+    window.addEventListener('message', (event) => {
+      vscodeApi.postMessage(event.data);
+    });
+  </script>
 </body>
 </html>`;
 }

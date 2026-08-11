@@ -653,6 +653,137 @@ describe('SkeinSession', () => {
     });
   });
 
+  describe('traceKnot', () => {
+    function seededTree() {
+      return SkeinTree.newTree('dgdebug', 1)
+        .addChild(0, 'look', { text: 'Room A.\n', inputType: 'line' })
+        .setActiveKnotId(1);
+    }
+
+    it('replays to the parent, brackets the command with (trace on)/(trace off), and returns the raw traced response', async () => {
+      const session = await startedSessionWith(seededTree());
+      const knot1Before = session.getTree().getKnot(1);
+
+      mockReadResponse
+        .mockResolvedValueOnce(BANNER_RESPONSE) // replayTo(0)'s relaunch banner
+        .mockResolvedValueOnce(dynamicResponse([])) // replayTo(0)'s relaunch dynamic capture
+        .mockResolvedValueOnce({ command: '(trace on)', response: '', promptType: 'line' })
+        .mockResolvedValueOnce({
+          command: 'look',
+          response: '| 3 ENTER (look) foo.dg:10\nRoom A.\n',
+          promptType: 'line'
+        })
+        .mockResolvedValueOnce({ command: '(trace off)', response: '', promptType: 'line' })
+        .mockResolvedValueOnce(dynamicResponse(['  (game started) on']));
+
+      const raw = await session.traceKnot(1);
+
+      expect(raw).toBe('| 3 ENTER (look) foo.dg:10\nRoom A.\n');
+      // The exact sendCommand sequence: replayTo(0) sends no command of its own (root has no
+      // command to replay), just relaunches and re-captures the banner's own '@dynamic'; then
+      // '(trace on)', the knot's own command, '(trace off)', then traceKnot's own '@dynamic'.
+      expect(mockSendCommand.mock.calls.map((call) => call[0])).toEqual([
+        '@dynamic', // session.start()'s own banner capture
+        '@dynamic', // replayTo(0)'s relaunch banner capture
+        '(trace on)',
+        'look',
+        '(trace off)',
+        '@dynamic'
+      ]);
+      // The traced knot's stored response/unblessedResponse are never touched - the trace-laden
+      // text is only ever returned to the caller.
+      expect(session.getTree().getKnot(1)).toEqual(knot1Before);
+    });
+
+    it('moves the process position to the traced knot but never moves the displayed active knot', async () => {
+      const session = await startedSessionWith(seededTree());
+
+      mockReadResponse
+        .mockResolvedValueOnce(BANNER_RESPONSE)
+        .mockResolvedValueOnce(dynamicResponse([]))
+        .mockResolvedValueOnce({ command: '(trace on)', response: '', promptType: 'line' })
+        .mockResolvedValueOnce({ command: 'look', response: 'Room A.\n', promptType: 'line' })
+        .mockResolvedValueOnce({ command: '(trace off)', response: '', promptType: 'line' })
+        .mockResolvedValueOnce(dynamicResponse([]));
+
+      await session.traceKnot(1);
+
+      expect(session.getProcessPositionId()).toBe(1);
+      // seededTree() set the active knot to 1 before tracing - tracing is a side query against
+      // the process, not navigation, so it must stay exactly where the user left it, regardless
+      // of which knot's parent was actually replayed to.
+      expect(session.getTree().getActiveKnotId()).toBe(1);
+    });
+
+    it('stores the traced knot\'s captured dynamic state', async () => {
+      const session = await startedSessionWith(seededTree());
+
+      mockReadResponse
+        .mockResolvedValueOnce(BANNER_RESPONSE)
+        .mockResolvedValueOnce(dynamicResponse([]))
+        .mockResolvedValueOnce({ command: '(trace on)', response: '', promptType: 'line' })
+        .mockResolvedValueOnce({ command: 'look', response: 'Room A.\n', promptType: 'line' })
+        .mockResolvedValueOnce({ command: '(trace off)', response: '', promptType: 'line' })
+        .mockResolvedValueOnce(dynamicResponse(['  (game started) on']));
+
+      await session.traceKnot(1);
+
+      expect(session.getTree().getDynamicState(1)!.flags.has('(game started)')).toBe(true);
+    });
+
+    it('returns null for the root knot, which has no parent to replay to', async () => {
+      const session = await startedSessionWith(seededTree());
+      expect(await session.traceKnot(0)).toBeNull();
+    });
+
+    it('throws if the session has not been started', async () => {
+      const session = SkeinSession.createLoaded(seededTree(), DGDEBUG_CONFIG);
+      await expect(session.traceKnot(1)).rejects.toThrow('Session not running');
+    });
+  });
+
+  describe('traceStartup', () => {
+    it('launches a temporary process with --trace, captures its banner, then restarts cleanly without moving the displayed active knot', async () => {
+      const session = await startedSessionWith(
+        SkeinTree.newTree('dgdebug', 1)
+          .addChild(0, 'look', { text: 'Room A.\n', inputType: 'line' })
+          .setActiveKnotId(1)
+      );
+
+      const tracedProcess = fakeProcessInstance();
+      tracedProcess.readResponse.mockResolvedValueOnce({
+        command: '',
+        response: '| 1 ENTER (program entry point) main.dg:1\nWelcome to the game.\n',
+        promptType: 'line'
+      });
+      // Index 0 (session.start()'s own process) was already constructed above, using the shared
+      // mock via the default {} override - this array only needs a real entry at index 1, the
+      // next SkeinProcess construction, which is traceStartup's own temporary --trace process.
+      processInstanceOverrides = [{}, tracedProcess];
+      mockReadResponse.mockResolvedValueOnce(BANNER_RESPONSE).mockResolvedValueOnce(dynamicResponse([]));
+
+      const raw = await session.traceStartup();
+
+      expect(raw).toBe('| 1 ENTER (program entry point) main.dg:1\nWelcome to the game.\n');
+      expect(tracedProcess.terminate).toHaveBeenCalledTimes(1);
+      expect(mockTerminate).toHaveBeenCalledTimes(1); // the original session.start() process
+      // The active knot was set to 1 before tracing - tracing startup is a side query, not
+      // navigation, so the displayed active knot must stay put even though the process itself
+      // genuinely restarted at knot 0.
+      expect(session.getTree().getActiveKnotId()).toBe(1);
+      expect(session.getProcessPositionId()).toBe(0);
+    });
+
+    it('returns null without touching the process for a non-dgdebug engine, even on an unstarted session', async () => {
+      const session = SkeinSession.createLoaded(SkeinTree.newTree('frotz', 1), FROTZ_CONFIG);
+
+      const raw = await session.traceStartup();
+
+      expect(raw).toBeNull();
+      expect(mockStart).not.toHaveBeenCalled();
+    });
+  });
+
   describe('setActiveKnot', () => {
     it('changes the active knot without touching the process', async () => {
       const session = await startedSessionWith(

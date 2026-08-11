@@ -235,7 +235,7 @@ export class SkeinSession {
    * (a dialogc pre-flight build step, which doesn't exist yet - see technical-design.md's
    * Process Management section for the dfrotz/frotz-release compile-time distinction).
    */
-  private buildProcessConfig(): ProcessConfig {
+  private buildProcessConfig(debugFlags?: string[]): ProcessConfig {
     const { engine, seed, projectRoot } = this.config;
 
     if (engine !== 'dgdebug') {
@@ -245,7 +245,15 @@ export class SkeinSession {
     const project = readProject(projectRoot);
     const sourceFiles = expandSources(project, { debug: true, target: DGDEBUG_TARGET_FILTER });
 
-    return { engine, seed, sourceFiles, binDir: project.binDir };
+    return { engine, seed, sourceFiles, binDir: project.binDir, debugFlags };
+  }
+
+  /**
+   * The project root a running session was started against - trace-knot's caller (service.ts)
+   * needs this to resolve a trace node's "file:line" source reference into a real path on disk.
+   */
+  public getProjectRoot(): string {
+    return this.config.projectRoot;
   }
 
   /**
@@ -399,16 +407,13 @@ export class SkeinSession {
   }
 
   /**
-   * Applies a single-target replayPath to session state immediately: this is the one real
-   * primitive behind Replay to Here (context menu) and runCommand's automatic catch-up when the
-   * active knot isn't where the process actually is. Unlike replayAll, there's only ever one
-   * path here, on this.process itself (dgdebug has no way to rewind, only restart-and-replay,
-   * matching dialog-tool's own do-replay-to!), so committing this.tree/processPositionId and
-   * broadcasting a single 'change' right away is both correct and cheap - and quick enough that
-   * it's never worth a progress dialog (see replayAll for the one caller that wants one, and
-   * that parallelizes across several processes instead of reusing this.process at all).
+   * Gets the live process to targetId's state - terminate, relaunch, replay every command along
+   * the path (re-validating and re-capturing dynamic state for each, same as replayPath always
+   * does) - without touching which knot is displayed as active. This is the primitive both
+   * replayTo (below, which also navigates there) and traceKnot (which deliberately must NOT
+   * navigate - tracing a knot is a side query against the process, not a click) build on.
    */
-  private async replayTo(targetId: number): Promise<void> {
+  private async replayProcessTo(targetId: number): Promise<{ tree: SkeinTree; reachedId: number }> {
     if (!this.process) {
       throw new Error('Session not running');
     }
@@ -425,8 +430,25 @@ export class SkeinSession {
       tree = tree.updateDynamicState(id, state);
     }
 
-    this.tree = tree.selectKnot(reachedId);
+    this.tree = tree;
     this.processPositionId = reachedId;
+    return { tree, reachedId };
+  }
+
+  /**
+   * Applies a single-target replayProcessTo to session state immediately, then navigates the
+   * active knot there too: this is the one real primitive behind Replay to Here (context menu)
+   * and runCommand's automatic catch-up when the active knot isn't where the process actually
+   * is. Unlike replayAll, there's only ever one path here, on this.process itself (dgdebug has
+   * no way to rewind, only restart-and-replay, matching dialog-tool's own do-replay-to!), so
+   * broadcasting a single 'change' right away is both correct and cheap - and quick enough that
+   * it's never worth a progress dialog (see replayAll for the one caller that wants one, and
+   * that parallelizes across several processes instead of reusing this.process at all).
+   */
+  private async replayTo(targetId: number): Promise<void> {
+    const { tree, reachedId } = await this.replayProcessTo(targetId);
+
+    this.tree = tree.selectKnot(reachedId);
     this.closeMenus();
     this.changeEmitter.emit('change');
   }
@@ -550,6 +572,85 @@ export class SkeinSession {
    */
   public async replayToKnot(id: number): Promise<void> {
     await this.replayTo(id);
+  }
+
+  /**
+   * Traces a knot's command: gets the process to its parent's state (via replayProcessTo - NOT
+   * replayTo, deliberately, since tracing is a side query against the process, not a click - the
+   * displayed active knot must stay exactly where the user left it, unlike "Replay to Here"),
+   * brackets the command with "(trace on)"/"(trace off)", and returns the raw traced response.
+   * dynamic state is still captured for the traced knot itself (moving processPositionId there,
+   * same as any other command execution), but the knot's own stored response/unblessedResponse
+   * are never touched - the trace-laden text is only ever handed back to the caller.
+   *
+   * Returns null for a non-dgdebug engine (tracing is dgdebug-only) or when knotId is the root
+   * (which has no parent to replay to).
+   */
+  public async traceKnot(knotId: number): Promise<string | null> {
+    if (!this.isRunning) {
+      throw new Error('Session not running');
+    }
+    if (this.config.engine !== 'dgdebug') {
+      return null;
+    }
+
+    const knot = this.tree.getKnot(knotId);
+    if (!knot || knot.parentId === null) {
+      return null;
+    }
+    const { command, parentId } = knot;
+
+    await this.replayProcessTo(parentId);
+
+    const process = this.process!;
+    process.sendCommand('(trace on)');
+    await process.readResponse(); // discarded - keeps sendCommand/readResponse's FIFO pairing intact
+    process.sendCommand(command);
+    const traceResult = await process.readResponse();
+    process.sendCommand('(trace off)');
+    await process.readResponse(); // discarded, same reason
+
+    this.processPositionId = knotId;
+    const dynamicState = await this.captureDynamicState(process, traceResult.promptType);
+    if (dynamicState) {
+      this.tree = this.tree.updateDynamicState(knotId, dynamicState);
+    }
+    this.closeMenus();
+    this.changeEmitter.emit('change');
+
+    return traceResult.response;
+  }
+
+  /**
+   * Traces game startup: relaunches with an extra "--trace" CLI flag on a temporary process to
+   * capture the traced startup banner, then discards that process and does a plain restart to
+   * knot 0 - matching dialog-tool's session.clj trace-startup! (which calls do-restart!, not a
+   * replay back to wherever the spine was). Returns null for a non-dgdebug engine.
+   */
+  public async traceStartup(): Promise<string | null> {
+    if (this.config.engine !== 'dgdebug') {
+      return null;
+    }
+
+    const tracedProcess = new SkeinProcess(this.buildProcessConfig(['--trace']));
+    await tracedProcess.start();
+    const tracedBanner = await tracedProcess.readResponse();
+    await tracedProcess.terminate();
+
+    if (this.process) {
+      await this.process.terminate();
+    }
+    // Deliberately doesn't select knot 0 - same reasoning as traceKnot: tracing is a side query
+    // against the process, not navigation, so the displayed active knot stays exactly where the
+    // user left it even though the process itself is genuinely back at the start (the next
+    // command's own runCommand catch-up silently replays back there, same as any other stale-
+    // process case).
+    this.tree = await this.launchProcessAndCaptureBanner(this.tree, false);
+    this.processPositionId = 0;
+    this.closeMenus();
+    this.changeEmitter.emit('change');
+
+    return tracedBanner.response;
   }
 
   /**
