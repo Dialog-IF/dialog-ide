@@ -1,0 +1,32 @@
+name: Test
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      # Full compile (build:css + tsc), matching what vscode:prepublish actually runs - catches
+      # anything ts-jest's own per-file type-checking below wouldn't (e.g. the Tailwind build).
+      - run: npm run build
+
+      # A handful of specs (dgdebug-integration.spec.ts, session-runner.spec.ts) spawn the real
+      # dgdebug binary and self-skip (describe.skip/it.skip) when it isn't on PATH, which it isn't
+      # here - everything else runs for real against mocked process I/O. No Dialog toolchain
+      # installation needed for this to be a meaningful signal.
+      - run: npm test
