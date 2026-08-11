@@ -9,6 +9,7 @@
 
 import { DynamicProcessor, DynamicState } from '../dynamic';
 import { EngineType } from '../process';
+import { SearchResults } from '../search';
 import { DerivedKnot, KnotStatus, SkeinTree } from '../tree';
 import { ansiToHtml, ansiToMarkers } from './ansi';
 import { DiffSegment, diffText } from './diff';
@@ -348,15 +349,126 @@ function renderCommandInput(tree: SkeinTree): string {
 </div>`;
 }
 
+const EMPTY_SEARCH_RESULTS: SearchResults = { results: [], totalMatches: 0 };
+
+// Shared by every result's own keydown and the search input's own ArrowDown - keeps the two
+// call sites (below) from drifting apart on what "move through the results" actually means.
+// ArrowDown/ArrowUp move focus via sk.navigateSearchResults (main.js) rather than letting the
+// browser's default happen, which - since the results list is a scrollable container - would
+// otherwise just scroll it instead of moving between results (the bug this replaces). Escape
+// dismisses the same way the input's own Escape handler does.
+const SEARCH_RESULT_KEYDOWN =
+  "if (evt.key === 'ArrowDown') { evt.preventDefault(); sk.navigateSearchResults(el, 1) }" +
+  " else if (evt.key === 'ArrowUp') { evt.preventDefault(); sk.navigateSearchResults(el, -1) }" +
+  " else if (evt.key === 'Escape') { $searchQuery = ''; @post('/actions/search') }";
+
 /**
- * The navbar: ok/new/error badges, the dynamic-state toggle, and three equally-weighted primary
- * actions - Save, Replay All, Bless Transcript - a deliberately smaller set than dialog-tool's
- * app.clj navbar + operations toolbar. Session identity (which .skein file this is) lives in the
- * webview panel's own tab title now (extension.ts's panelTitle), not duplicated here - that
- * frees the middle of the navbar for the dynamic-state toggle (session.ts's showDynamicState/
- * toggleShowDynamicState), with room still left beside it for the not-yet-built knot search (see
- * the technical-design.md Core Component 5 plan). Generic app actions still deferred to native
- * VS Code commands
+ * The search box's own results dropdown (search.ts's searchKnots) - absolutely positioned below
+ * the input so it overlays whatever's beneath it rather than pushing the navbar taller. Every
+ * result shows the same things regardless of which field (label or response) it actually matched
+ * on, rather than a field name and knot id (which said more about the data model than about what
+ * the user is actually looking at): a top row with the knot's command left-justified in the
+ * normal (not mono) font, prefixed with the same "> " prompt convention used everywhere else in
+ * this app for "here's a command" - except for root (knot 0), whose "command" is a synthetic
+ * 'START' placeholder (tree.ts's newTree), not real text, so no prompt line is shown for it at
+ * all (same suppression tree-pane.ts already does for that placeholder) - and its label, if it
+ * has one, floated to the right of that same row (ml-auto) the way the transcript's own label
+ * chip floats within a knot's response (render.ts's floatCluster); then the matched snippet below
+ * that row. The snippet never repeats the command even when the match is near the very start of a
+ * response - search.ts's searchableResponseText already strips dgdebug's own leading command-echo
+ * before matching/snippet-building, specifically so it isn't shown twice. command/label/snippet
+ * are all inserted raw, not escaped again here - search.ts already HTML-escapes them (and wraps
+ * snippet's matched terms in <mark> - see its own doc comment).
+ *
+ * Clicking a result reuses the existing select-knot action (which already scrolls the transcript
+ * to it - see handleKnotAction's focusAfter) rather than a bespoke "jump" endpoint, then clears
+ * the query to dismiss the dropdown - there's nothing more useful to show once the user has
+ * already jumped. Each result is a real, focusable <button data-search-result> - the target
+ * sk.navigateSearchResults' ArrowUp/ArrowDown move focus between (see SEARCH_RESULT_KEYDOWN),
+ * and Enter/Space activates natively, no extra JS needed for that part.
+ */
+function renderSearchResults(searchResults: SearchResults): string {
+  const { results, totalMatches } = searchResults;
+
+  if (results.length === 0) {
+    return `<div class="absolute top-full left-0 mt-1 w-96 max-w-[90vw] bg-base-100 border border-base-300 rounded-md shadow-xl z-20 p-3 text-sm text-base-content/60">No matches.</div>`;
+  }
+
+  const rows = results
+    .map((result) => {
+      // Root's "command" is the synthetic 'START' placeholder (tree.ts's newTree), not a real
+      // command - showing "> START" would be misleading, so this is the one case with no prompt
+      // line at all (matching tree-pane.ts's own suppression of the same placeholder).
+      const promptLine = result.knotId !== 0 ? `<span class="text-sm">&gt; ${result.command}</span>` : '';
+      const labelChip = result.label
+        ? `<span class="font-bold bg-neutral text-neutral-content px-1 py-0.5 rounded text-sm ml-auto shrink-0">${result.label}</span>`
+        : '';
+
+      return `<li>
+      <button type="button" data-search-result class="w-full text-left px-3 py-2 hover:bg-base-200 focus:bg-base-200 focus:outline-none flex flex-col gap-1"
+        data-on:click="$knotId = ${result.knotId}; $searchQuery = ''; @post('/actions/select-knot'); @post('/actions/search')"
+        data-on:keydown="${SEARCH_RESULT_KEYDOWN}">
+        <div class="flex items-center gap-2">${promptLine}${labelChip}</div>
+        <span class="text-sm break-words">${result.snippet}</span>
+      </button>
+    </li>`;
+    })
+    .join('');
+
+  const truncatedNote =
+    totalMatches > results.length
+      ? `<div class="px-3 py-1.5 text-xs text-base-content/60 border-t border-base-300">Showing ${results.length} of ${totalMatches} matches - add more search text to narrow it down.</div>`
+      : '';
+
+  // Deliberately a plain <ul>, not daisyUI's .menu: that component sets align-items:center (and
+  // width:fit-content on the <ul> itself) on any non-.btn child of <li>, both unopposed by any
+  // utility class here - the prompt/label row and the snippet below it just collapsed to
+  // fit-content and centered instead of stretching to the button's full width, which is also why
+  // the label's ml-auto (meant to float it right) had no leftover width to push into and sat
+  // flush against the prompt instead. Nothing else here actually used .menu's own styling.
+  return `<div class="absolute top-full left-0 mt-1 w-96 max-w-[90vw] bg-base-100 border border-base-300 rounded-md shadow-xl z-20 max-h-96 overflow-y-auto">
+    <ul class="p-0" role="listbox">${rows}</ul>
+    ${truncatedNote}
+  </div>`;
+}
+
+/**
+ * The transcript's search box (technical-design.md's Core Component 7) - matches every
+ * whitespace-separated search term (AND, not OR) against each knot's label and settled response
+ * (search.ts's searchKnots has the full matching rules). Fires on every keystroke, debounced, the
+ * same pattern already established by the Trace panel's own filter box (traceRender.ts) - live
+ * narrowing, not a submit-and-wait search. Escape clears the query and dismisses the dropdown in
+ * one step, matching every other Escape-to-dismiss affordance in this app (the label/command
+ * modals); so does clicking anywhere outside #skein-search-box (main.js's document click
+ * listener). ArrowDown moves focus into the first result (SEARCH_RESULT_KEYDOWN continues from
+ * there) rather than doing nothing useful on an <input type="search">. Cmd/Ctrl+A explicitly
+ * selects the input's text - native select-all doesn't reach it reliably inside a VS Code webview
+ * (the same platform quirk the label/command modals already work around).
+ * id="skein-search-input" is main.js's Alt+F focus target.
+ */
+function renderSearchBox(searchQuery: string, searchResults: SearchResults): string {
+  const showResults = searchQuery.trim() !== '';
+  return `<div class="relative" id="skein-search-box">
+    <label class="input input-sm flex items-center gap-2">
+      <div class="icon icon-search w-4 h-4 opacity-60" aria-hidden="true"></div>
+      <input type="search" id="skein-search-input" aria-label="Search knots" placeholder="Search" value="${escapeHtml(searchQuery)}"
+        data-bind="searchQuery" data-on:input__debounce.300ms="@post('/actions/search')"
+        data-on:keydown="if (evt.key === 'Escape') { $searchQuery = ''; @post('/actions/search') }
+          else if (evt.key === 'ArrowDown') { evt.preventDefault(); sk.navigateSearchResults(el, 1) }
+          else if ((evt.metaKey || evt.ctrlKey) && evt.key.toLowerCase() === 'a') { evt.preventDefault(); el.select() }" />
+    </label>
+    ${showResults ? renderSearchResults(searchResults) : ''}
+  </div>`;
+}
+
+/**
+ * The navbar: ok/new/error badges, the search box, the dynamic-state toggle, and three
+ * equally-weighted primary actions - Save, Replay All, Bless Transcript - a deliberately smaller
+ * set than dialog-tool's app.clj navbar + operations toolbar. Session identity (which .skein file
+ * this is) lives in the webview panel's own tab title now (extension.ts's panelTitle), not
+ * duplicated here - that frees the middle of the navbar for the search box and dynamic-state
+ * toggle (session.ts's showDynamicState/toggleShowDynamicState). Generic app actions still
+ * deferred to native VS Code commands
  * (Undo/Redo/Reload/Quit/Jump - no webview<->extension-host bridge exists yet) and per-knot
  * operations (New Child, Edit Label, Toggle Lock, Delete, Splice Out, Replay to Here, and
  * single-knot Bless Knot) are dropped from here on purpose - they live in the per-knot actions
@@ -378,7 +490,13 @@ function renderCommandInput(tree: SkeinTree): string {
  * that route's existing behavior, not new logic - only the button's label, target, and (no longer
  * a dropdown) presentation changed to say so directly.
  */
-export function renderNavbar(info: SessionDisplayInfo, tree: SkeinTree, showDynamicState: boolean = false): string {
+export function renderNavbar(
+  info: SessionDisplayInfo,
+  tree: SkeinTree,
+  showDynamicState: boolean = false,
+  searchQuery: string = '',
+  searchResults: SearchResults = EMPTY_SEARCH_RESULTS
+): string {
   const t = totals(tree);
   const spineLeafId = tree.getSelectedLeafId();
   const dgdebug = info.engine === 'dgdebug';
@@ -390,6 +508,7 @@ export function renderNavbar(info: SessionDisplayInfo, tree: SkeinTree, showDyna
       <div class="bg-warning text-warning-content p-2 font-semibold" aria-label="${t.new} new knots">${t.new}</div>
       <div class="bg-error text-error-content p-2 font-semibold rounded-r-lg" aria-label="${t.error} error knots">${t.error}</div>
     </div>
+    ${renderSearchBox(searchQuery, searchResults)}
     <button type="button" class="btn btn-sm ${showDynamicState ? 'btn-primary' : 'btn-ghost'}" ${dgdebug ? '' : 'disabled'}
       aria-pressed="${showDynamicState}"
       data-on:click="@post('/actions/toggle-dynamic-state')"
@@ -441,10 +560,12 @@ export function renderApp(
   tree: SkeinTree,
   graphMenuId: number | null = null,
   transcriptMenuId: number | null = null,
-  showDynamicState: boolean = false
+  showDynamicState: boolean = false,
+  searchQuery: string = '',
+  searchResults: SearchResults = EMPTY_SEARCH_RESULTS
 ): string {
   return `<div id="skein-app" class="flex flex-col h-screen">
-  ${renderNavbar(info, tree, showDynamicState)}
+  ${renderNavbar(info, tree, showDynamicState, searchQuery, searchResults)}
   <div class="flex-1 min-h-0 flex flex-row w-full">
     <div id="tree-pane-outer"
       class="shrink-0 h-full flex flex-row"
@@ -469,11 +590,13 @@ export function renderPage(
   tree: SkeinTree | undefined,
   graphMenuId: number | null = null,
   transcriptMenuId: number | null = null,
-  showDynamicState: boolean = false
+  showDynamicState: boolean = false,
+  searchQuery: string = '',
+  searchResults: SearchResults = EMPTY_SEARCH_RESULTS
 ): string {
   const body =
     info && tree
-      ? renderApp(info, tree, graphMenuId, transcriptMenuId, showDynamicState)
+      ? renderApp(info, tree, graphMenuId, transcriptMenuId, showDynamicState, searchQuery, searchResults)
       : '<div id="skein-app" class="p-4">No skein session running.</div>';
 
   return `<!doctype html>

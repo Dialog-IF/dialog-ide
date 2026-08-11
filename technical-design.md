@@ -534,17 +534,17 @@ Tracing is dgdebug-only and never touches the knot's stored response - it's a si
 - **Trace startup**: restart the process with tracing enabled from launch (an extra `--trace` argument) to capture the traced startup banner, then restart again normally (without `--trace`) to leave the session in its regular state for further commands.
 
 ### 7. Full-Text Search
-In-memory search over the *blessed* content of the current skein tree, exposed in the Transcript View's search field.
+In-memory search over the current skein tree's settled content, exposed in the Transcript View's search field (`src/dialoged/skein/search.ts`).
 
 #### Indexed Fields
-- `command`
-- `response` (blessed text only — unblessed/pending responses are excluded)
 - `label`
+- `response` — the blessed response for any knot that has one (even an 'error' knot, whose pending unblessed text is just an unaccepted diff, not canonical yet), or the unblessed response for a knot that's never been blessed at all ('new' state) - the only response text such a knot has
 
 #### Implementation Notes
-- The index is rebuilt in memory from the current `SkeinTree`; it is not persisted
-- Any reasonably fast in-process text index is acceptable (a simple inverted index, or a small JS library such as `minisearch`/`flexsearch`) — there's no requirement to depend on Apache Lucene, which is JVM-only and doesn't fit a Node/VS Code extension process
-- Results should include enough context for a snippet with the matched term highlighted, plus the knot `id` for jump-to-knot navigation
+- No persistent index: every search is a fresh linear pass over the current `SkeinTree` - a skein is realistically at most a few thousand knots, so plain case-insensitive substring matching is fast enough; no Lucene/minisearch/flexsearch dependency needed
+- Query terms (whitespace-separated) are ANDed, not ORed, so typing more search text only narrows the result set, never broadens it
+- Results are capped (50) so a tree with many matches still renders promptly; the uncapped total match count is also reported so the UI can tell the user results were truncated
+- Each result carries a snippet (context around the first match, with every matched term wrapped in `<mark>`) and the knot `id` for jump-to-knot navigation, which reuses the existing select-knot action rather than a bespoke jump endpoint
 
 ## Data Models
 
@@ -630,8 +630,13 @@ See [Trace Visualization](#6-trace-visualization) — `TraceNode` entries are co
 ```typescript
 interface SearchResult {
   knotId: number;
-  field: 'command' | 'response' | 'label';
-  snippet: string; // matched text with surrounding context
+  field: 'response' | 'label';
+  snippet: string; // HTML-escaped, matched terms wrapped in <mark>, surrounding context included
+}
+
+interface SearchResults {
+  results: SearchResult[]; // capped - see Full-Text Search's Implementation Notes
+  totalMatches: number; // uncapped
 }
 ```
 

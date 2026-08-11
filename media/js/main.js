@@ -644,7 +644,28 @@ window.sk = {
       document.addEventListener('mousemove', onMove);
       document.addEventListener('mouseup', onUp);
     });
-  }
+  },
+
+  // The search box's own ArrowUp/ArrowDown navigation (render.ts's renderSearchBox/
+  // renderSearchResults - SEARCH_RESULT_KEYDOWN calls this from both the input and every result
+  // button). Without this, ArrowDown/ArrowUp inside the results dropdown just did the browser's
+  // default thing - scrolled the (overflow-y-auto) list - instead of moving between results, since
+  // there's no native way to make plain buttons in a list behave like a real listbox. current is
+  // whichever element the keydown fired on (el, via Datastar); direction is 1 (down) or -1 (up).
+  // Clamps at the last result rather than wrapping - going past the first one refocuses the input,
+  // a normal combobox convention - so there's always an obvious way back to typing.
+  navigateSearchResults(current, direction) {
+    const results = Array.from(document.querySelectorAll('[data-search-result]'));
+    if (results.length === 0) return;
+
+    const currentIndex = results.indexOf(current);
+    const nextIndex = currentIndex + direction;
+    if (nextIndex < 0) {
+      document.getElementById('skein-search-input')?.focus();
+      return;
+    }
+    results[Math.min(results.length - 1, nextIndex)]?.focus();
+  },
 
   // The per-knot actions menu (knot-menu.ts's renderKnotMenu) needs almost no client-side code:
   // it's a native <details class="dropdown dropdown-right"> inline in each knot's own markup,
@@ -674,13 +695,25 @@ function closeAllDropdowns() {
   fetch('/actions/close-menus', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
 }
 
-// Clicking outside the open dropdown closes it. Skips anything inside a .dropdown entirely - a
-// click on a trigger (opening a different knot's menu) or a menu item is already handled by its
-// own data-on:click, including closing this one server-side as a side effect (every mutating
-// action and plain navigation already calls session.closeAllMenus() - see session.ts).
+// Dismisses the search box's results dropdown the same way Escape does (clears the query - see
+// render.ts's renderSearchBox) - mirrors closeAllDropdowns' own direct-DOM-update-plus-raw-fetch
+// shape, since a plain click listener has no Datastar action/signal access of its own. Setting
+// input.value directly (rather than going through Datastar) is fine here: the POST below tells
+// the server the query is now blank, and the next SSE patch re-renders the input from that
+// server-side truth anyway, same as every other patched element.
+function dismissSearch() {
+  const input = document.getElementById('skein-search-input');
+  if (!input || input.value === '') return;
+  input.value = '';
+  fetch('/actions/search', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ searchQuery: '' }) });
+}
+
+// Clicking outside the open dropdown closes it; clicking outside the search box dismisses its
+// results the same way. Skips anything inside a .dropdown/#skein-search-box entirely - a click on
+// a trigger, menu item, or search result is already handled by its own data-on:click.
 document.addEventListener('click', (evt) => {
-  if (evt.target.closest('.dropdown')) return;
-  closeAllDropdowns();
+  if (!evt.target.closest('.dropdown')) closeAllDropdowns();
+  if (!evt.target.closest('#skein-search-box')) dismissSearch();
 });
 
 // ---------------------------------------------------------------------------
@@ -760,6 +793,11 @@ document.addEventListener('keydown', (evt) => {
     evt.preventDefault();
     const knotId = spineLeafId();
     if (knotId !== null) postAction('/actions/bless-changes', { knotId });
+    return;
+  }
+  if (opt && !evt.shiftKey && code === 'KeyF') {
+    evt.preventDefault();
+    document.getElementById('skein-search-input')?.focus();
     return;
   }
 

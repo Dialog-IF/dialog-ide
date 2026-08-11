@@ -48,10 +48,10 @@ Implemented:
 - `src/dialoged/skein/dynamic.ts` - Dynamic state processing
 - `src/dialoged/skein/persistence.ts` - Session persistence
 - `src/dialoged/skein/io.ts` - Input/output prompt detection
+- `src/dialoged/skein/trace.ts` - Trace output parsing and source-line navigation
+- `src/dialoged/skein/search.ts` - Full-text search over knot labels and (blessed, or unblessed for never-blessed) responses
 
 Planned, not yet implemented (see `technical-design.md` Core Components 4-7):
-- `src/dialoged/skein/trace.ts` - Trace output parsing and source-line navigation
-- `src/dialoged/skein/search.ts` - Full-text search over blessed knot content
 - Syntax highlighting for the editor (not yet assigned a file)
 
 ## Session Management in IDE Context

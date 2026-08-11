@@ -12,8 +12,7 @@ function visible(text: string): string {
 
 describe('renderNavbar', () => {
   // Session identity lives in the webview panel's own tab title (extension.ts's panelTitle)
-  // now, not in the navbar itself - the middle of the navbar is deliberately empty flex space,
-  // reserved for the not-yet-built knot search.
+  // now, not in the navbar itself.
   it('does not duplicate session identity - that lives in the panel tab title now', () => {
     const tree = SkeinTree.newTree('dgdebug', 25002);
     const html = renderNavbar(INFO, tree);
@@ -86,10 +85,11 @@ describe('renderNavbar', () => {
     expect(html).not.toContain('dropdown');
   });
 
-  it('does not render the still-deferred prototype buttons (Undo/Redo/Reload/Quit/Jump/Search)', () => {
+  // Search (icon-search) is no longer deferred - see the 'search box' describe block below.
+  it('does not render the still-deferred prototype buttons (Undo/Redo/Reload/Quit/Jump)', () => {
     const tree = SkeinTree.newTree('dgdebug', 1);
     const html = renderNavbar(INFO, tree);
-    for (const deferred of ['icon-undo', 'icon-redo', 'icon-reload', 'icon-quit', 'icon-jump', 'icon-search']) {
+    for (const deferred of ['icon-undo', 'icon-redo', 'icon-reload', 'icon-quit', 'icon-jump']) {
       expect(html).not.toContain(deferred);
     }
   });
@@ -118,6 +118,165 @@ describe('renderNavbar', () => {
     const html = renderNavbar({ ...INFO, engine: 'frotz' }, tree);
     const toggle = html.split('icon-dynamic')[0];
     expect(toggle).toContain('disabled');
+  });
+});
+
+describe('renderNavbar search box', () => {
+  it('renders the input bound to searchQuery, firing on every debounced keystroke - live narrowing, not submit-and-wait', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1);
+    const html = renderNavbar(INFO, tree);
+    expect(html).toContain('data-bind="searchQuery"');
+    expect(html).toContain(`data-on:input__debounce.300ms="@post('/actions/search')"`);
+  });
+
+  it('has a plain "Search" placeholder, and a stable id for main.js\'s Alt+F focus shortcut and outside-click dismissal', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1);
+    const html = renderNavbar(INFO, tree);
+    expect(html).toContain('placeholder="Search"');
+    expect(html).toContain('id="skein-search-input"');
+    expect(html).toContain('id="skein-search-box"');
+  });
+
+  it("carries the query's current value back into the input, so a server-pushed re-render doesn't clobber what the user typed", () => {
+    const tree = SkeinTree.newTree('dgdebug', 1);
+    const html = renderNavbar(INFO, tree, false, 'dusty');
+    expect(html).toContain('value="dusty"');
+  });
+
+  it('renders no results dropdown at all when the query is blank', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1);
+    const html = renderNavbar(INFO, tree, false, '');
+    expect(html).not.toContain('No matches.');
+    expect(html).not.toContain('role="listbox"');
+  });
+
+  it('renders a "No matches." dropdown for a non-blank query with no results', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1);
+    const html = renderNavbar(INFO, tree, false, 'nonexistent', { results: [], totalMatches: 0 });
+    expect(html).toContain('No matches.');
+  });
+
+  it("renders each result as '> command', then the label chip (if present), then the matched snippet - never the field name or knot id - with a click handler that jumps and clears the query", () => {
+    const tree = SkeinTree.newTree('dgdebug', 1);
+    const html = renderNavbar(INFO, tree, false, 'dusty', {
+      results: [
+        {
+          knotId: 3,
+          field: 'response',
+          command: 'look',
+          label: 'checkpoint',
+          snippet: 'A <mark class="bg-warning/60 rounded-sm px-0.5">dusty</mark> room.'
+        }
+      ],
+      totalMatches: 1
+    });
+
+    expect(html).toContain('&gt; look');
+    expect(html).toContain('>checkpoint<');
+    expect(html).toContain('<mark class="bg-warning/60 rounded-sm px-0.5">dusty</mark>');
+    expect(html).not.toContain('Response');
+    expect(html).not.toContain('Knot 3');
+    expect(html).toContain(
+      `data-on:click="$knotId = 3; $searchQuery = ''; @post('/actions/select-knot'); @post('/actions/search')"`
+    );
+  });
+
+  it('renders the command in the normal (not mono) font, left-justified, with its label floated to the right in the same row - like the transcript\'s own label chip', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1);
+    const html = renderNavbar(INFO, tree, false, 'dusty', {
+      results: [{ knotId: 1, field: 'response', command: 'look', label: 'checkpoint', snippet: 'a' }],
+      totalMatches: 1
+    });
+
+    const command = html.split('&gt; look')[0].split('<span').pop()!;
+    expect(command).not.toContain('font-mono');
+
+    const row = html.split('&gt; look')[1].split('</div>')[0];
+    expect(row).toContain('checkpoint');
+    expect(row).toContain('ml-auto');
+    // Same chip styling as the transcript's own label chip (render.ts's floatCluster).
+    expect(row).toContain('font-bold bg-neutral text-neutral-content');
+  });
+
+  it('shows no "> command" prompt line for the root knot - its command is a synthetic placeholder ("START"), not real text', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1);
+    const html = renderNavbar(INFO, tree, false, 'start', {
+      results: [{ knotId: 0, field: 'label', command: 'START', label: 'START', snippet: 'START' }],
+      totalMatches: 1
+    });
+
+    expect(html).not.toContain('&gt; START');
+  });
+
+  it('still floats a root result\'s label to the right even with no prompt line before it', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1);
+    const html = renderNavbar(INFO, tree, false, 'start', {
+      results: [{ knotId: 0, field: 'label', command: 'START', label: 'START', snippet: 'START' }],
+      totalMatches: 1
+    });
+
+    expect(html).toContain('ml-auto');
+  });
+
+  it('omits the label chip entirely for a knot with no label, rather than rendering an empty one', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1);
+    const html = renderNavbar(INFO, tree, false, 'dusty', {
+      results: [{ knotId: 1, field: 'response', command: 'look', label: null, snippet: 'a' }],
+      totalMatches: 1
+    });
+    expect(html).not.toContain('bg-neutral text-neutral-content');
+  });
+
+  it('notes when results were truncated (more matches than are shown), telling the user to narrow further', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1);
+    const html = renderNavbar(INFO, tree, false, 'dusty', {
+      results: [{ knotId: 1, field: 'response', command: 'look', label: null, snippet: 'a' }],
+      totalMatches: 51
+    });
+    expect(html).toContain('Showing 1 of 51 matches');
+  });
+
+  it('says nothing about truncation when every match is already shown', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1);
+    const html = renderNavbar(INFO, tree, false, 'dusty', {
+      results: [{ knotId: 1, field: 'response', command: 'look', label: null, snippet: 'a' }],
+      totalMatches: 1
+    });
+    expect(html).not.toContain('Showing');
+  });
+
+  it('clears the query and dismisses the dropdown on Escape, without leaving the browser default (which would submit the <input type="search">) to run', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1);
+    const html = renderNavbar(INFO, tree, false, 'dusty');
+    expect(html).toContain(`if (evt.key === 'Escape') { $searchQuery = ''; @post('/actions/search') }`);
+  });
+
+  it('explicitly selects all the input text on Cmd/Ctrl+A - native select-all is unreliable inside a VS Code webview', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1);
+    const html = renderNavbar(INFO, tree, false, 'dusty');
+    expect(html).toContain(`(evt.metaKey || evt.ctrlKey) && evt.key.toLowerCase() === 'a') { evt.preventDefault(); el.select() }`);
+  });
+
+  it('moves focus into the first result on ArrowDown from the input, instead of the browser just scrolling the results list', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1);
+    const html = renderNavbar(INFO, tree, false, 'dusty', {
+      results: [{ knotId: 1, field: 'response', command: 'look', label: null, snippet: 'a' }],
+      totalMatches: 1
+    });
+    const input = html.split('id="skein-search-input"')[1].split('/>')[0];
+    expect(input).toContain("evt.key === 'ArrowDown'");
+    expect(input).toContain('sk.navigateSearchResults(el, 1)');
+  });
+
+  it('wires each result as a focusable button that continues ArrowUp/ArrowDown navigation and Escape-dismisses', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1);
+    const html = renderNavbar(INFO, tree, false, 'dusty', {
+      results: [{ knotId: 1, field: 'response', command: 'look', label: null, snippet: 'a' }],
+      totalMatches: 1
+    });
+    expect(html).toContain('data-search-result');
+    expect(html).toContain('sk.navigateSearchResults(el, 1)');
+    expect(html).toContain('sk.navigateSearchResults(el, -1)');
   });
 });
 

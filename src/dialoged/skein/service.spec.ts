@@ -882,6 +882,116 @@ describe('SkeinService', () => {
     });
   });
 
+  describe('POST /actions/search', () => {
+    it('400s when no session is active', async () => {
+      const res = await post(`http://localhost:${service.getPort()}/actions/search`, { searchQuery: 'x' });
+      expect(res.status).toBe(400);
+    });
+
+    it("204s and the next render shows matching knots, with the command, label, and a highlighted snippet - not the field name or knot id", async () => {
+      const tree = SkeinTree.newTree('dgdebug', 1)
+        .addChild(0, 'look', { text: 'A dusty room.\n', inputType: 'line' })
+        .blessKnot(1)
+        .setLabel(1, 'checkpoint');
+      const fake = createFakeSession(tree);
+      service.setActiveSession(fake as unknown as SkeinSession, 'default');
+
+      const res = await post(`http://localhost:${service.getPort()}/actions/search`, { searchQuery: 'dusty' });
+      expect(res.status).toBe(204);
+
+      const page = await get(`http://localhost:${service.getPort()}/`);
+      expect(page.body).toContain('&gt; look');
+      expect(page.body).toContain('>checkpoint<');
+      expect(page.body).toContain('<mark class="bg-warning/60 rounded-sm px-0.5">dusty</mark>');
+      expect(page.body).not.toContain('Response');
+      expect(page.body).not.toContain('Knot 1');
+    });
+
+    it('narrows results on a follow-up search with more text, never broadening them', async () => {
+      const tree = SkeinTree.newTree('dgdebug', 1)
+        .addChild(0, 'look', { text: 'A dusty room with an orb.\n', inputType: 'line' })
+        .addChild(0, 'inventory', { text: 'A dusty, empty sack.\n', inputType: 'line' });
+      const fake = createFakeSession(tree);
+      service.setActiveSession(fake as unknown as SkeinSession, 'default');
+
+      await post(`http://localhost:${service.getPort()}/actions/search`, { searchQuery: 'dusty' });
+      let page = await get(`http://localhost:${service.getPort()}/`);
+      expect(page.body).toContain('&gt; look');
+      expect(page.body).toContain('&gt; inventory');
+
+      await post(`http://localhost:${service.getPort()}/actions/search`, { searchQuery: 'dusty orb' });
+      page = await get(`http://localhost:${service.getPort()}/`);
+      expect(page.body).toContain('&gt; look');
+      expect(page.body).not.toContain('&gt; inventory');
+    });
+
+    // dgdebug's real output carries ANSI codes; the escape byte itself is invisible, but the
+    // rest of a code like "\x1b[0m" isn't - the literal bug report this guards against.
+    it('strips ANSI escape codes from the rendered snippet', async () => {
+      const tree = SkeinTree.newTree('dgdebug', 1)
+        .addChild(0, 'look', { text: '\x1b[0m\x1b[1mA dusty room.\x1b[0m\n', inputType: 'line' })
+        .blessKnot(1);
+      const fake = createFakeSession(tree);
+      service.setActiveSession(fake as unknown as SkeinSession, 'default');
+
+      await post(`http://localhost:${service.getPort()}/actions/search`, { searchQuery: 'dusty' });
+      const page = await get(`http://localhost:${service.getPort()}/`);
+
+      expect(page.body).not.toContain('[0m');
+      expect(page.body).not.toContain('[1m');
+    });
+
+    it('shows no results dropdown for a blank query - clearing the box dismisses it', async () => {
+      const tree = SkeinTree.newTree('dgdebug', 1).addChild(0, 'look', { text: 'A dusty room.\n', inputType: 'line' });
+      const fake = createFakeSession(tree);
+      service.setActiveSession(fake as unknown as SkeinSession, 'default');
+
+      await post(`http://localhost:${service.getPort()}/actions/search`, { searchQuery: 'dusty' });
+      await post(`http://localhost:${service.getPort()}/actions/search`, { searchQuery: '' });
+
+      const page = await get(`http://localhost:${service.getPort()}/`);
+      expect(page.body).not.toContain('role="listbox"');
+    });
+
+    it('treats a missing/non-string searchQuery as an empty string, not a crash', async () => {
+      const tree = SkeinTree.newTree('dgdebug', 1).addChild(0, 'look', { text: 'a', inputType: 'line' });
+      const fake = createFakeSession(tree);
+      service.setActiveSession(fake as unknown as SkeinSession, 'default');
+
+      const res = await post(`http://localhost:${service.getPort()}/actions/search`, {});
+      expect(res.status).toBe(204);
+    });
+
+    // "Ensure this works when there are many matches" - a tree with far more than MAX_RESULTS
+    // matches still returns promptly and tells the user results were truncated.
+    it('caps the rendered results and notes when there are more matches than shown', async () => {
+      let tree = SkeinTree.newTree('dgdebug', 1);
+      for (let i = 0; i < 60; i++) {
+        tree = tree.addChild(0, `look ${i}`, { text: `A dusty room ${i}.\n`, inputType: 'line' });
+      }
+      const fake = createFakeSession(tree);
+      service.setActiveSession(fake as unknown as SkeinSession, 'default');
+
+      await post(`http://localhost:${service.getPort()}/actions/search`, { searchQuery: 'dusty' });
+      const page = await get(`http://localhost:${service.getPort()}/`);
+
+      expect(page.body).toContain('Showing 50 of 60 matches');
+    });
+
+    it('drops a previous session\'s search query when a new session becomes active', async () => {
+      const tree = SkeinTree.newTree('dgdebug', 1).addChild(0, 'look', { text: 'A dusty room.\n', inputType: 'line' });
+      const fake = createFakeSession(tree);
+      service.setActiveSession(fake as unknown as SkeinSession, 'default');
+      await post(`http://localhost:${service.getPort()}/actions/search`, { searchQuery: 'dusty' });
+
+      const fake2 = createFakeSession(SkeinTree.newTree('dgdebug', 2));
+      service.setActiveSession(fake2 as unknown as SkeinSession, 'other');
+
+      const page = await get(`http://localhost:${service.getPort()}/`);
+      expect(page.body).not.toContain('role="listbox"');
+    });
+  });
+
   describe('POST /actions/replay-all', () => {
     it('400s when no session is active', async () => {
       const res = await post(`http://localhost:${service.getPort()}/actions/replay-all`, {});
