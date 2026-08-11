@@ -827,9 +827,13 @@ export class SkeinSession {
   }
 
   /**
-   * Actions menu's "Delete". Root can't be deleted. If the active knot is id or a descendant of
-   * it (about to be removed along with the rest of the subtree), moves the active knot up to id's
-   * parent first, since it can no longer point at anything inside the deleted subtree.
+   * Actions menu's "Delete". Root can't be deleted, and neither can a knot (or any of its
+   * descendants) that's locked - tree.ts's deleteKnot throws KnotLockedError for that, without
+   * touching the tree, so it's computed here before pushUndoSnapshot (same reasoning as
+   * setLabel's own doc comment: a rejected delete must not push a snapshot either, since there
+   * was no real edit to undo back to). If the active knot is id or a descendant of it (about to
+   * be removed along with the rest of the subtree), moves the active knot up to id's parent
+   * first, since it can no longer point at anything inside the deleted subtree.
    */
   public deleteKnot(id: number): void {
     if (id === 0) {
@@ -839,11 +843,14 @@ export class SkeinSession {
     if (!knot) {
       throw new Error(`Knot ${id} not found`);
     }
-    this.pushUndoSnapshot();
+    let updated = this.tree;
     if (this.isKnotOrDescendantActive(id)) {
-      this.tree = this.tree.setActiveKnotId(knot.parentId);
+      updated = updated.setActiveKnotId(knot.parentId);
     }
-    this.tree = this.tree.deleteKnot(id);
+    updated = updated.deleteKnot(id);
+
+    this.pushUndoSnapshot();
+    this.tree = updated;
     this.closeMenus();
     this.changeEmitter.emit('change');
   }

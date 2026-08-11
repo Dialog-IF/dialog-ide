@@ -61,7 +61,7 @@ function fakeProcessInstance() {
 import * as path from 'path';
 import { SkeinSession, SessionConfig } from './session';
 import { DialogCompileError } from './compile-error';
-import { LabelConflictError, SkeinTree } from './tree';
+import { KnotLockedError, LabelConflictError, SkeinTree } from './tree';
 import { ProgressHost } from './progress';
 
 /**
@@ -1275,6 +1275,38 @@ describe('SkeinSession', () => {
     it('throws for the root knot', async () => {
       const session = await startedSessionWith(SkeinTree.newTree('dgdebug', 1));
       expect(() => session.deleteKnot(0)).toThrow();
+    });
+
+    it('throws KnotLockedError, leaving the tree untouched, when a descendant is locked', async () => {
+      const session = await startedSessionWith(
+        SkeinTree.newTree('dgdebug', 1)
+          .addChild(0, 'look', { text: 'a', inputType: 'line' })      // id 1
+          .addChild(1, 'take orb', { text: 'b', inputType: 'line' }) // id 2, grandchild
+          .setLockStatus(2, true)
+      );
+
+      expect(() => session.deleteKnot(1)).toThrow(KnotLockedError);
+      expect(session.getTree().getKnot(1)).not.toBeNull();
+      expect(session.getTree().getKnot(2)).not.toBeNull();
+    });
+
+    // Same reasoning as setLabel's rejected-label undo test above: a rejected delete was never a
+    // real edit, so it must not consume an undo entry either.
+    it('does not waste an undo entry on a rejected (locked-descendant) delete', async () => {
+      const session = await startedSessionWith(
+        SkeinTree.newTree('dgdebug', 1)
+          .addChild(0, 'look', { text: 'a', inputType: 'line' })      // id 1
+          .addChild(0, 'inventory', { text: 'b', inputType: 'line' }) // id 2
+          .addChild(2, 'open sack', { text: 'c', inputType: 'line' }) // id 3, child of 2
+          .setLockStatus(3, true)
+      );
+
+      session.deleteKnot(1); // a real, valid delete - pushes one undo entry
+      expect(() => session.deleteKnot(2)).toThrow(KnotLockedError); // rejected - must not push another
+
+      session.undo();
+
+      expect(session.getTree().getKnot(1)).not.toBeNull();
     });
   });
 

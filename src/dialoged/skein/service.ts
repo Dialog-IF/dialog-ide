@@ -9,7 +9,7 @@ import * as path from 'path';
 import { IGrammar } from 'vscode-textmate';
 import { SkeinSession } from './session';
 import { DialogCompileError } from './compile-error';
-import { LabelConflictError, SkeinTree } from './tree';
+import { KnotLockedError, LabelConflictError, SkeinTree } from './tree';
 import { renderApp, renderPage, SessionDisplayInfo } from './ui/render';
 import { renderTraceApp, renderTracePage, CurrentTraceState } from './ui/traceRender';
 import { ProgressHost, ProgressReporter, CancellationToken } from './progress';
@@ -544,14 +544,15 @@ export class SkeinService implements ProgressHost {
    * Shared plumbing for the actions-menu / navbar knot actions (select-knot, new-child,
    * open-graph-menu, open-transcript-menu, bless-knot, bless-changes, toggle-lock,
    * toggle-tree-node, delete-knot, splice-knot, replay-to): parses {knotId} from the JSON body,
-   * requires an active session, runs fn, and
-   * responds 204/400/500 - the same shape as handleSendCommand. session.ts's own methods already
-   * manage graphMenuId/transcriptMenuId (opening or closing them) as part of the same state
-   * update that emits 'change', so there's nothing left for this to do about menu state - one
-   * broadcast, already correct. set-label and replay-all have their own handlers below since
-   * their request/response shapes don't quite fit this one (an extra field; no knot id at all).
-   * flashMessage is only set for the handful of actions worth an explicit "yes, that happened"
-   * acknowledgement (bless, replay) - see broadcastFlash's doc comment.
+   * requires an active session, runs fn, and responds 204/400/409/500 - the same shape as
+   * handleSendCommand. On success, session.ts's own methods already manage graphMenuId/
+   * transcriptMenuId (opening or closing them) as part of the same state update that emits
+   * 'change', so there's nothing left for this to do about menu state there; on failure, fn never
+   * reaches that call, so the catch block below closes menus itself (see its own comment). set-
+   * label and replay-all have their own handlers below since their request/response shapes don't
+   * quite fit this one (an extra field; no knot id at all). flashMessage is only set for the
+   * handful of actions worth an explicit "yes, that happened" acknowledgement (bless, replay) -
+   * see broadcastFlash's doc comment.
    */
   private async handleKnotAction(
     req: http.IncomingMessage,
@@ -575,6 +576,23 @@ export class SkeinService implements ProgressHost {
     try {
       await fn(this.activeSession, knotId);
     } catch (error) {
+      // fn threw before ever reaching its own closeMenus() (session.ts's mutators only close menus
+      // as part of the same update that emits 'change' - see this method's own doc comment), so
+      // the popover the action was invoked from would otherwise stay open (no SSE patch ever
+      // arrives to morph it closed) even though the user is just as done with it as on success.
+      // closeAllMenus is a no-op (no extra broadcast) when nothing was open.
+      this.activeSession.closeAllMenus();
+
+      // An expected, user-facing rejection (tree.ts's deleteKnot won't delete a locked knot or
+      // descendant) - not a bug, so it gets an error flash (postAction's callers never look at
+      // the response body, unlike handleSetLabel's dedicated 409+JSON path for its own modal) and
+      // a 409, not a 500/console.error.
+      if (error instanceof KnotLockedError) {
+        this.broadcastFlash(error.message, 'error');
+        res.writeHead(409);
+        res.end();
+        return;
+      }
       console.error('Knot action failed:', error);
       this.reportIfCompileError(error);
       res.writeHead(500);
@@ -1134,15 +1152,22 @@ export class SkeinService implements ProgressHost {
   }
 
   /**
-   * An acknowledging flash for actions worth an explicit "yes, that happened" confirmation
-   * (bless, replay, replay all) - routine navigation/selection actions don't get one, since the
-   * transcript updating is already the confirmation. Ported from dialog-tool's own flash!/
-   * sk.showFlash (top-center, single-flash-at-a-time, fades out on its own) - reuses
-   * broadcastScript's script-append channel rather than baking a flash container into renderApp's
-   * own markup, so it's unaffected by the ordinary #skein-app morph a tree change triggers.
+   * A flash notification - 'info' (default) for an acknowledging "yes, that happened"
+   * confirmation (bless, replay, replay all - routine navigation/selection actions don't get one,
+   * since the transcript updating is already the confirmation); 'error' for an expected,
+   * user-facing rejection (e.g. handleKnotAction's KnotLockedError branch) that has no other UI to
+   * surface through, since postAction's fire-and-forget callers never look at the response.
+   * Ported from dialog-tool's own flash!/sk.showFlash (top-center, single-flash-at-a-time) -
+   * reuses broadcastScript's script-append channel rather than baking a flash container into
+   * renderApp's own markup, so it's unaffected by the ordinary #skein-app morph a tree change
+   * triggers.
    */
-  private broadcastFlash(message: string): void {
-    this.broadcastScript(`sk.showFlash(${JSON.stringify(message)})`);
+  private broadcastFlash(message: string, type: 'info' | 'error' = 'info'): void {
+    // Omits the second argument entirely for the (far more common) 'info' case, rather than
+    // always passing it explicitly, purely so the wire format for every existing info flash
+    // (and the tests asserting on it) stays byte-for-byte unchanged now that this takes a type.
+    const args = type === 'info' ? JSON.stringify(message) : `${JSON.stringify(message)}, ${JSON.stringify(type)}`;
+    this.broadcastScript(`sk.showFlash(${args})`);
   }
 
   /**

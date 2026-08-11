@@ -21,6 +21,19 @@ export class LabelConflictError extends Error {
 }
 
 /**
+ * Thrown by deleteKnot when the knot being deleted, or any of its descendants, is locked -
+ * mirrors dialog-tool's tree.clj/allow-deletion?. Deleting removes the whole subtree at once, so
+ * a lock anywhere inside it (not just on the knot itself) has to block the whole operation, not
+ * just that one locked knot.
+ */
+export class KnotLockedError extends Error {
+  constructor() {
+    super('Cannot delete: this knot or one of its descendants is locked.');
+    this.name = 'KnotLockedError';
+  }
+}
+
+/**
  * Whether a freshly-captured response is identical to a knot's already-blessed response, in
  * which case there's nothing pending to diff or persist as unblessedResponse - see
  * responseAfterUpdate.
@@ -316,7 +329,10 @@ export class SkeinTree {
 
   /**
    * Delete a knot and all its descendants recursively - returns a new SkeinTree instance.
-   * Also removes the knot from its (former) parent's children/selectedChild.
+   * Also removes the knot from its (former) parent's children/selectedChild. Throws
+   * KnotLockedError, without modifying anything, if the knot itself or any descendant is locked
+   * - deletion removes the whole subtree in one go, so a lock anywhere inside it must block the
+   * whole operation.
    */
   public deleteKnot(id: number): SkeinTree {
     const knot = this.knots.get(id);
@@ -324,11 +340,16 @@ export class SkeinTree {
       throw new Error(`Knot ${id} not found`);
     }
 
+    const subtreeIds = this.collectSubtreeIds(id);
+    if (subtreeIds.some((subtreeId) => this.knots.get(subtreeId)!.locked)) {
+      throw new KnotLockedError();
+    }
+
     let knots = this.knots;
     let knotStates = this.knotStates;
     let collapsedKnotIds = this.collapsedKnotIds;
     let dynamicStates = this.dynamicStates;
-    for (const descendantId of this.collectSubtreeIds(id)) {
+    for (const descendantId of subtreeIds) {
       knots = knots.delete(descendantId);
       knotStates = knotStates.delete(descendantId);
       collapsedKnotIds = collapsedKnotIds.remove(descendantId);

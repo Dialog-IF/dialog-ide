@@ -2,7 +2,7 @@ import * as http from 'http';
 import * as path from 'path';
 import { SkeinService } from './service';
 import { SkeinSession } from './session';
-import { LabelConflictError, SkeinTree } from './tree';
+import { KnotLockedError, LabelConflictError, SkeinTree } from './tree';
 
 const MEDIA_ROOT = path.join(__dirname, '..', '..', '..', 'media');
 
@@ -19,6 +19,7 @@ function createFakeSession(
     replayToKnot?: (id: number) => void | Promise<void>;
     replayAll?: () => void | Promise<void>;
     setLabel?: (id: number, label: string | null) => void;
+    deleteKnot?: (id: number) => void;
     traceKnot?: (id: number) => string | null | Promise<string | null>;
     traceStartup?: () => string | null | Promise<string | null>;
     getProjectRoot?: () => string;
@@ -138,6 +139,7 @@ function createFakeSession(
     },
     deleteKnot: (id: number) => {
       calls.deleteKnot.push(id);
+      options.deleteKnot?.(id);
       closeMenus();
       emit();
     },
@@ -634,6 +636,52 @@ describe('SkeinService', () => {
 
       const res = await post(`http://localhost:${service.getPort()}/actions/bless-knot`, { knotId: 0 });
       expect(res.status).toBe(500);
+    });
+
+    it('409s and broadcasts an error flash (not a 500) when deleteKnot rejects a locked descendant - an expected, user-facing rejection, not a bug', async () => {
+      const tree = SkeinTree.newTree('dgdebug', 1).addChild(0, 'look', { text: 'a', inputType: 'line' });
+      const fake = createFakeSession(tree, {
+        deleteKnot: (): void => {
+          throw new KnotLockedError();
+        }
+      });
+      service.setActiveSession(fake as unknown as SkeinSession, 'default');
+
+      const chunks: string[] = [];
+      const req = http.get(`http://localhost:${service.getPort()}/events`, (res) => {
+        res.on('data', (chunk) => chunks.push(chunk.toString()));
+      });
+      try {
+        await waitFor(() => chunks.length > 0); // the connect-time patch
+        chunks.length = 0;
+
+        const res = await post(`http://localhost:${service.getPort()}/actions/delete-knot`, { knotId: 1 });
+
+        expect(res.status).toBe(409);
+        await waitFor(() => chunks.join('').includes('sk.showFlash'));
+        expect(chunks.join('')).toContain(
+          `sk.showFlash(${JSON.stringify('Cannot delete: this knot or one of its descendants is locked.')}, ${JSON.stringify('error')})`
+        );
+      } finally {
+        req.destroy();
+      }
+    });
+
+    it('closes an open knot menu even when the action fails - the popover was otherwise left stuck open (no successful "change" ever fires to morph it closed)', async () => {
+      const tree = SkeinTree.newTree('dgdebug', 1).addChild(0, 'look', { text: 'a', inputType: 'line' });
+      const fake = createFakeSession(tree, {
+        deleteKnot: (): void => {
+          throw new KnotLockedError();
+        }
+      });
+      service.setActiveSession(fake as unknown as SkeinSession, 'default');
+
+      await post(`http://localhost:${service.getPort()}/actions/open-graph-menu`, { knotId: 1 });
+      const res = await post(`http://localhost:${service.getPort()}/actions/delete-knot`, { knotId: 1 });
+      expect(res.status).toBe(409);
+
+      const page = await get(`http://localhost:${service.getPort()}/`);
+      expect(page.body).not.toContain('<details class="dropdown dropdown-right font-sans" open style="anchor-name: --knot-menu-graph-1">');
     });
 
     it("closes an open knot menu after a successful action - the user is done with it once they've used it", async () => {

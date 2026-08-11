@@ -1,5 +1,5 @@
 import { DynamicState } from './dynamic';
-import { LabelConflictError, SkeinTree, WireKnot } from './tree';
+import { KnotLockedError, LabelConflictError, SkeinTree, WireKnot } from './tree';
 
 const EMPTY_DYNAMIC_STATE: DynamicState = { flags: new Set(), vars: {} };
 
@@ -233,6 +233,34 @@ describe('SkeinTree.deleteKnot', () => {
       .deleteKnot(1);
     expect(tree.getDynamicState(1)).toBeNull();
     expect(tree.getDynamicState(2)).toBeNull();
+  });
+
+  it('throws KnotLockedError, without deleting anything, when the knot itself is locked', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1)
+      .addChild(0, 'look', { text: 'a', inputType: 'line' }) // id 1
+      .setLockStatus(1, true);
+    expect(() => tree.deleteKnot(1)).toThrow(KnotLockedError);
+    expect(tree.getKnot(1)).not.toBeNull();
+  });
+
+  it('throws KnotLockedError, without deleting anything, when a descendant (not the knot itself) is locked', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1)
+      .addChild(0, 'look', { text: 'a', inputType: 'line' }) // id 1
+      .addChild(1, 'take orb', { text: 'b', inputType: 'line' }) // id 2, grandchild of root
+      .setLockStatus(2, true);
+    expect(() => tree.deleteKnot(1)).toThrow(KnotLockedError);
+    expect(tree.getKnot(1)).not.toBeNull();
+    expect(tree.getKnot(2)).not.toBeNull();
+  });
+
+  it('allows deleting a knot whose sibling (not descendant) is locked', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1)
+      .addChild(0, 'look', { text: 'a', inputType: 'line' })      // id 1
+      .addChild(0, 'inventory', { text: 'b', inputType: 'line' }) // id 2, locked
+      .setLockStatus(2, true)
+      .deleteKnot(1);
+    expect(tree.getKnot(1)).toBeNull();
+    expect(tree.getKnot(2)).not.toBeNull();
   });
 });
 

@@ -57,9 +57,10 @@ window.sk = {
   // showing rather than stacking), fades in then auto-dismisses. Built client-side rather than
   // server-rendered into renderApp, so the ordinary #skein-app morph a tree change triggers can
   // never clip one mid-display. type is 'info' (default; blue, no dismiss button, auto-fades) or
-  // 'error' (red, persists until the user dismisses it via the X button or Escape) - dialog-ide
-  // doesn't send 'error' flashes yet, but the parameter is here so it doesn't need revisiting when
-  // something eventually does.
+  // 'error' (red, persists until the user dismisses it via the X button or Escape) - service.ts's
+  // broadcastFlash sends 'error' for a rejected action with no other UI to surface through (e.g.
+  // deleting a knot with a locked descendant), since postAction's fire-and-forget callers never
+  // look at the response.
   _dismissFlash() {
     if (this._flashTimer) {
       clearTimeout(this._flashTimer);
