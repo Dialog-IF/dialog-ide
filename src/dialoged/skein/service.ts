@@ -7,7 +7,7 @@ import * as http from 'http';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { IGrammar } from 'vscode-textmate';
-import { SkeinSession } from './session';
+import { SkeinSession, SpineDirection, SeekableStatus } from './session';
 import { DialogCompileError } from './compile-error';
 import { CommandConflictError, KnotLockedError, LabelConflictError, SkeinTree } from './tree';
 import { renderApp, renderPage, SessionDisplayInfo } from './ui/render';
@@ -106,6 +106,31 @@ function normalizeKeystroke(text: string): string | null {
     return text;
   }
   return null;
+}
+
+// main.js's ⌥↑/↓/←/→ and ⌥⇧↑/↓ keyboard accelerators (see handleNavigateSpine) - the exact set
+// SkeinSession.navigateSpine's own SpineDirection type allows, duplicated here as a runtime Set
+// so an unrecognized direction from the request body 400s instead of reaching the session as an
+// unchecked string.
+const SPINE_DIRECTIONS = new Set<SpineDirection>(['up', 'down', 'left', 'right', 'first', 'last']);
+
+function parseSpineDirection(payload: Record<string, unknown>): SpineDirection | null {
+  const { direction } = payload;
+  return typeof direction === 'string' && SPINE_DIRECTIONS.has(direction as SpineDirection)
+    ? (direction as SpineDirection)
+    : null;
+}
+
+// The navbar's new/error badges (render.ts's renderNavbar) set this signal before posting to
+// /actions/seek-status - the exact set SkeinSession.seekStatus's own SeekableStatus type allows,
+// duplicated here as a runtime Set for the same request-validation reason as SPINE_DIRECTIONS.
+const SEEKABLE_STATUSES = new Set<SeekableStatus>(['new', 'error']);
+
+function parseSeekableStatus(payload: Record<string, unknown>): SeekableStatus | null {
+  const { seekStatus } = payload;
+  return typeof seekStatus === 'string' && SEEKABLE_STATUSES.has(seekStatus as SeekableStatus)
+    ? (seekStatus as SeekableStatus)
+    : null;
 }
 
 /** Parses a JSON request body into a plain object, tolerating empty/invalid bodies as `{}`. */
@@ -381,6 +406,16 @@ export class SkeinService implements ProgressHost {
       return;
     }
 
+    if (req.method === 'POST' && url.pathname === '/actions/navigate-spine') {
+      await this.handleNavigateSpine(req, res);
+      return;
+    }
+
+    if (req.method === 'POST' && url.pathname === '/actions/seek-status') {
+      await this.handleSeekStatus(req, res);
+      return;
+    }
+
     if (req.method === 'POST' && url.pathname === '/actions/new-child') {
       // The actions menu's "New Child" (and main.js's Option+A) - distinct from plain select-knot:
       // session.newChild clears the target's own selectedChild so the transcript stops there,
@@ -430,6 +465,11 @@ export class SkeinService implements ProgressHost {
 
     if (req.method === 'POST' && url.pathname === '/actions/set-command') {
       await this.handleSetCommand(req, res);
+      return;
+    }
+
+    if (req.method === 'POST' && url.pathname === '/actions/insert-parent') {
+      await this.handleInsertParent(req, res);
       return;
     }
 
@@ -648,6 +688,93 @@ export class SkeinService implements ProgressHost {
   }
 
   /**
+   * POST /actions/navigate-spine - {direction}, main.js's ⌥↑/↓/←/→ and ⌥⇧↑/↓ keyboard
+   * accelerators (see doc/skein.md's Keyboard Shortcuts table). Doesn't take a knotId the way
+   * handleKnotAction's routes do - session.ts's navigateSpine reads the current active knot and
+   * computes the target itself, so this route's only job is validating the direction string.
+   * navigateSpine is a silent no-op at a spine boundary (root has no parent, a leaf has no
+   * child, ...) rather than an error, so this always 204s regardless of whether the active knot
+   * actually moved.
+   *
+   * Broadcasts the same focus/scroll script every knot-navigating action does (focusAfter's
+   * effect in handleKnotAction) - main.js's sk.resetAndFocusCommandInput only actually focuses
+   * the input when the given knot turns out to be the spine's leaf, and otherwise just scrolls
+   * that knot's transcript row into view, so this is correct whether or not the knot actually
+   * changed.
+   */
+  private async handleNavigateSpine(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+    if (!this.activeSession) {
+      res.writeHead(400);
+      res.end();
+      return;
+    }
+
+    const direction = parseSpineDirection(parseJsonBody(await readRequestBody(req)));
+    if (direction === null) {
+      res.writeHead(400);
+      res.end();
+      return;
+    }
+
+    try {
+      this.activeSession.navigateSpine(direction);
+    } catch (error) {
+      console.error('Failed to navigate spine:', error);
+      this.reportIfCompileError(error);
+      res.writeHead(500);
+      res.end();
+      return;
+    }
+
+    const activeKnotId = this.activeSession.getTree().getActiveKnotId();
+    if (activeKnotId !== null) {
+      this.broadcastScript(`sk.resetAndFocusCommandInput(${activeKnotId})`);
+    }
+    res.writeHead(204);
+    res.end();
+  }
+
+  /**
+   * POST /actions/seek-status - {status: "new" | "error"}, the navbar's clickable new/error
+   * count badges (render.ts's renderNavbar) - mouse-only, no keyboard accelerator, matching
+   * dialog-tool's own seek-status. Same shape as handleNavigateSpine (no knotId in the body -
+   * session.ts's seekStatus computes the target itself from the given status), and the same
+   * always-204-regardless-of-whether-anything-moved contract (a status with zero matching knots
+   * is a silent no-op, not an error).
+   */
+  private async handleSeekStatus(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+    if (!this.activeSession) {
+      res.writeHead(400);
+      res.end();
+      return;
+    }
+
+    const status = parseSeekableStatus(parseJsonBody(await readRequestBody(req)));
+    if (status === null) {
+      res.writeHead(400);
+      res.end();
+      return;
+    }
+
+    try {
+      this.activeSession.seekStatus(status);
+    } catch (error) {
+      console.error('Failed to seek status:', error);
+      this.reportIfCompileError(error);
+      res.writeHead(500);
+      res.end();
+      return;
+    }
+
+    const activeKnotId = this.activeSession.getTree().getActiveKnotId();
+    if (activeKnotId !== null) {
+      this.broadcastScript(`sk.resetAndFocusCommandInput(${activeKnotId})`);
+    }
+    res.writeHead(204);
+    res.end();
+  }
+
+  /**
    * Shared plumbing for the actions-menu / navbar knot actions (select-knot, new-child,
    * open-graph-menu, open-transcript-menu, bless-knot, bless-changes, toggle-lock,
    * toggle-tree-node, delete-knot, splice-knot, replay-to): parses {knotId} from the JSON body,
@@ -761,6 +888,59 @@ export class SkeinService implements ProgressHost {
       return;
     }
 
+    res.writeHead(204);
+    res.end();
+  }
+
+  /**
+   * POST /actions/insert-parent - {knotId, command}, the "Insert Parent…" menu item's modal
+   * (main.js's showInsertParentModal). Same shape as handleSetCommand - a sibling collision
+   * (tree.ts's CommandConflictError, thrown here for the same reason: the new knot becomes a
+   * sibling of whatever else knotId's old parent already has) gets the same 409 + JSON {error}
+   * body the modal reads and displays inline, and this also touches the process (session.ts's
+   * insertParent replays the new knot and knotId itself), so a genuine failure can likewise be a
+   * DialogCompileError.
+   *
+   * Unlike setCommand, a successful insert moves the active knot (to the newly inserted parent -
+   * see insertParent's own doc comment), so this broadcasts the same focus/scroll script
+   * handleNavigateSpine does, built from the session's own post-insert active knot rather than
+   * anything the client already knew.
+   */
+  private async handleInsertParent(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+    if (!this.activeSession) {
+      res.writeHead(400);
+      res.end();
+      return;
+    }
+
+    const payload = parseJsonBody(await readRequestBody(req));
+    const knotId = parseKnotId(payload);
+    if (knotId === null) {
+      res.writeHead(400);
+      res.end();
+      return;
+    }
+    const command = typeof payload.command === 'string' ? payload.command : '';
+
+    try {
+      await this.activeSession.insertParent(knotId, command);
+    } catch (error) {
+      if (error instanceof CommandConflictError) {
+        res.writeHead(409, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ error: error.message }));
+        return;
+      }
+      console.error('Failed to insert parent:', error);
+      this.reportIfCompileError(error);
+      res.writeHead(500);
+      res.end();
+      return;
+    }
+
+    const activeKnotId = this.activeSession.getTree().getActiveKnotId();
+    if (activeKnotId !== null) {
+      this.broadcastScript(`sk.resetAndFocusCommandInput(${activeKnotId})`);
+    }
     res.writeHead(204);
     res.end();
   }

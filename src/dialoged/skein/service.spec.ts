@@ -16,10 +16,13 @@ function createFakeSession(
   tree: SkeinTree,
   options: {
     runCommand?: (command: string) => void | Promise<void>;
+    navigateSpine?: (direction: string) => void;
+    seekStatus?: (status: string) => void;
     replayToKnot?: (id: number) => void | Promise<void>;
     replayAll?: () => void | Promise<void>;
     setLabel?: (id: number, label: string | null) => void;
     setCommand?: (id: number, command: string) => void | Promise<void>;
+    insertParent?: (id: number, command: string) => void | Promise<void>;
     deleteKnot?: (id: number) => void;
     traceKnot?: (id: number) => string | null | Promise<string | null>;
     traceStartup?: () => string | null | Promise<string | null>;
@@ -44,6 +47,9 @@ function createFakeSession(
     replayAllCount: 0,
     closeAllMenusCount: 0,
     toggleTreeNode: [] as number[],
+    navigateSpine: [] as string[],
+    seekStatus: [] as string[],
+    insertParent: [] as [number, string][],
     undoCount: 0,
     redoCount: 0,
     toggleShowDynamicStateCount: 0,
@@ -95,6 +101,20 @@ function createFakeSession(
       closeMenus();
       emit();
     },
+    // Unlike every other fake method here, this deliberately does NOT touch tree/emit by
+    // default: session.ts's real navigateSpine is a silent no-op with no emitted 'change' at a
+    // spine boundary, so the fake matches that unless a test's own options.navigateSpine hook
+    // says otherwise (see handleNavigateSpine's own tests for a real-move case).
+    navigateSpine: (direction: string) => {
+      calls.navigateSpine.push(direction);
+      options.navigateSpine?.(direction);
+    },
+    // Same "no default tree/emit touch" reasoning as navigateSpine above - session.ts's real
+    // seekStatus is a silent no-op with no emitted 'change' when nothing matches the status.
+    seekStatus: (status: string) => {
+      calls.seekStatus.push(status);
+      options.seekStatus?.(status);
+    },
     newChild: (id: number) => {
       calls.newChild.push(id);
       closeMenus();
@@ -142,6 +162,12 @@ function createFakeSession(
     setCommand: async (id: number, command: string) => {
       calls.setCommand.push([id, command]);
       await options.setCommand?.(id, command);
+      closeMenus();
+      emit();
+    },
+    insertParent: async (id: number, command: string) => {
+      calls.insertParent.push([id, command]);
+      await options.insertParent?.(id, command);
       closeMenus();
       emit();
     },
@@ -564,6 +590,79 @@ describe('SkeinService', () => {
     });
   });
 
+  describe('POST /actions/navigate-spine', () => {
+    it('400s when no session is active', async () => {
+      const res = await post(`http://localhost:${service.getPort()}/actions/navigate-spine`, { direction: 'up' });
+      expect(res.status).toBe(400);
+    });
+
+    it('400s for a missing or unrecognized direction, without calling navigateSpine', async () => {
+      const tree = SkeinTree.newTree('dgdebug', 1);
+      const fake = createFakeSession(tree);
+      service.setActiveSession(fake as unknown as SkeinSession, 'default');
+
+      const missing = await post(`http://localhost:${service.getPort()}/actions/navigate-spine`, {});
+      const bogus = await post(`http://localhost:${service.getPort()}/actions/navigate-spine`, { direction: 'sideways' });
+
+      expect(missing.status).toBe(400);
+      expect(bogus.status).toBe(400);
+      expect(fake.calls.navigateSpine).toEqual([]);
+    });
+
+    it.each(['up', 'down', 'left', 'right', 'first', 'last'])('calls navigateSpine with direction "%s" and returns 204', async (direction) => {
+      const tree = SkeinTree.newTree('dgdebug', 1);
+      const fake = createFakeSession(tree);
+      service.setActiveSession(fake as unknown as SkeinSession, 'default');
+
+      const res = await post(`http://localhost:${service.getPort()}/actions/navigate-spine`, { direction });
+
+      expect(res.status).toBe(204);
+      expect(fake.calls.navigateSpine).toEqual([direction]);
+    });
+
+    // Regression-shaped: unlike select-knot (which gets its target knotId from the request body
+    // and can broadcast it directly - see the test above), this route computes the target
+    // server-side, so the focus/scroll script has to be built from the session's own post-
+    // navigation active knot, not anything the client sent.
+    it("broadcasts the focus/reset execute-script with the active knot's id after navigating", async () => {
+      const tree = SkeinTree.newTree('dgdebug', 1).addChild(0, 'look', { text: 'a', inputType: 'line' }).setActiveKnotId(1);
+      const fake = createFakeSession(tree);
+      service.setActiveSession(fake as unknown as SkeinSession, 'default');
+
+      const chunks: string[] = [];
+      const req = http.get(`http://localhost:${service.getPort()}/events`, (res) => {
+        res.on('data', (chunk) => chunks.push(chunk.toString()));
+      });
+      try {
+        await waitFor(() => chunks.length > 0);
+        chunks.length = 0;
+
+        await post(`http://localhost:${service.getPort()}/actions/navigate-spine`, { direction: 'up' });
+
+        await waitFor(() => chunks.join('').includes('resetAndFocusCommandInput'));
+        // The fake's navigateSpine doesn't itself move the tree's active knot (see its own doc
+        // comment) - so this asserts the route reads getTree().getActiveKnotId() fresh after
+        // calling it, which here is still knot 1, exactly as the test tree was constructed.
+        expect(chunks.join('')).toContain('resetAndFocusCommandInput(1)');
+      } finally {
+        req.destroy();
+      }
+    });
+
+    it('500s when navigateSpine throws', async () => {
+      const tree = SkeinTree.newTree('dgdebug', 1);
+      const fake = createFakeSession(tree, {
+        navigateSpine: () => {
+          throw new Error('boom');
+        }
+      });
+      service.setActiveSession(fake as unknown as SkeinSession, 'default');
+
+      const res = await post(`http://localhost:${service.getPort()}/actions/navigate-spine`, { direction: 'up' });
+      expect(res.status).toBe(500);
+    });
+  });
+
   describe('POST /actions/new-child', () => {
     it('400s when no session is active', async () => {
       const res = await post(`http://localhost:${service.getPort()}/actions/new-child`, { knotId: 1 });
@@ -940,6 +1039,134 @@ describe('SkeinService', () => {
 
       const res = await post(`http://localhost:${service.getPort()}/actions/set-command`, { knotId: 1, command: 'examine room' });
 
+      expect(res.status).toBe(500);
+    });
+  });
+
+  describe('POST /actions/insert-parent', () => {
+    it('400s when no session is active', async () => {
+      const res = await post(`http://localhost:${service.getPort()}/actions/insert-parent`, { knotId: 1, command: 'wait' });
+      expect(res.status).toBe(400);
+    });
+
+    it('calls insertParent and returns 204', async () => {
+      const tree = SkeinTree.newTree('dgdebug', 1).addChild(0, 'look', { text: 'a', inputType: 'line' });
+      const fake = createFakeSession(tree);
+      service.setActiveSession(fake as unknown as SkeinSession, 'default');
+
+      const res = await post(`http://localhost:${service.getPort()}/actions/insert-parent`, { knotId: 1, command: 'wait' });
+
+      expect(res.status).toBe(204);
+      expect(fake.calls.insertParent).toEqual([[1, 'wait']]);
+    });
+
+    it('treats a missing/non-string command as an empty string, not a crash', async () => {
+      const tree = SkeinTree.newTree('dgdebug', 1).addChild(0, 'look', { text: 'a', inputType: 'line' });
+      const fake = createFakeSession(tree);
+      service.setActiveSession(fake as unknown as SkeinSession, 'default');
+
+      await post(`http://localhost:${service.getPort()}/actions/insert-parent`, { knotId: 1 });
+
+      expect(fake.calls.insertParent).toEqual([[1, '']]);
+    });
+
+    it('409s with a JSON {error} body for a sibling command collision - the modal reads this to show inline, not a generic 500', async () => {
+      const tree = SkeinTree.newTree('dgdebug', 1).addChild(0, 'look', { text: 'a', inputType: 'line' });
+      const fake = createFakeSession(tree, {
+        insertParent: () => {
+          throw new CommandConflictError('wait');
+        }
+      });
+      service.setActiveSession(fake as unknown as SkeinSession, 'default');
+
+      const res = await post(`http://localhost:${service.getPort()}/actions/insert-parent`, { knotId: 1, command: 'wait' });
+
+      expect(res.status).toBe(409);
+      expect(JSON.parse(res.body)).toEqual({
+        error: 'This knot\'s parent already has a child with the command "wait".'
+      });
+    });
+
+    it('500s for any other insertParent failure', async () => {
+      const tree = SkeinTree.newTree('dgdebug', 1).addChild(0, 'look', { text: 'a', inputType: 'line' });
+      const fake = createFakeSession(tree, {
+        insertParent: () => {
+          throw new Error('disk full');
+        }
+      });
+      service.setActiveSession(fake as unknown as SkeinSession, 'default');
+
+      const res = await post(`http://localhost:${service.getPort()}/actions/insert-parent`, { knotId: 1, command: 'wait' });
+
+      expect(res.status).toBe(500);
+    });
+
+    // Unlike set-command (which doesn't move the active knot), a successful insert navigates to
+    // the newly inserted parent - this asserts the route reads getTree().getActiveKnotId() fresh
+    // after calling insertParent, same as handleNavigateSpine.
+    it("broadcasts the focus/reset execute-script with the active knot's id after a successful insert", async () => {
+      const tree = SkeinTree.newTree('dgdebug', 1).addChild(0, 'look', { text: 'a', inputType: 'line' }).setActiveKnotId(1);
+      const fake = createFakeSession(tree);
+      service.setActiveSession(fake as unknown as SkeinSession, 'default');
+
+      const chunks: string[] = [];
+      const req = http.get(`http://localhost:${service.getPort()}/events`, (res) => {
+        res.on('data', (chunk) => chunks.push(chunk.toString()));
+      });
+      try {
+        await waitFor(() => chunks.length > 0);
+        chunks.length = 0;
+
+        await post(`http://localhost:${service.getPort()}/actions/insert-parent`, { knotId: 1, command: 'wait' });
+
+        await waitFor(() => chunks.join('').includes('resetAndFocusCommandInput'));
+        expect(chunks.join('')).toContain('resetAndFocusCommandInput(1)');
+      } finally {
+        req.destroy();
+      }
+    });
+  });
+
+  describe('POST /actions/seek-status', () => {
+    it('400s when no session is active', async () => {
+      const res = await post(`http://localhost:${service.getPort()}/actions/seek-status`, { seekStatus: 'new' });
+      expect(res.status).toBe(400);
+    });
+
+    it('400s for a missing or unrecognized status, without calling seekStatus', async () => {
+      const tree = SkeinTree.newTree('dgdebug', 1);
+      const fake = createFakeSession(tree);
+      service.setActiveSession(fake as unknown as SkeinSession, 'default');
+
+      const missing = await post(`http://localhost:${service.getPort()}/actions/seek-status`, {});
+      const bogus = await post(`http://localhost:${service.getPort()}/actions/seek-status`, { seekStatus: 'valid' });
+
+      expect(missing.status).toBe(400);
+      expect(bogus.status).toBe(400);
+      expect(fake.calls.seekStatus).toEqual([]);
+    });
+
+    it.each(['new', 'error'])('calls seekStatus with status "%s" and returns 204', async (status) => {
+      const tree = SkeinTree.newTree('dgdebug', 1);
+      const fake = createFakeSession(tree);
+      service.setActiveSession(fake as unknown as SkeinSession, 'default');
+
+      const res = await post(`http://localhost:${service.getPort()}/actions/seek-status`, { seekStatus: status });
+
+      expect(res.status).toBe(204);
+      expect(fake.calls.seekStatus).toEqual([status]);
+    });
+
+    it('500s when seekStatus throws', async () => {
+      const tree = SkeinTree.newTree('dgdebug', 1);
+      const fake = createFakeSession(tree, {
+        seekStatus: () => {
+          throw new Error('boom');
+        }
+      });
+      service.setActiveSession(fake as unknown as SkeinSession, 'default');
+
+      const res = await post(`http://localhost:${service.getPort()}/actions/seek-status`, { seekStatus: 'new' });
       expect(res.status).toBe(500);
     });
   });

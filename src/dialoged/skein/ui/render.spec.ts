@@ -32,6 +32,38 @@ describe('renderNavbar', () => {
     expect(html).toContain('aria-label="0 error knots"');
   });
 
+  it('wires the new/error badges as clickable buttons that post to seek-status with the matching status signal', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1)
+      .addChild(0, 'look', { text: 'You see nothing.\n', inputType: 'line' })
+      .addChild(0, 'xyzzy', { text: 'Nothing happens.\n', inputType: 'line' });
+    const html = renderNavbar(INFO, tree);
+    expect(html).toContain(`data-on:click="$seekStatus = 'new'; @post('/actions/seek-status')"`);
+    expect(html).toContain(`data-on:click="$seekStatus = 'error'; @post('/actions/seek-status')"`);
+  });
+
+  it('disables a badge (rather than hiding it) when its count is zero, and leaves it enabled otherwise', () => {
+    const zeroTree = SkeinTree.newTree('dgdebug', 1);
+    const zeroHtml = renderNavbar(INFO, zeroTree);
+    const newBadge = zeroHtml.split('aria-label="0 new knots"')[1].split('>')[0];
+    const errorBadge = zeroHtml.split('aria-label="0 error knots"')[1].split('>')[0];
+    expect(newBadge).toContain('disabled');
+    expect(errorBadge).toContain('disabled');
+
+    const nonZeroTree = SkeinTree.newTree('dgdebug', 1).addChild(0, 'look', { text: 'a', inputType: 'line' });
+    const nonZeroHtml = renderNavbar(INFO, nonZeroTree);
+    const enabledNewBadge = nonZeroHtml.split('aria-label="1 new knots"')[1].split('>')[0];
+    expect(enabledNewBadge).not.toContain('disabled');
+  });
+
+  // The ok badge has no "jump to the next ok knot" use case (matching dialog-tool, where only
+  // the yellow/red badges are clickable) - it stays a plain, non-interactive count.
+  it('does not make the ok badge clickable', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1);
+    const html = renderNavbar(INFO, tree);
+    const okBadge = html.split('aria-label="1 ok knots"')[1].split('>')[0];
+    expect(okBadge).not.toContain('data-on:click');
+  });
+
   it('wires Replay All to a plain @post(), no signal needed - the server targets every leaf itself', () => {
     const tree = SkeinTree.newTree('dgdebug', 1);
     const html = renderNavbar(INFO, tree);

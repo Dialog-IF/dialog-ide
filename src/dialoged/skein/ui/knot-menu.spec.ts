@@ -13,11 +13,47 @@ describe('renderKnotMenu', () => {
       expect(html).not.toContain('trace-knot');
     });
 
-    it('is never disabled, on root or otherwise - unlike Edit Label/Toggle Lock/Delete', () => {
+    it('is not disabled by default, on root or otherwise - unlike Edit Label/Toggle Lock/Delete', () => {
       const rootHtml = renderKnotMenu(0, true, false, '/actions/open-transcript-menu');
       const traceItem = rootHtml.split('>Trace</button>')[0].split('<li').pop()!;
       expect(traceItem).not.toContain('menu-disabled');
       expect(traceItem).not.toContain('disabled');
+    });
+
+    it('is disabled, with an explanatory title, for a knot reached via a keystroke prompt', () => {
+      const html = renderKnotMenu(3, true, false, '/actions/open-transcript-menu', false, null, null, 'compact', true);
+      const traceItem = html.split('>Trace</button>')[0].split('<li').pop()!;
+      expect(traceItem).toContain('menu-disabled');
+      expect(traceItem).toContain(' disabled');
+      expect(traceItem).toContain('title="Tracing isn');
+    });
+  });
+
+  describe('Insert Parent item', () => {
+    it('posts to the modal for a non-root knot', () => {
+      const html = renderKnotMenu(3, true, false, '/actions/open-transcript-menu');
+      expect(html).toContain('data-on:click="sk.showInsertParentModal(3)"');
+    });
+
+    it('is disabled for the root knot - root has no parent to insert above', () => {
+      const html = renderKnotMenu(0, true, false, '/actions/open-transcript-menu');
+      const item = html.split('>Insert Parent&hellip;</button>')[0].split('<li').pop()!;
+      expect(item).toContain('menu-disabled');
+      expect(item).toContain(' disabled');
+    });
+
+    it('is disabled, with an explanatory title, for a knot reached via a keystroke prompt', () => {
+      const html = renderKnotMenu(3, true, false, '/actions/open-transcript-menu', false, null, null, 'compact', true);
+      const item = html.split('>Insert Parent&hellip;</button>')[0].split('<li').pop()!;
+      expect(item).toContain('menu-disabled');
+      expect(item).toContain(' disabled');
+      expect(item).toContain('title="Insert Parent isn');
+    });
+
+    it('has no keyboard-accelerator hint even when active - rare enough to work without one', () => {
+      const html = renderKnotMenu(3, true, false, '/actions/open-transcript-menu', true);
+      const item = html.split('>Insert Parent&hellip;</button>')[0].split('<li').pop()!;
+      expect(item).not.toContain('title="Insert Parent (');
     });
   });
 

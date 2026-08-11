@@ -178,9 +178,7 @@ function renderSubtree(
   graphMenuId: number | null
 ): string {
   const knot = tree.getDerivedKnot(knotId)!;
-  const children = knot.children
-    .map((id) => tree.getDerivedKnot(id)!)
-    .sort((a, b) => a.command.localeCompare(b.command));
+  const children = tree.sortedChildren(knotId);
 
   let childrenHtml = '';
   if (children.length > 0 && !knot.collapsed) {

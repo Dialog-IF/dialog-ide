@@ -426,6 +426,19 @@ export class SkeinTree {
   }
 
   /**
+   * The id insertParent (or addChild) would assign if called right now on this exact tree state -
+   * a pure preview of generateNextId's own computation, not a reservation or a mutation. Exposed
+   * so SkeinSession.insertParent can know the new knot's id up front (to navigate the active knot
+   * there once the process has replayed it) without insertParent itself having to report it back
+   * - calling this immediately before insertParent, on the same tree, is guaranteed to agree with
+   * what insertParent actually assigns, since generateNextId is a pure function of this.knots and
+   * nothing happens in between.
+   */
+  public nextId(): number {
+    return this.generateNextId();
+  }
+
+  /**
    * Insert a new parent knot above an existing knot - returns a new SkeinTree instance.
    * The existing knot becomes the (sole) child of the newly inserted parent, which takes
    * the existing knot's former place among its old parent's children.
@@ -636,6 +649,20 @@ export class SkeinTree {
       }
     }
     return null;
+  }
+
+  /**
+   * parentId's children, sorted by command text - the single source of truth for sibling order,
+   * shared by tree-pane.ts's rendering and SkeinSession.navigateSpine's left/right keyboard
+   * navigation, so the two always agree: pressing "next sibling" always lands on whichever pill
+   * visually sits to the right. Returns an empty array for an unknown id or a childless knot.
+   */
+  public sortedChildren(parentId: number): DerivedKnot[] {
+    const state = this.knotStates.get(parentId);
+    if (!state) {
+      return [];
+    }
+    return state.children.map((id) => this.getDerivedKnot(id)!).sort((a, b) => a.command.localeCompare(b.command));
   }
 
   /**
@@ -926,6 +953,20 @@ export class SkeinTree {
       }
       currentId = state.selectedChild;
     }
+  }
+
+  /**
+   * Every knot id whose own status (not aggregated treeState - a valid knot with a new/error
+   * descendant doesn't count) equals status, ascending by id - mirrors dialog-tool's tree/knots-
+   * with-status. SkeinSession.seekStatus (the navbar's clickable new/error count badges) cycles
+   * through this list in order.
+   */
+  public knotIdsWithStatus(status: KnotStatus): number[] {
+    return this.knotStates
+      .filter((state) => state.state === status)
+      .keySeq()
+      .toArray()
+      .sort((a, b) => a - b);
   }
 
   /**

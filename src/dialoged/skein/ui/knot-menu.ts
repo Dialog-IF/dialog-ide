@@ -144,20 +144,28 @@ export function renderKnotMenu(
   currentCommand: string | null = null,
   triggerSize: 'compact' | 'prominent' = 'compact',
   // True when this knot was reached via a keystroke prompt (its parent's response ended on one -
-  // see tree.ts's promptTypeAt/render.ts's reachedViaKeystroke) - "(trace on)"/"(trace off)" are
-  // line-mode debugger commands, and the process would be mid-keystroke-read right after
-  // replaying to this knot's parent, so tracing it isn't safe (session.ts's traceKnot itself
-  // refuses the same way; this just surfaces that up front instead of a silent 400 on click).
-  traceDisabled: boolean = false
+  // see tree.ts's promptTypeAt/render.ts's reachedViaKeystroke). Disables both Trace and Insert
+  // Parent…: "(trace on)"/"(trace off)" and a newly inserted knot's own command are all line-mode
+  // text, and the process would be mid-keystroke-read right after replaying to this knot's
+  // parent, so neither is safe to send there (session.ts's traceKnot/insertParent both refuse the
+  // same way; this just surfaces that up front instead of a silent 400/409 on click).
+  keystrokeReached: boolean = false
 ): string {
   const isRoot = id === 0;
   const { pane, directionClass } = PANE_CONFIG[openRoute];
   const anchorName = `--knot-menu-${pane}-${id}`;
   const popoverId = `knot-menu-${pane}-${id}`;
   const hint = (label: string, key: string): string => (isActive ? ` title="${label} (${key})"` : '');
-  const traceHint = traceDisabled
+  const traceHint = keystrokeReached
     ? ' title="Tracing isn\'t available for a knot reached via a keystroke prompt"'
     : hint('Trace', '⌥T');
+  // No keyboard accelerator - Insert Parent (like Splice Out below) is rare enough that a menu
+  // item is enough; unlike Trace/every other hint() above, there's no "(⌥X)" to show even when
+  // isActive, so this only ever has a title when disabled.
+  const insertParentDisabled = isRoot || keystrokeReached;
+  const insertParentHint = keystrokeReached
+    ? ' title="Insert Parent isn\'t available for a knot reached via a keystroke prompt"'
+    : '';
   const { button: triggerButtonClass, icon: triggerIconClass } = TRIGGER_SIZE_CLASSES[triggerSize];
 
   return `<details class="dropdown ${directionClass} font-sans"${isOpen ? ' open' : ''} style="anchor-name: ${anchorName}">
@@ -172,7 +180,7 @@ export function renderKnotMenu(
     <li${menuItemClass(!hasUnblessed)}><button type="button" role="menuitem"${hint('Bless Knot', '⌥B')}${menuItemAttrs(!hasUnblessed)} data-on:click="$knotId = ${id}; @post('/actions/bless-knot')">Bless Knot</button></li>
     <li><button type="button" role="menuitem"${hint('New Child', '⌥A')} data-on:click="$knotId = ${id}; @post('/actions/new-child')">New Child</button></li>
     <li><button type="button" role="menuitem"${hint('Replay to Here', '⌥R')} data-on:click="$knotId = ${id}; @post('/actions/replay-to')">Replay to Here</button></li>
-    <li${menuItemClass(traceDisabled)}><button type="button" role="menuitem"${traceHint}${menuItemAttrs(traceDisabled)} data-on:click="${isRoot ? `@post('/actions/trace-startup')` : `$knotId = ${id}; @post('/actions/trace-knot')`}">Trace</button></li>
+    <li${menuItemClass(keystrokeReached)}><button type="button" role="menuitem"${traceHint}${menuItemAttrs(keystrokeReached)} data-on:click="${isRoot ? `@post('/actions/trace-startup')` : `$knotId = ${id}; @post('/actions/trace-knot')`}">Trace</button></li>
     <li${menuItemClass(isRoot)}><button type="button" role="menuitem"${hint('Edit Label', '⌥L')}${menuItemAttrs(isRoot)}
       data-current-label="${escapeHtml(currentLabel ?? '')}"
       data-on:click="sk.showLabelModal(${id}, el.dataset.currentLabel)">Edit Label&hellip;</button></li>
@@ -180,6 +188,7 @@ export function renderKnotMenu(
       data-current-command="${escapeHtml(currentCommand ?? '')}"
       data-on:click="sk.showCommandModal(${id}, el.dataset.currentCommand)">Edit Command&hellip;</button></li>
     <li${menuItemClass(isRoot)}><button type="button" role="menuitem"${hint('Toggle Lock', '⌥K')}${menuItemAttrs(isRoot)} data-on:click="$knotId = ${id}; @post('/actions/toggle-lock')">Toggle Lock</button></li>
+    <li${menuItemClass(insertParentDisabled)}><button type="button" role="menuitem"${insertParentHint}${menuItemAttrs(insertParentDisabled)} data-on:click="sk.showInsertParentModal(${id})">Insert Parent&hellip;</button></li>
     <li${menuItemClass(isRoot)}><button type="button" role="menuitem"${menuItemAttrs(isRoot)} data-on:click="$knotId = ${id}; @post('/actions/splice-knot')">Splice Out</button></li>
     <li${menuItemClass(isRoot)}><button type="button" role="menuitem"${hint('Delete', '⌥D')}${menuItemAttrs(isRoot)} data-on:click="$knotId = ${id}; @post('/actions/delete-knot')">Delete</button></li>
   </ul>

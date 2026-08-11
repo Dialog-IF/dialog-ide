@@ -551,8 +551,12 @@ export function renderNavbar(
   <div class="w-full flex items-center gap-2">
     <div class="join shrink-0">
       <div class="bg-success text-success-content p-2 font-semibold rounded-l-lg" aria-label="${t.valid} ok knots">${t.valid}</div>
-      <div class="bg-warning text-warning-content p-2 font-semibold" aria-label="${t.new} new knots">${t.new}</div>
-      <div class="bg-error text-error-content p-2 font-semibold rounded-r-lg" aria-label="${t.error} error knots">${t.error}</div>
+      <button type="button" class="bg-warning text-warning-content p-2 font-semibold disabled:opacity-100" aria-label="${t.new} new knots"
+        ${t.new === 0 ? 'disabled' : ''} data-on:click="$seekStatus = 'new'; @post('/actions/seek-status')"
+        title="${t.new === 0 ? 'No new knots' : 'Jump to the next new knot, cycling through all of them'}">${t.new}</button>
+      <button type="button" class="bg-error text-error-content p-2 font-semibold rounded-r-lg disabled:opacity-100" aria-label="${t.error} error knots"
+        ${t.error === 0 ? 'disabled' : ''} data-on:click="$seekStatus = 'error'; @post('/actions/seek-status')"
+        title="${t.error === 0 ? 'No error knots' : 'Jump to the next error knot, cycling through all of them'}">${t.error}</button>
     </div>
     ${renderSearchBox(searchQuery, searchResults)}
     <button type="button" class="btn btn-sm ${showDynamicState ? 'btn-primary' : 'btn-ghost'}" ${dgdebug ? '' : 'disabled'}

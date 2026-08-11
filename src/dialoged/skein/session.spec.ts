@@ -928,6 +928,238 @@ describe('SkeinSession', () => {
     });
   });
 
+  describe('navigateSpine', () => {
+    // A straight chain, 0 -> 1 -> 2 -> 3, so addChild's own "new child becomes its parent's
+    // selectedChild" leaves the whole thing on one spine - exactly what up/down/first/last walk.
+    function chainTree() {
+      return SkeinTree.newTree('dgdebug', 1)
+        .addChild(0, 'a', { text: 'a', inputType: 'line' })
+        .addChild(1, 'b', { text: 'b', inputType: 'line' })
+        .addChild(2, 'c', { text: 'c', inputType: 'line' })
+        .setActiveKnotId(2);
+    }
+
+    // Root has two children, sorted alphabetically: 'alpha' (id 1), 'beta' (id 2).
+    function branchedTree() {
+      return SkeinTree.newTree('dgdebug', 1)
+        .addChild(0, 'beta', { text: 'b', inputType: 'line' })
+        .addChild(0, 'alpha', { text: 'a', inputType: 'line' })
+        .setActiveKnotId(2); // 'alpha'
+    }
+
+    it('up moves to the parent of the active knot', async () => {
+      const session = await startedSessionWith(chainTree());
+      session.navigateSpine('up');
+      expect(session.getTree().getActiveKnotId()).toBe(1);
+    });
+
+    it('down moves to the selectedChild of the active knot', async () => {
+      const session = await startedSessionWith(chainTree());
+      session.navigateSpine('down');
+      expect(session.getTree().getActiveKnotId()).toBe(3);
+    });
+
+    it('first jumps straight to the root', async () => {
+      const session = await startedSessionWith(chainTree());
+      session.navigateSpine('first');
+      expect(session.getTree().getActiveKnotId()).toBe(0);
+    });
+
+    it('last jumps straight to the selected spine\'s leaf', async () => {
+      const session = await startedSessionWith(chainTree());
+      session.navigateSpine('last');
+      expect(session.getTree().getActiveKnotId()).toBe(3);
+    });
+
+    it('up from the root is a silent no-op - no error, no emitted change', async () => {
+      const session = await startedSessionWith(chainTree());
+      session.setActiveKnot(0);
+      const onChange = jest.fn();
+      session.onChange(onChange);
+
+      session.navigateSpine('up');
+
+      expect(session.getTree().getActiveKnotId()).toBe(0);
+      expect(onChange).not.toHaveBeenCalled();
+    });
+
+    it('down from a leaf (no selectedChild) is a silent no-op', async () => {
+      const session = await startedSessionWith(chainTree());
+      session.setActiveKnot(3);
+      const onChange = jest.fn();
+      session.onChange(onChange);
+
+      session.navigateSpine('down');
+
+      expect(session.getTree().getActiveKnotId()).toBe(3);
+      expect(onChange).not.toHaveBeenCalled();
+    });
+
+    it('right moves to the next sibling in alphabetical order, not creation order', async () => {
+      // branchedTree() creates 'beta' (id 1) before 'alpha' (id 2), then activates 'alpha' (id
+      // 2) - creation order and alphabetical order deliberately disagree here, so this only
+      // passes if sortedChildren's alphabetical sort is what actually drives the move.
+      const session = await startedSessionWith(branchedTree());
+      session.navigateSpine('right');
+      const active = session.getTree().getActiveKnotId();
+      expect(session.getTree().getKnot(active!)!.command).toBe('beta');
+    });
+
+    it('left moves to the previous sibling', async () => {
+      const tree = branchedTree();
+      const betaId = tree.findChildId(0, 'beta')!;
+      const session = await startedSessionWith(tree.setActiveKnotId(betaId));
+      session.navigateSpine('left');
+      const active = session.getTree().getActiveKnotId();
+      expect(session.getTree().getKnot(active!)!.command).toBe('alpha');
+    });
+
+    it('right past the last sibling is a silent no-op', async () => {
+      const tree = branchedTree();
+      const betaId = tree.findChildId(0, 'beta')!;
+      const session = await startedSessionWith(tree.setActiveKnotId(betaId)); // 'beta' sorts last
+      const onChange = jest.fn();
+      session.onChange(onChange);
+
+      session.navigateSpine('right');
+
+      expect(session.getTree().getActiveKnotId()).toBe(betaId);
+      expect(onChange).not.toHaveBeenCalled();
+    });
+
+    it('left before the first sibling is a silent no-op', async () => {
+      const session = await startedSessionWith(branchedTree()); // active: 'alpha' sorts first
+      const onChange = jest.fn();
+      session.onChange(onChange);
+
+      session.navigateSpine('left');
+
+      expect(session.getTree().getActiveKnotId()).toBe(session.getTree().findChildId(0, 'alpha'));
+      expect(onChange).not.toHaveBeenCalled();
+    });
+
+    it('left/right on an only child (root has no other children) is a silent no-op', async () => {
+      const session = await startedSessionWith(
+        SkeinTree.newTree('dgdebug', 1).addChild(0, 'look', { text: 'a', inputType: 'line' }).setActiveKnotId(1)
+      );
+      const onChange = jest.fn();
+      session.onChange(onChange);
+
+      session.navigateSpine('left');
+      session.navigateSpine('right');
+
+      expect(session.getTree().getActiveKnotId()).toBe(1);
+      expect(onChange).not.toHaveBeenCalled();
+    });
+
+    it('never touches the process - pure tree navigation, same as setActiveKnot', async () => {
+      const session = await startedSessionWith(chainTree());
+      session.navigateSpine('up');
+      expect(mockTerminate).not.toHaveBeenCalled();
+      expect(session.getProcessPositionId()).toBe(0);
+    });
+
+    it('closes both panes\' menus on a real move, same as setActiveKnot', async () => {
+      const session = await startedSessionWith(chainTree());
+      session.openGraphMenu(2);
+      session.openTranscriptMenu(2);
+
+      session.navigateSpine('up');
+
+      expect(session.getGraphMenuId()).toBeNull();
+      expect(session.getTranscriptMenuId()).toBeNull();
+    });
+  });
+
+  describe('seekStatus', () => {
+    // root (valid) -> 1 'look' (blessed, valid), 2 'wait' (never blessed - 'new'),
+    // 3 'xyzzy' (blessed then diverged - 'error').
+    function statusTree() {
+      return SkeinTree.newTree('dgdebug', 1)
+        .addChild(0, 'look', { text: 'Room A.\n', inputType: 'line' })
+        .blessKnot(1)
+        .addChild(0, 'wait', { text: 'Time passes.\n', inputType: 'line' })
+        .addChild(0, 'xyzzy', { text: 'Nothing happens.\n', inputType: 'line' })
+        .blessKnot(3)
+        .updateKnotResponse(3, { text: 'Something happens!\n', inputType: 'line' });
+    }
+
+    it('jumps to the (lowest-id) matching knot on the first call', async () => {
+      const session = await startedSessionWith(statusTree());
+      session.seekStatus('new');
+      expect(session.getTree().getActiveKnotId()).toBe(2);
+    });
+
+    it('cycles to the next matching knot on repeated calls', async () => {
+      // Two 'new' knots: 2 ('wait') and a second one added after, id 4.
+      const tree = statusTree().addChild(0, 'inventory', { text: 'You have nothing.\n', inputType: 'line' });
+      const session = await startedSessionWith(tree);
+
+      session.seekStatus('new');
+      expect(session.getTree().getActiveKnotId()).toBe(2);
+      session.seekStatus('new');
+      expect(session.getTree().getActiveKnotId()).toBe(4);
+    });
+
+    it('wraps back to the first match after the last', async () => {
+      const tree = statusTree().addChild(0, 'inventory', { text: 'You have nothing.\n', inputType: 'line' });
+      const session = await startedSessionWith(tree);
+
+      session.seekStatus('new'); // -> 2
+      session.seekStatus('new'); // -> 4 (last)
+      session.seekStatus('new'); // -> wraps back to 2
+
+      expect(session.getTree().getActiveKnotId()).toBe(2);
+    });
+
+    it('remembers position per status independently - jumping "new" repeatedly does not disturb "error"', async () => {
+      const session = await startedSessionWith(statusTree());
+
+      session.seekStatus('new'); // -> 2, the only 'new' knot
+      session.seekStatus('error'); // -> 3, the only 'error' knot, unaffected by the 'new' cursor
+      expect(session.getTree().getActiveKnotId()).toBe(3);
+    });
+
+    it('is a silent no-op (no error, no emitted change) when there are no knots with that status', async () => {
+      const session = await startedSessionWith(
+        SkeinTree.newTree('dgdebug', 1).addChild(0, 'look', { text: 'a', inputType: 'line' }).blessKnot(1)
+      );
+      const onChange = jest.fn();
+      session.onChange(onChange);
+
+      session.seekStatus('error'); // nothing is 'error' here
+
+      expect(session.getTree().getActiveKnotId()).toBe(0);
+      expect(onChange).not.toHaveBeenCalled();
+    });
+
+    it('navigates via setActiveKnot (extending the spine), not just moving the active pointer - unlike navigateSpine, a matching knot can be off-spine', async () => {
+      const session = await startedSessionWith(statusTree());
+
+      session.seekStatus('new'); // knot 2, a sibling of the currently-selected spine's knot 1
+
+      // The spine now runs through knot 2, not knot 1 - root's selectedChild moved.
+      expect(session.getTree().getKnot(0)).toBeTruthy();
+      expect(session.getTree().getDerivedKnot(0)!.selectedChild).toBe(2);
+    });
+
+    // startedSessionWith itself already pushes one undo entry (its own blessKnot(0) call), so
+    // this can't just check "undo is a no-op" - instead it does one real structural edit of its
+    // own (toggleLock), then seekStatus, then a single undo(): if seekStatus correctly pushed
+    // nothing, that one undo() call reverts the toggleLock; if it had wrongly pushed its own
+    // entry, that same call would only revert the navigation, leaving the lock still set.
+    it('does not push an undo snapshot - pure navigation, same as setActiveKnot/navigateSpine', async () => {
+      const session = await startedSessionWith(statusTree());
+      session.toggleLock(1);
+      expect(session.getTree().getKnot(1)!.locked).toBe(true);
+
+      session.seekStatus('new');
+      session.undo();
+
+      expect(session.getTree().getKnot(1)!.locked).toBe(false);
+    });
+  });
+
   describe('newChild', () => {
     it('activates the knot without touching the process, same as setActiveKnot', async () => {
       const session = await startedSessionWith(
@@ -1381,6 +1613,103 @@ describe('SkeinSession', () => {
       session.undo();
 
       expect(session.getTree().getKnot(1)!.command).toBe('look');
+    });
+  });
+
+  describe('insertParent', () => {
+    it('creates a new knot above id, executes it fresh, replays id under the new context, and navigates to the new knot', async () => {
+      const session = await startedSessionWith(
+        SkeinTree.newTree('dgdebug', 1).addChild(0, 'look', { text: 'Room A.\n', inputType: 'line' })
+      );
+      mockReadResponse
+        .mockResolvedValueOnce(BANNER_RESPONSE) // insertParent's relaunch
+        .mockResolvedValueOnce(dynamicResponse([])) // relaunch's own @dynamic, for knot 0
+        .mockResolvedValueOnce({ command: 'wait', response: 'Time passes.\n', promptType: 'line' })
+        .mockResolvedValueOnce(dynamicResponse(['  (waited) on']))
+        .mockResolvedValueOnce({ command: 'look', response: 'Room A, later.\n', promptType: 'line' })
+        .mockResolvedValueOnce(dynamicResponse(['  (waited) on']));
+
+      await session.insertParent(1, 'wait');
+
+      const tree = session.getTree();
+      const newId = tree.findChildId(0, 'wait');
+      expect(newId).not.toBeNull();
+      expect(tree.getDerivedKnot(newId!)!.unblessedResponse).toBe('Time passes.\n');
+      expect(tree.getKnot(1)!.parentId).toBe(newId);
+      expect(tree.getKnot(1)!.command).toBe('look'); // id's own command text is untouched
+      expect(tree.getDerivedKnot(1)!.unblessedResponse).toBe('Room A, later.\n');
+      expect(tree.getActiveKnotId()).toBe(newId);
+    });
+
+    it('throws for the root knot - no parent to insert above', async () => {
+      const session = await startedSessionWith(SkeinTree.newTree('dgdebug', 1));
+      await expect(session.insertParent(0, 'wait')).rejects.toThrow();
+    });
+
+    it('throws for a blank (or whitespace-only) command', async () => {
+      const session = await startedSessionWith(
+        SkeinTree.newTree('dgdebug', 1).addChild(0, 'look', { text: 'a', inputType: 'line' })
+      );
+      await expect(session.insertParent(1, '   ')).rejects.toThrow('Command cannot be blank');
+    });
+
+    it('throws CommandConflictError when a sibling of id already uses the command, without touching the process', async () => {
+      const session = await startedSessionWith(
+        SkeinTree.newTree('dgdebug', 1)
+          .addChild(0, 'look', { text: 'a', inputType: 'line' })
+          .addChild(0, 'wait', { text: 'b', inputType: 'line' })
+      );
+
+      await expect(session.insertParent(1, 'wait')).rejects.toThrow(CommandConflictError);
+
+      expect(mockTerminate).not.toHaveBeenCalled();
+      expect(session.getTree().getAllKnots()).toHaveLength(3); // unchanged: root + look + wait
+    });
+
+    it('throws when id was reached via a keystroke prompt - the new command is line-mode text, unsafe mid-keystroke-read', async () => {
+      const session = await startedSessionWith(
+        SkeinTree.newTree('dgdebug', 1)
+          .addChild(0, 'start combat', { text: 'Press any key...\n', inputType: 'key' })
+          .addChild(1, 'x', { text: 'A hit!\n', inputType: 'line' })
+      );
+
+      await expect(session.insertParent(2, 'wait')).rejects.toThrow('keystroke prompt');
+
+      expect(mockTerminate).not.toHaveBeenCalled();
+    });
+
+    it('throws if the session has not been started', async () => {
+      const session = SkeinSession.createLoaded(
+        SkeinTree.newTree('dgdebug', 1).addChild(0, 'look', { text: 'a', inputType: 'line' }),
+        DGDEBUG_CONFIG
+      );
+      await expect(session.insertParent(1, 'wait')).rejects.toThrow('Session not running');
+    });
+
+    it('does not waste an undo entry on a rejected (conflicting) insert', async () => {
+      const session = await startedSessionWith(
+        SkeinTree.newTree('dgdebug', 1)
+          .addChild(0, 'look', { text: 'Room A.\n', inputType: 'line' })
+          .addChild(0, 'inventory', { text: 'Empty-handed.\n', inputType: 'line' })
+      );
+      mockReadResponse
+        .mockResolvedValueOnce(BANNER_RESPONSE)
+        .mockResolvedValueOnce(dynamicResponse([]))
+        .mockResolvedValueOnce({ command: 'wait', response: 'Time passes.\n', promptType: 'line' })
+        .mockResolvedValueOnce(dynamicResponse([]))
+        .mockResolvedValueOnce({ command: 'look', response: 'Room A.\n', promptType: 'line' })
+        .mockResolvedValueOnce(dynamicResponse([]));
+
+      await session.insertParent(1, 'wait'); // a real, valid insert - pushes one undo entry
+      // Rejected: root's children are now ['wait' (the just-inserted knot), 'inventory'] - trying
+      // to insert another 'wait' above knot 2 (also a child of root) collides with it.
+      await expect(session.insertParent(2, 'wait')).rejects.toThrow(CommandConflictError);
+
+      session.undo();
+
+      const tree = session.getTree();
+      expect(tree.getAllKnots()).toHaveLength(3); // back to root + look + inventory, insert undone
+      expect(tree.getKnot(1)!.parentId).toBe(0);
     });
   });
 

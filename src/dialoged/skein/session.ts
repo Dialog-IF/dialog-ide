@@ -6,7 +6,7 @@
 import * as os from 'os';
 import { EventEmitter } from 'events';
 import { SkeinProcess, ProcessConfig, EngineType } from './process';
-import { SkeinTree, Response } from './tree';
+import { SkeinTree, Response, CommandConflictError } from './tree';
 import { DynamicProcessor, DynamicState } from './dynamic';
 import { DialogCompileError } from './compile-error';
 import { readProject, expandSources } from './project';
@@ -81,6 +81,22 @@ async function mapWithConcurrency<T, R>(items: T[], limit: number, worker: (item
 }
 
 /**
+ * The six keyboard spine/sibling navigation directions SkeinSession.navigateSpine understands -
+ * see its own doc comment for exact semantics. Exported so service.ts's route handler can
+ * validate an incoming request body against this exact set rather than trusting an arbitrary
+ * string through to the session.
+ */
+export type SpineDirection = 'up' | 'down' | 'left' | 'right' | 'first' | 'last';
+
+/**
+ * The two knot statuses SkeinSession.seekStatus's navbar badges cycle through - dialog-tool's
+ * own seek-status supports the same two (the third status, 'valid', has no "jump to the next
+ * valid knot" use case, so the navbar's ok badge stays a plain, non-interactive count - see
+ * render.ts's renderNavbar). Exported for the same request-validation reason as SpineDirection.
+ */
+export type SeekableStatus = 'new' | 'error';
+
+/**
  * Session configuration
  */
 export interface SessionConfig {
@@ -129,6 +145,12 @@ export class SkeinSession {
   // action or plain navigation (setActiveKnot) - see closeMenus.
   private graphMenuId: number | null = null;
   private transcriptMenuId: number | null = null;
+  // The navbar's clickable new/error count badges (seekStatus) remember which knot they last
+  // jumped to, per status, so consecutive clicks cycle through every matching knot in turn rather
+  // than bouncing back to the same one each time - mirrors dialog-tool's own per-status :last-jump
+  // on the session. Session-level and never persisted (like graphMenuId/showDynamicState above),
+  // not part of SkeinTree - it's pure UI navigation memory, not tree state.
+  private lastJumpId: Record<SeekableStatus, number | null> = { new: null, error: null };
   // Snapshot-based undo/redo (Cmd+Z/Shift+Cmd+Z) over structural tree edits - bless/unbless,
   // delete/splice, label/lock changes, and running a new command. SkeinTree is immutable (every
   // mutator returns a new instance rather than changing the existing one in place), so a
@@ -730,6 +752,93 @@ export class SkeinSession {
   }
 
   /**
+   * Keyboard spine/sibling navigation (main.js's ⌥↑/↓/←/→ and ⌥⇧↑/↓ - see doc/skein.md) - moves
+   * the active knot without touching the process, mirroring dialog-tool's activate-knot (up/down/
+   * first/last) and select-tree-node (left/right). 'up'/'down' walk the spine via parentId/
+   * selectedChild; 'first'/'last' jump straight to root/the selected spine's leaf. All four of
+   * those targets are always already part of the current selectedChild-spine - every other
+   * mutator that touches activeKnotId preserves that invariant (see tree.ts's selectKnot) - so
+   * routing them through the same setActiveKnot() a sibling move uses below is a genuine no-op
+   * for the spine's own shape, not just "close enough": selectPath only ever reassigns a
+   * selectedChild that already points elsewhere, and extendSelection only ever continues through
+   * a pre-existing single-child chain. 'left'/'right' move to the previous/next sibling under the
+   * same parent, sorted the same way tree-pane.ts renders them (tree.ts's sortedChildren) - not
+   * creation order - so keyboard navigation visits knots in the order they're actually shown.
+   *
+   * A direction with nowhere to go (root has no parent, a leaf has no selectedChild, an only
+   * child has no sibling, already at the root/leaf) is a silent no-op - no error, no emitted
+   * 'change' - mirroring dialog-tool's disabled buttons at the same boundaries rather than
+   * wrapping around.
+   */
+  public navigateSpine(direction: SpineDirection): void {
+    const activeId = this.tree.getActiveKnotId();
+    if (activeId === null) {
+      return;
+    }
+    const targetId = this.spineNavigationTarget(activeId, direction);
+    if (targetId === null || targetId === activeId) {
+      return;
+    }
+    this.setActiveKnot(targetId);
+  }
+
+  private spineNavigationTarget(activeId: number, direction: SpineDirection): number | null {
+    switch (direction) {
+      case 'first':
+        return 0;
+      case 'last':
+        return this.tree.getSelectedLeafId();
+      case 'up':
+        return this.tree.getKnot(activeId)?.parentId ?? null;
+      case 'down':
+        return this.tree.getDerivedKnot(activeId)?.selectedChild ?? null;
+      case 'left':
+      case 'right': {
+        const knot = this.tree.getDerivedKnot(activeId);
+        if (!knot || knot.parentId === null) {
+          return null;
+        }
+        const siblings = this.tree.sortedChildren(knot.parentId);
+        const index = siblings.findIndex((sibling) => sibling.id === activeId);
+        const targetIndex = index + (direction === 'left' ? -1 : 1);
+        return targetIndex >= 0 && targetIndex < siblings.length ? siblings[targetIndex].id : null;
+      }
+    }
+  }
+
+  /**
+   * The navbar's clickable new/error count badges (main.js/render.ts's renderNavbar - mouse-
+   * only, no keyboard accelerator, matching dialog-tool's own seek-status) - jumps to the next
+   * knot with the given status, cycling through every matching knot (tree.ts's
+   * knotIdsWithStatus, sorted by id) and wrapping back to the first after the last, remembering
+   * where it left off per status across repeated clicks (lastJumpId) so consecutive clicks visit
+   * every match in turn rather than bouncing back to the same one.
+   *
+   * Unlike a sibling move (navigateSpine's left/right), a matching knot can be anywhere in the
+   * tree, off the currently displayed spine entirely - so this goes through setActiveKnot (==
+   * tree.selectKnot, which rewrites the spine down to the target) rather than the plain
+   * setActiveKnotId navigateSpine's up/down/first/last rely on.
+   *
+   * Deliberately does NOT push an undo snapshot, unlike dialog-tool's own seek-status - pure
+   * navigation never does in dialog-ide (see undoStack's own doc comment; setActiveKnot/
+   * navigateSpine don't either), only structural edits do.
+   *
+   * A silent no-op when there are no knots with the given status at all.
+   */
+  public seekStatus(status: SeekableStatus): void {
+    const matching = this.tree.knotIdsWithStatus(status);
+    if (matching.length === 0) {
+      return;
+    }
+    const lastId = this.lastJumpId[status];
+    const index = lastId !== null ? matching.indexOf(lastId) : -1;
+    const nextId = matching[index >= 0 ? (index + 1) % matching.length : 0];
+
+    this.lastJumpId[status] = nextId;
+    this.setActiveKnot(nextId);
+  }
+
+  /**
    * Actions menu's "New Child" - makes id the active knot and clears its own selectedChild (via
    * tree.selectForNewChild), unlike setActiveKnot's selectKnot which would auto-extend into
    * whatever's already explored past id. The transcript stops exactly at id, ready for the
@@ -912,6 +1021,64 @@ export class SkeinSession {
     this.pushUndoSnapshot();
     this.tree = renamed;
     await this.replayProcessTo(id);
+    this.closeMenus();
+    this.changeEmitter.emit('change');
+  }
+
+  /**
+   * Actions menu's "Insert Parent…" - creates a new knot between id's own parent and id itself,
+   * under the given command, then replays root-through-id on a fresh process so both the new
+   * knot and id itself get a genuinely fresh response - id's old cached one can't be trusted
+   * once it's running immediately after a different command instead of directly after its old
+   * parent (Dialog's dynamic/random state is sequential) - mirrors dialog-tool's insert-parent! ->
+   * do-replay-to!. Only the new knot and id are refreshed this way; id's own descendants (if any)
+   * keep their previously recorded responses until separately replayed, same as setCommand only
+   * ever walking root->id.
+   *
+   * Command uniqueness is scoped to siblings (tree.findChildId, the same rule setCommand/
+   * renameCommand enforce): the new knot becomes exactly that - a new sibling of whatever else
+   * id's old parent already has - so a collision throws CommandConflictError, checked (and
+   * root/blank/not-running guards applied) before pushUndoSnapshot, so a rejected insert never
+   * wastes an undo entry, same ordering setCommand uses.
+   *
+   * Also throws when id was reached via a keystroke prompt: the new knot's command is always a
+   * line of text, unsafe to send while the process is mid-keystroke-read right after replaying to
+   * id's old parent (same reasoning as traceKnot's own guard - and knot-menu.ts disables this
+   * menu item up front for the same knots, for the same reason it disables Trace).
+   *
+   * Navigates the active knot to the newly inserted parent on success, mirroring dialog-tool's own
+   * set-active-knot-id new-id - a user who just typed the new command lands right on it, with id
+   * (its original sole child) still one step below in the transcript.
+   */
+  public async insertParent(id: number, command: string): Promise<void> {
+    if (!this.isRunning) {
+      throw new Error('Session not running');
+    }
+    const knot = this.tree.getKnot(id);
+    if (!knot || knot.parentId === null) {
+      throw new Error(`Knot ${id} not found, or is the root (which has no parent to insert above)`);
+    }
+    const trimmed = command.trim();
+    if (trimmed === '') {
+      throw new Error('Command cannot be blank');
+    }
+    if (this.tree.promptTypeAt(knot.parentId) === 'key') {
+      throw new Error('Cannot insert a parent here: reached via a keystroke prompt.');
+    }
+    if (this.tree.findChildId(knot.parentId, trimmed) !== null) {
+      throw new CommandConflictError(trimmed);
+    }
+
+    // Computed before the mutation - see tree.ts's nextId doc comment for why this is safe to
+    // rely on: it's a pure preview of exactly what insertParent (below, on this same tree) will
+    // assign, with nothing in between to invalidate it.
+    const newId = this.tree.nextId();
+    this.pushUndoSnapshot();
+    // A throwaway placeholder - replayProcessTo below immediately overwrites both this knot's and
+    // id's responses with what the process actually produces, so nothing ever renders this text.
+    this.tree = this.tree.insertParent(id, trimmed, { text: '', inputType: 'line' });
+    await this.replayProcessTo(id);
+    this.tree = this.tree.selectKnot(newId);
     this.closeMenus();
     this.changeEmitter.emit('change');
   }

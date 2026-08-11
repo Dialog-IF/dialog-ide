@@ -351,6 +351,23 @@ describe('SkeinTree.insertParent', () => {
   });
 });
 
+describe('SkeinTree.nextId', () => {
+  it('previews the id insertParent (or addChild) would assign on this tree', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1).addChild(0, 'look', { text: 'a', inputType: 'line' });
+    expect(tree.nextId()).toBe(2);
+    expect(tree.insertParent(1, 'wait', { text: 'b', inputType: 'line' }).getKnot(2)!.command).toBe('wait');
+  });
+
+  it('is 1 for a freshly created tree (only root exists)', () => {
+    expect(SkeinTree.newTree('dgdebug', 1).nextId()).toBe(1);
+  });
+
+  it('does not mutate the tree - calling it twice in a row agrees', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1).addChild(0, 'look', { text: 'a', inputType: 'line' });
+    expect(tree.nextId()).toBe(tree.nextId());
+  });
+});
+
 describe('SkeinTree.setLabel / setLockStatus', () => {
   it('sets and clears a label', () => {
     const tree = SkeinTree.newTree('dgdebug', 1)
@@ -526,6 +543,23 @@ describe('SkeinTree.promptTypeAt', () => {
       .addChild(0, 'start combat', { text: 'Press any key...\n', inputType: 'key' })
       .blessKnot(1);
     expect(tree.promptTypeAt(1)).toBe('key');
+  });
+});
+
+describe('SkeinTree.sortedChildren', () => {
+  it('returns children sorted by command text, not creation order', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1)
+      .addChild(0, 'beta', { text: 'b', inputType: 'line' })
+      .addChild(0, 'alpha', { text: 'a', inputType: 'line' });
+    expect(tree.sortedChildren(0).map((k) => k.command)).toEqual(['alpha', 'beta']);
+  });
+
+  it('returns an empty array for a childless knot', () => {
+    expect(SkeinTree.newTree('dgdebug', 1).sortedChildren(0)).toEqual([]);
+  });
+
+  it('returns an empty array for an unknown id', () => {
+    expect(SkeinTree.newTree('dgdebug', 1).sortedChildren(999)).toEqual([]);
   });
 });
 
@@ -738,6 +772,33 @@ describe('SkeinTree.getSelectedLeafId', () => {
       .addChild(0, 'inventory', { text: 'b', inputType: 'line' }); // knot 2, now root's selectedChild
 
     expect(tree.getSelectedLeafId()).toBe(2);
+  });
+});
+
+describe('SkeinTree.knotIdsWithStatus', () => {
+  it('returns ids of knots with the given own status, ascending by id', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1)
+      .addChild(0, 'look', { text: 'a', inputType: 'line' }) // 1, never blessed - 'new'
+      .addChild(0, 'inventory', { text: 'b', inputType: 'line' }) // 2, never blessed - 'new'
+      .addChild(0, 'wait', { text: 'c', inputType: 'line' }); // 3, never blessed - 'new'
+    expect(tree.knotIdsWithStatus('new')).toEqual([1, 2, 3]);
+    expect(tree.knotIdsWithStatus('error')).toEqual([]);
+  });
+
+  it("only counts a knot's own status, not its aggregated treeState", () => {
+    // Root is 'valid' (by construction) but has a 'new' descendant - knots-with-status('valid')
+    // must not include it just because its treeState would say otherwise.
+    const tree = SkeinTree.newTree('dgdebug', 1).addChild(0, 'look', { text: 'a', inputType: 'line' });
+    expect(tree.knotIdsWithStatus('valid')).toEqual([0]);
+    expect(tree.knotIdsWithStatus('new')).toEqual([1]);
+  });
+
+  it('finds an error knot (blessed then diverged)', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1)
+      .addChild(0, 'look', { text: 'a', inputType: 'line' })
+      .blessKnot(1)
+      .updateKnotResponse(1, { text: 'b', inputType: 'line' });
+    expect(tree.knotIdsWithStatus('error')).toEqual([1]);
   });
 });
 
