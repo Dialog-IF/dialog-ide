@@ -4,6 +4,7 @@
   "version": "1.0.0",
   "description": "VS Code extension for Dialog interactive fiction development with a Skein engine",
   "publisher": "hlship",
+  "icon": "media/icon.png",
   "repository": {
     "type": "git",
     "url": "https://github.com/hlship/dialog-ide.git"

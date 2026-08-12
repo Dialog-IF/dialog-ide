@@ -1,0 +1,13 @@
+<!-- Dialog IDE mark - "Woven Pair": two threads of a skein crossing, tied at the active knot.
+     Colors are the app's own daisyUI theme tokens (converted from OKLCH), not arbitrary picks:
+     #422ad5 primary, #8b7cf6 secondary strand, #ecf9ff dark-theme base-content, #fcb700 knot accent.
+     Full-bleed square, sharp corners by design - VS Code applies its own corner rounding in the UI,
+     so rounding here would risk a double-radius seam. Source of truth for media/icon.png and the
+     Marketplace publisher avatar (branding/publisher-avatar.png) - re-export both from this file if
+     the mark ever changes, rather than hand-editing the PNGs. -->
+<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+  <rect x="0" y="0" width="100" height="100" fill="#422ad5"/>
+  <path d="M 24 28 C 24 44, 76 44, 76 60 C 76 76, 24 76, 24 92" fill="none" stroke="#8b7cf6" stroke-width="9" stroke-linecap="round" transform="translate(0,-6) scale(1,0.86)"/>
+  <path d="M 76 28 C 76 44, 24 44, 24 60 C 24 76, 76 76, 76 92" fill="none" stroke="#ecf9ff" stroke-width="9" stroke-linecap="round" transform="translate(0,-6) scale(1,0.86)"/>
+  <circle cx="50" cy="50" r="7" fill="#fcb700"/>
+</svg>
