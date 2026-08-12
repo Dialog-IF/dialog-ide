@@ -86,7 +86,7 @@
     "ide"
   ],
   "author": "Howard Lewis Ship",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "devDependencies": {
     "@tailwindcss/cli": "^4.3.3",
     "@types/jest": "^30.0.0",
