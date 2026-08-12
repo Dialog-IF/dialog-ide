@@ -172,9 +172,10 @@ The SkeinTree supports a finite set of operations that each return a new SkeinTr
 
 5. **blessTranscript(id: number)**: 
    - Blesses every **non-valid** knot from root to the given knot (inclusive) - i.e. `blessKnot` applied to each knot on that path that isn't already `'valid'`, skipping the ones that are
-   - `id` is the leaf of the visible transcript (typically the active knot) - the operation targets what's currently on screen, not an arbitrary path
+   - The caller (`SkeinSession.blessChanges`) always passes `SkeinTree.getSelectedLeafId()`, **not** `activeKnotId` - the active knot can be any knot on the currently selected spine (a plain click doesn't truncate what's shown below it), so targeting it instead of the true leaf would silently leave part of the visible transcript unblessed. `blessTranscript` itself doesn't know or care which id it's given; this is a caller-side convention, not something the tree operation enforces
    - Backs the "Bless Changes" menu action (Skein Menu), as distinct from "Bless Knot"'s single-knot `blessKnot`
    - Returns a new SkeinTree with every non-valid knot on that path now blessed
+   - Only touches the currently selected spine - a knot that used to be part of it but was orphaned by a later "New Child" (which clears the ancestor's `selectedChild` so the transcript can show a blank slot for a different command) is, correctly, left alone even if still in error: it's no longer visible in the transcript, so "bless everything visible" doesn't reach it. This is expected behavior, not a bug - confirmed against the real UI, which shows the same knot as an "ancestor of an error" (faded, not full red) rather than a full error itself.
 
 6. **deleteKnot(id: number)**: 
    - Deletes a knot and all its descendants recursively
@@ -243,27 +244,21 @@ The transcript is built by traversing the spine from root to leaf, collecting:
 3. Any relevant metadata for each step
 
 ### Session Management
-The skein tree is managed within a Session object that owns:
-- The current SkeinTree instance
-- Undo and redo stacks for the tree state
-- Active knot tracking (activeKnotId)
 
 #### Session Structure
-
-The skein tree is managed within a Session object that owns:
-
-- The current SkeinTree instance
+The skein tree is managed within a `SkeinSession` object that owns:
+- The current `SkeinTree` instance (`activeKnotId` lives on the tree itself, not the session - see the Skein Tree Manager's data structure above)
 - Undo and redo stacks for the tree state
-- Active knot tracking (activeKnotId)
-- Engine process management (dgdebug or dfrotz)
+- The engine process, plus `processPositionId`: which knot the *process* is actually positioned at, separate from `tree.activeKnotId` (which knot is *displayed*) - these diverge whenever the user navigates without running a command ("time travel"), and most command-running paths silently replay to catch up rather than treating the divergence as an error
+
+The illustrative shape below omits the rest of `SkeinSession`'s real fields (open-menu ids per pane, the dynamic-state display toggle, the per-status "last jumped to" cursor for the navbar's seek badges, the progress host used by Replay All, etc.) - those are session-level UI/navigation state, not part of this data model:
 
 ```typescript
 interface Session {
   tree: SkeinTree;
   undoStack: SkeinTree[];
   redoStack: SkeinTree[];
-  activeKnotId: number | null;
-  activeProcessKnotId: number | null;
+  processPositionId: number;
 }
 ```
 
@@ -399,6 +394,8 @@ interface EditorState {
 ### 4. Process Management
 Manages the interpreter subprocess (`dgdebug` or `dfrotz`) that backs a session.
 
+**Current status: `dgdebug` is the only engine actually runnable at the session layer.** `SkeinSession.buildProcessConfig` throws for `frotz`/`frotz-release` (`"<engine> is not yet supported - compiling a game file isn't implemented"`) even though `process.ts` below already knows how to build a `dfrotz` command line - frotz support needs its own `dialogc`-driven compile-to-zblorb pre-flight step (and the status-line-suppressing patch source mentioned under dfrotz below) before it's worth wiring up end-to-end. Every dgdebug-only capability elsewhere in this document (`@dynamic`, tracing, queries) is unaffected by this, since none of them apply to frotz anyway.
+
 #### Engine Types and Launch Arguments
 
 ##### dgdebug
@@ -503,7 +500,7 @@ interface DynamicState {
 Comparing two `DynamicState`s (typically before/after a command) produces `{added, removed, changed}`: flags/vars present only in the "after" state count as added, present only in "before" count as removed, and vars present in both with different values count as changed (as a `[before, after]` tuple). This is what actually renders as "what changed" in the dynamic state UI tab — showing the full flags/vars dump on every command would be noise.
 
 #### Availability
-`DynamicState` is only meaningful for the `dgdebug` engine (`dfrotz`/`dfrotz-release` don't support `@dynamic`), and only for the knot the process is currently positioned at (`Session.activeProcessKnotId`). Selecting a different knot re-runs the session up to that knot before dynamic state is refreshed.
+`DynamicState` is only meaningful for the `dgdebug` engine (`dfrotz`/`dfrotz-release` don't support `@dynamic` - and, as of this writing, aren't runtime-supported at all, see [Process Management](#4-process-management)), and only for the knot the process is currently positioned at (`SkeinSession.processPositionId`). Selecting a different knot re-runs the session up to that knot before dynamic state is refreshed. A knot reached via a keystroke prompt never has its own captured `DynamicState` at all - sending `@dynamic` while the process is mid-keystroke-read isn't safe (same reasoning as tracing below) - the UI falls back to the nearest ancestor's capture for diffing purposes.
 
 ### 6. Trace Visualization
 Also a live, ephemeral view (not persisted), driven by dgdebug's `--tag-lines` trace output. This is what backs master-spec.md's "Real-time Code Navigation" requirement — clicking a trace line jumps the editor to the source file/line it came from.
@@ -532,6 +529,7 @@ interface TraceNode {
 Tracing is dgdebug-only and never touches the knot's stored response - it's a side query, not a tree mutation:
 - **Trace a knot's command**: replay the session up to the knot's parent, send `(trace on)`, execute the knot's command, send `(trace off)`, and parse the resulting output into `TraceNode`s. The knot's `response`/`unblessedResponse` are left untouched (the traced output is noise relative to normal transcript content).
 - **Trace startup**: restart the process with tracing enabled from launch (an extra `--trace` argument) to capture the traced startup banner, then restart again normally (without `--trace`) to leave the session in its regular state for further commands.
+- **Refused for a knot reached via a keystroke prompt**: `(trace on)`/`(trace off)` are line-mode debugger commands - injecting one while the process is mid-keystroke-read (right after replaying to the knot's parent) isn't safe. `SkeinSession.traceKnot` returns `null` in this case (same as its other "not available" cases - a non-dgdebug engine, or the root knot, which has no parent to replay to), and the Trace menu item is shown disabled up front for such knots rather than waiting for a failed attempt. `SkeinSession.insertParent` (see the Skein Tree Manager's `insertParent` operation) applies the identical guard, for the identical reason - a newly inserted knot's command is also always line-mode text.
 
 ### 7. Full-Text Search
 In-memory search over the current skein tree's settled content, exposed in the Transcript View's search field (`src/dialoged/skein/search.ts`).
@@ -545,6 +543,40 @@ In-memory search over the current skein tree's settled content, exposed in the T
 - Query terms (whitespace-separated) are ANDed, not ORed, so typing more search text only narrows the result set, never broadens it
 - Results are capped (50) so a tree with many matches still renders promptly; the uncapped total match count is also reported so the UI can tell the user results were truncated
 - Each result carries a snippet (context around the first match, with every matched term wrapped in `<mark>`) and the knot `id` for jump-to-knot navigation, which reuses the existing select-knot action rather than a bespoke jump endpoint
+
+### 8. Keyboard Navigation & Status Seeking
+Master-spec.md's "Keyboard-First Operation" goal, backed by `SkeinSession.navigateSpine`/`seekStatus` (`session.ts`) and a document-level `keydown` listener in `media/js/main.js` - there is no dedicated navigation toolbar in the UI (unlike dialog-tool's), so these are keyboard-only, with no corresponding button to click instead.
+
+#### Spine/Sibling Navigation (`navigateSpine`)
+Six directions, all Option/Alt-modified so they work even while the command input has focus (only Option+letter/Option+arrow are safe there - see the accelerator table's own reasoning for why Option+Cmd/Ctrl combos aren't used the same way):
+
+| Direction | Shortcut | Target |
+|---|---|---|
+| `up` | ⌥↑ | `tree.getKnot(activeId)?.parentId` |
+| `down` | ⌥↓ | `tree.getDerivedKnot(activeId)?.selectedChild` |
+| `left` | ⌥← | Previous sibling |
+| `right` | ⌥→ | Next sibling |
+| `first` | ⌥⇧↑ | Root (id 0) |
+| `last` | ⌥⇧↓ | `tree.getSelectedLeafId()` |
+
+`up`/`down`/`first`/`last` all target a knot that's provably already on the current selected spine (an invariant every tree mutator that touches `activeKnotId` preserves), so `navigateSpine` routes all six directions through the same `setActiveKnot` (== `tree.selectKnot`) a sibling move needs - for the first four this is a genuine no-op on the spine's own shape, not just "close enough", since `selectKnot`'s own re-pointing and extension logic only ever reassigns something that already points where it's going.
+
+Sibling order (`left`/`right`) is centralized in `SkeinTree.sortedChildren(parentId)` (sorted by command text) - the same method the nav graph (`tree-pane.ts`) uses to render children, so keyboard navigation and the visual layout can never disagree about "next".
+
+A direction with nowhere to go (root has no parent, a leaf has no `selectedChild`, an only child has no sibling, already at the root/leaf) is a silent no-op - no error, no emitted `change` event - mirroring dialog-tool's disabled buttons at the same boundaries rather than wrapping around.
+
+#### Status Seeking (`seekStatus`)
+The navbar's new/error count badges (`render.ts`'s `renderNavbar`) are real buttons, disabled when their count is zero. Clicking one jumps to the next knot with that status (`tree.knotIdsWithStatus`, sorted ascending by id - a knot's own status, not its aggregated `treeState`), cycling with wraparound and remembering the last knot jumped to *per status* (`SkeinSession`'s `lastJumpId`) so repeated clicks visit every match in turn. A matching knot can be anywhere in the tree, off the currently displayed spine entirely, so this goes through the full `setActiveKnot` (spine-rewriting) navigation, not the plain pointer-move `up`/`down`/`first`/`last` use.
+
+Deliberately does **not** push an undo snapshot, unlike dialog-tool's own `seek-status` (which calls `session/capture-undo` before every jump) - no pure navigation does in this codebase (see the Undo/Redo Implementation Details section above), only structural edits do.
+
+#### Other Accelerators
+⌥B/⌥R/⌥A/⌥E/⌥L/⌥K/⌥D/⌥X cover per-knot operations (bless/replay-to/new-child/edit-command/edit-label/toggle-lock/delete/toggle-expand); ⌘S/⌘Z/⌘⇧Z/⌥⇧R/⌥⇧B/⌥F cover save/undo/redo/replay-all/bless-transcript/focus-search. Insert Parent and Splice Out deliberately have no accelerator - both are rare enough that a menu item is sufficient, matching Splice Out's own precedent in dialog-tool (which also has no shortcut for it, despite giving Insert Parent one - dialog-ide omits both).
+
+#### Single-Keystroke Reply Widget
+When the active knot's response ends on a keystroke prompt (`inputType: 'key'`), `render.ts`'s command input swaps to a 1-character field plus Enter/Space/Backspace buttons, rather than the normal free-text field. Unlike dialog-tool's own version (which relies on the deprecated `keypress` event, and so needs separate buttons as the *only* way to submit Enter/Backspace, since `keypress` never fires for either), this field's own `keydown` handler submits Enter and Backspace directly too - the buttons exist for discoverability and pointer users, not because they're the only path in.
+
+On submit, `SkeinSession.runCommand` checks `tree.promptTypeAt(parentId)`: if `'key'`, the friendly reply text (`enter`/`space`/`backspace`, or a literal single character) is resolved to the actual byte(s) to send (`\n`/` `/`\b`, or the character unchanged) and written to the process with no trailing newline (dgdebug reads exactly one raw character); a normal line command is sent unchanged, newline-terminated, exactly as always. The friendly text, not the resolved byte(s), is what's stored as the knot's own `command` and written to the `.skein` file - see the persistence format's `prompt` field.
 
 ## Data Models
 
