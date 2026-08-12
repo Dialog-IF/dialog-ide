@@ -2,22 +2,33 @@
 
 ## Table of Contents
 1. [Introduction](#introduction)
-2. [Project Structure](#project-structure)
-3. [Core Functionality](#core-functionality)
-4. [Editor Interface](#editor-interface)
-5. [Skein Interface](#skein-interface)
-6. [File Formats](#file-formats)
-7. [Integration Points](#integration-points)
-8. [Features and Menus](#features-and-menus)
-9. [Technical Implementation](#technical-implementation)
-10. [Test Plan](#test-plan)
-11. [Compatibility Requirements](#compatibility-requirements)
+2. [Implementation Status](#implementation-status)
+3. [Project Structure](#project-structure)
+4. [Core Functionality](#core-functionality)
+5. [Editor Interface](#editor-interface)
+6. [Skein Interface](#skein-interface)
+7. [File Formats](#file-formats)
+8. [Integration Points](#integration-points)
+9. [Features and Menus](#features-and-menus)
+10. [Technical Implementation](#technical-implementation)
+11. [Test Plan](#test-plan)
+12. [Compatibility Requirements](#compatibility-requirements)
 
 ## Introduction
 
 This specification defines a cross-platform Integrated Development Environment (IDE) for the Dialog programming language. The IDE supports both editing mode and skein execution mode, providing enhanced functionality for Dialog development.
 
 The IDE is designed to work seamlessly with the Dialog ecosystem, with particular emphasis on the skein-based development workflow that is central to modern Dialog project creation and testing.
+
+## Implementation Status
+
+This document describes the full product vision; `technical-design.md` tracks what's actually built (see its own per-component detail, including a "Current status" note wherever something below is genuinely incomplete). At a glance:
+
+**Built, as this extension** (matches the [Skein Interface](#skein-interface) section closely): the navigation graph, transcript view, keyboard-first navigation, blessing, replay (single-knot and full-tree), undo/redo, time travel, tracing and dynamic-state display as non-modal integrated panels (not dialogs), full-text search, single-keystroke input handling, and `.skein`/`dialog.json` file compatibility with dialog-tool.
+
+**Delegated to other tools, not implemented by this extension at all**: everything in [Editor Interface](#editor-interface) - `.dg` syntax highlighting, code folding, bracket matching, auto-completion, and the outline/cross-file-navigation view are the separate `sideburns3000.dialog-language-support` extension's responsibility (declared as an `extensionDependencies` entry), not this one's. Source file editing itself happens in VS Code's own built-in text editor and Explorer view - this extension contributes no custom editor, tabs, or file tree. There's also no custom File/Edit/View/Build/Tools menu bar as such a thing doesn't exist for VS Code extensions; where an equivalent exists it's a Command Palette entry or a context-menu item instead, and "Mode Switching" between editing and skein execution is just normal VS Code window/tab management, not a dedicated toggle.
+
+**Not yet implemented, by anyone**: project-level source file creation/deletion from within the IDE; `dialogc` build/export integration (including the aambundle web-bundle workflow); the Test Runner described under [Tools Menu](#tools-menu); and running the `frotz`/`frotz-release` engines (only `dgdebug` is wired up at the session layer today - see `technical-design.md`'s Process Management section). Dark/light theme auto-switching *is* implemented, following the OS/VS Code preference.
 
 ## Project Structure
 
