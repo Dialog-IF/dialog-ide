@@ -117,11 +117,11 @@ function nodeColorClass(status: KnotStatus, treeState: KnotStatus, onSpine: bool
  * button would give for free. The menu itself (renderKnotMenu) is inline, native <details> markup
  * positioned by plain CSS - no custom JS needed to open or position it.
  *
- * The expand/collapse chevron only renders when the knot actually has children (nothing to
+ * The expand/collapse toggle only renders when the knot actually has children (nothing to
  * toggle otherwise) - a small ghost button below the pill, matching tree_pane.clj's placement
- * and sizing (btn-xs). ▾ (expanded, pointing down at the children below) / ▸ (collapsed,
- * pointing at what's hidden) mirrors dialog-tool exactly; a plain Unicode glyph rather than a new
- * SVG/.icon-* asset since none of the existing icons are a bare single chevron.
+ * (btn-xs, though sized up from dialog-tool's own chevron for legibility against the nav graph's
+ * connector lines). A boxed plus/minus (icon-expand/icon-collapse) rather than dialog-tool's ▾/▸
+ * chevron - clearer at a glance about which state a click leads to.
  */
 function renderTreeNode(tree: SkeinTree, knot: DerivedKnot, spine: Set<number>, activeKnotId: number | null, graphMenuId: number | null): string {
   const active = knot.id === activeKnotId;
@@ -151,10 +151,24 @@ function renderTreeNode(tree: SkeinTree, knot: DerivedKnot, spine: Set<number>, 
   const statusSuffix = knot.state === 'new' ? ' (new)' : knot.state === 'error' ? ' (error)' : '';
   const parentAttr = knot.parentId !== null ? ` data-parent-id="${knot.parentId}"` : '';
   const selectCall = `$knotId = ${knot.id}; @post('/actions/select-knot')`;
+  // Inline SVG rather than the shared .icon mask-image system (used by statusIcon/lockIcon
+  // above) purely to avoid a second image request for an icon that already needs its own markup
+  // swap per toggle. The rect's own fill (rather than a background on the button) opaques just the
+  // box's interior, leaving the button transparent outside it. Both that fill and `relative z-10`
+  // on the button are required: main.js's drawTreeArrows() appends its connector SVG as
+  // #tree-pane's last child, and an absolutely-positioned element always paints above
+  // statically-positioned siblings regardless of DOM order - without `relative z-10` the
+  // connector's line (which runs directly through this button's position, immediately below the
+  // pill) paints over the rect's fill and shows through as a faint stroke bisecting the icon.
+  const toggleIconSvg = `<svg viewBox="0 0 16 16" width="16" height="16" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true">
+    <rect x="1.5" y="1.5" width="13" height="13" rx="2" fill="var(--color-base-200)"/>
+    ${collapsed ? '<line x1="8" y1="5" x2="8" y2="11"/>' : ''}
+    <line x1="5" y1="8" x2="11" y2="8"/>
+  </svg>`;
   const toggleButton = hasChildren
-    ? `<button type="button" class="btn btn-xs btn-ghost py-0 px-1 min-h-0 h-5 leading-none"
+    ? `<button type="button" class="relative z-10 flex items-center justify-center h-6 w-6 min-h-0 p-0 cursor-pointer"
     aria-label="${collapsed ? 'Expand' : 'Collapse'}" aria-expanded="${!collapsed}"
-    data-on:click="$knotId = ${knot.id}; @post('/actions/toggle-tree-node')">${collapsed ? '&#9656;' : '&#9662;'}</button>`
+    data-on:click="$knotId = ${knot.id}; @post('/actions/toggle-tree-node')">${toggleIconSvg}</button>`
     : '';
 
   return `<div class="flex flex-col items-center gap-1"

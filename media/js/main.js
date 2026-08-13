@@ -696,9 +696,21 @@ window.sk = {
       const y1 = p.bottom;
       const x2 = n.cx;
       const y2 = n.top;
-      const gap = Math.min(Math.abs(y2 - y1) / 3, 36);
+      // Elbow connector: straight down from the parent, a sharp turn to horizontal at the
+      // midpoint, then a slightly curved turn back to vertical into the child.
       const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-      path.setAttribute('d', `M${x1},${y1} C${x1},${y1 + gap} ${x1},${y2 - gap} ${x2},${y2}`);
+      if (x1 === x2) {
+        path.setAttribute('d', `M${x1},${y1} L${x2},${y2}`);
+      } else {
+        const ymid = (y1 + y2) / 2;
+        const dir = x2 > x1 ? 1 : -1;
+        const r = Math.min(10, Math.abs(x2 - x1) / 2, Math.max(0, y2 - ymid));
+        const xTurn = x2 - dir * r;
+        path.setAttribute(
+          'd',
+          `M${x1},${y1} L${x1},${ymid} L${xTurn},${ymid} Q${x2},${ymid} ${x2},${ymid + r} L${x2},${y2}`
+        );
+      }
       path.setAttribute('stroke', 'currentColor');
       path.setAttribute('stroke-opacity', '0.35');
       path.setAttribute('stroke-width', '1.5');
