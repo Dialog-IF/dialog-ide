@@ -1,0 +1,490 @@
+{
+	"$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+	"name": "Dialog",
+	"scopeName": "source.dg",
+	"patterns": [
+		{
+			"include": "#comment"
+		},
+		{
+			"include": "#lineCurrentTopicDeclaration"
+		},
+		{
+			"include": "#lineSpecialDeclaration"
+		},
+		{
+			"include": "#lineKeywordRedefinition"
+		},
+		{
+			"include": "#lineRuleDefinition"
+		},
+		{
+			"include": "#lineBody"
+		},
+		{
+			"include": "#unexpected"
+		}
+	],
+	"repository": {
+		"comment": {
+			"name": "comment.line.percentage.dg",
+			"match": "%%.*$"
+		},
+		"lineCurrentTopicDeclaration": {
+			"comment": "Lines that start with a `#` set the current topic.",
+			"begin": "^(?=#)",
+			"end": "$",
+			"patterns": [
+				{
+					"name": "markup.heading.dg",
+					"match": "^#[\\w\\+-]*"
+				},
+				{
+					"include": "#comment"
+				},
+				{
+					"comment": "Anything else on the same line as the current topic is illegal.",
+					"name": "invalid.illegal.dg",
+					"match": "\\S+"
+				}
+			]
+		},
+		"lineSpecialDeclaration": {
+			"comment": "Special declarations are things like `(global variable (my-var $))` that look like rule declarations, but are in fact special so they are highlighted as keywords.",
+			"patterns": [
+				{
+					"match": "(\\(\\s*(?:global\\s+variable|interface|generate\\s+(0|[1-9]\\d*)))\\s*(\\()(.+?)(\\))(\\s*\\))",
+					"comment": "1 is the opening parenthesis. 2 is the number in `(generate 9 (grape $))`. 3 is the opening parenthesis of the nested query. 4 is the query's contents. 5 is the closing parenthesis of the nested query. 6 is the closing parenthesis.",
+					"captures": {
+						"1": {
+							"name": "keyword.control.dg"
+						},
+						"2": {
+							"name": "constant.numeric.dg"
+						},
+						"3": {
+							"name": "entity.name.function.dg"
+						},
+						"4": {
+							"patterns": [
+								{
+									"include": "#queryContents"
+								}
+							]
+						},
+						"5": {
+							"name": "entity.name.function.dg"
+						},
+						"6": {
+							"name": "keyword.control.dg"
+						}
+					}
+				}
+			]
+		},
+		"lineRuleDefinition": {
+			"comment": "Lines that start with a parenthesis are rule definitions. They can optionally be preceded by `@` (access predicates) or `~` (negated rules).",
+			"begin": "^(?=(@|~)?\\()",
+			"end": "$",
+			"patterns": [
+				{
+					"include": "#ruleHead"
+				},
+				{
+					"comment": "The body of a rule can start on the same line as its definition (as in `(name *) lamp`).",
+					"include": "#body"
+				}
+			]
+		},
+		"ruleHead": {
+			"comment": "That's the rule definition proper, starting at an opening parenthesis and ending at a closing one. The patterns are the words and arguments between the parentheses.",
+			"name": "meta.function.dg",
+			"begin": "^(@)?(~)?(\\()",
+			"beginCaptures": {
+				"1": {
+					"name": "storage.modifier.dg"
+				},
+				"2": {
+					"name": "keyword.control.dg"
+				},
+				"3": {
+					"name": "entity.name.function.dg"
+				}
+			},
+			"end": "\\)",
+			"endCaptures": {
+				"0": {
+					"name": "entity.name.function.dg"
+				}
+			},
+			"patterns": [
+				{
+					"comment": "Rules can contain nested queries.",
+					"include": "#query"
+				},
+				{
+					"comment": "Parameters (i.e. `$Obj`) are listed before '#value' to have precedence over variables (that are included in '#value').",
+					"include": "#parameter"
+				},
+				{
+					"include": "#value"
+				},
+				{
+					"comment": "The words in the rule signature.",
+					"include": "#ruleName"
+				},
+				{
+					"include": "#comment"
+				}
+			]
+		},
+		"ruleName": {
+			"comment": "The words in rule names. Dialog's documentation is not clear about the allowed characters in rules, so we may need to add more if some are not covered.",
+			"name": "entity.name.function.dg",
+			"match": "[\\w'\\+=<>:-]+"
+		},
+		"lineBody": {
+			"comment": "Indented lines are rule contents.",
+			"begin": "^\\s",
+			"end": "$",
+			"patterns": [
+				{
+					"include": "#body"
+				}
+			]
+		},
+		"body": {
+			"comment": "The contents of rules. Can be on the same line of a rule definition, or on indented lines.",
+			"patterns": [
+				{
+					"include": "#comment"
+				},
+				{
+					"include": "#bodyEscape"
+				},
+				{
+					"include": "#keyword"
+				},
+				{
+					"include": "#query"
+				},
+				{
+					"comment": "Has to be before '#value', so that braces are not treated as closures (which are defined in '#value'). It's easier to deal with that way.",
+					"include": "#brace"
+				},
+				{
+					"include": "#value"
+				},
+				{
+					"include": "#bodyInvalid"
+				}
+			]
+		},
+		"bodyEscape": {
+			"comment": "A backslash followed by a non-space character.",
+			"name": "constant.character.escape.dg",
+			"match": "\\\\\\S"
+		},
+		"bodyInvalid": {
+			"patterns": [
+				{
+					"comment": "Lone, non-escaped closing parentheses are not allowed in rule bodies.",
+					"name": "invalid.illegal.dg",
+					"match": "\\)"
+				}
+			]
+		},
+		"query": {
+			"comment": "Queries are between parentheses, optionally preceded by an asterisk or a negation.",
+			"begin": "(\\*|~)?(\\()",
+			"beginCaptures": {
+				"1": {
+					"name": "keyword.control.dg"
+				},
+				"2": {
+					"name": "entity.name.function.dg"
+				}
+			},
+			"end": "\\)",
+			"endCaptures": {
+				"0": {
+					"name": "entity.name.function.dg"
+				}
+			},
+			"patterns": [
+				{
+					"include": "#queryContents"
+				}
+			]
+		},
+		"queryContents": {
+			"patterns": [
+				{
+					"include": "#query"
+				},
+				{
+					"include": "#value"
+				},
+				{
+					"include": "#ruleName"
+				},
+				{
+					"include": "#comment"
+				}
+			]
+		},
+		"keyword": {
+			"comment": "Dialog doesn't have keywords per se, so those are the special syntax (multipart like if/then/else, or affecting the next statement like exhausts). See also '#lineKeywordRedefinition'",
+			"patterns": [
+				{
+					"name": "keyword.control.dg",
+					"match": "\\(\\s*(if|then|elseif|else|endif|select|or|(then\\s+)?(purely\\s+)?at\\s+random|stopping|cycling|exhaust|now|just|stoppable|log|collect\\s+words|from\\s+words|link)\\s*\\)|~"
+				},
+				{
+					"match": "(\\(\\s*(?:collect|accumulate|into|determine\\s+object|matching\\s+all\\s+of|span|div|(?:inline\\s+)?status\\s+bar|link(?:\\s+resource)?))\\s+([#\\$@\\[\\{\\d\\*].*?)(\\s*\\))",
+					"captures": {
+						"1": {
+							"name": "keyword.control.dg"
+						},
+						"2": {
+							"patterns": [
+								{
+									"include": "#value"
+								}
+							]
+						},
+						"3": {
+							"name": "keyword.control.dg"
+						}
+					}
+				}
+			]
+		},
+		"lineKeywordRedefinition": {
+			"comment": "Those are the same than in '#keyword', but marked as errors when they appear at the beginning of a line (because we cannot redefine special syntax).",
+			"patterns": [
+				{
+					"name": "invalid.illegal.dg",
+					"match": "^\\(\\s*(if|then|elseif|else|endif|select|or|(then\\s+)?(purely\\s+)?at\\s+random|stopping|cycling|exhaust|now|just|stoppable|log|from\\s+words|link)\\s*\\)"
+				},
+				{
+					"match": "^(\\(\\s*(?:collect(?:\\s+words)?|accumulate|into|determine\\s+object|matching\\s+all\\s+of|span|div|(?:inline\\s+)?status\\s+bar|link(?:\\s+resource)?))\\s+([#\\$@\\[\\{\\d\\*].*?)(\\s*\\))",
+					"captures": {
+						"1": {
+							"name": "invalid.illegal.dg"
+						},
+						"2": {
+							"patterns": [
+								{
+									"include": "#value"
+								}
+							]
+						},
+						"3": {
+							"name": "invalid.illegal.dg"
+						}
+					}
+				}
+			]
+		},
+		"value": {
+			"patterns": [
+				{
+					"include": "#list"
+				},
+				{
+					"include": "#closure"
+				},
+				{
+					"include": "#object"
+				},
+				{
+					"include": "#currentTopic"
+				},
+				{
+					"include": "#dictWord"
+				},
+				{
+					"include": "#variable"
+				},
+				{
+					"include": "#number"
+				}
+			]
+		},
+		"object": {
+			"comment": "We make the object name after the `#` optional so that's easier to spot a lone `#`. (A hash without a name is actually invalid, but we don't want to flag the hash every time an author starts writing an object's name.)",
+			"name": "constant.language.dg",
+			"match": "#[\\w\\+-]*"
+		},
+		"currentTopic": {
+			"name": "variable.language.dg",
+			"match": "\\*"
+		},
+		"number": {
+			"comment": "Numbers cannot start with leading zeros, hence the division in two cases. A minus sign counts as a word boundary so we check this case explicitly.",
+			"name": "constant.numeric.dg",
+			"match": "\\b(?<!-)(0|[1-9]\\d*)\\b"
+		},
+		"variable": {
+			"name": "variable.other.dg",
+			"match": "\\$[\\w\\+<>-]*"
+		},
+		"parameter": {
+			"name": "variable.parameter.dg",
+			"match": "\\$[\\w\\+<>-]*"
+		},
+		"list": {
+			"begin": "\\[",
+			"beginCaptures": {
+				"0": {
+					"name": "punctuation.definition.list.dg"
+				}
+			},
+			"end": "\\]",
+			"endCaptures": {
+				"0": {
+					"name": "punctuation.definition.list.dg"
+				}
+			},
+			"patterns": [
+				{
+					"include": "#comment"
+				},
+				{
+					"include": "#query"
+				},
+				{
+					"include": "#value"
+				},
+				{
+					"include": "#bareDictWord"
+				}
+			]
+		},
+		"closure": {
+			"begin": "\\{",
+			"beginCaptures": {
+				"0": {
+					"name": "punctuation.definition.block.dg"
+				}
+			},
+			"end": "\\}",
+			"endCaptures": {
+				"0": {
+					"name": "punctuation.definition.block.dg"
+				}
+			},
+			"patterns": [
+				{
+					"include": "#body"
+				}
+			]
+		},
+		"dictWord": {
+			"comment": "Some characters are only valid in dictionary words of length 1, so we split the two cases, with single-character words having priority.",
+			"patterns": [
+				{
+					"include": "#dictWordSingle"
+				},
+				{
+					"include": "#dictWordMultiple"
+				}
+			]
+		},
+		"bareDictWord": {
+			"comment": "Bare dictionary words are the ones without the leading `@`, used in lists.",
+			"patterns": [
+				{
+					"include": "#bareDictWordSingle"
+				},
+				{
+					"include": "#bareDictWordMultiple"
+				}
+			]
+		},
+		"dictWordSingle": {
+			"comment": "An `@` followed by a stop character or a character representing a keypress, and ending right before a space or a Dialog special character.",
+			"patterns": [
+				{
+					"comment": "Characters that don't need to be escaped.",
+					"name": "string.quoted.other.dg",
+					"match": "@[\\.,;\"](?=[\\s#\\$@~\\*\\|\\\\\\(\\)\\[\\]\\{\\}%])"
+				},
+				{
+					"comment": "Characters that need to be escaped with a backslash. The letters represent the space, the newline and the arrows.",
+					"name": "string.quoted.other.dg",
+					"match": "@(\\\\[\\*\\(\\)\\|nsbudlr])(?=[\\s#\\$@~\\*\\|\\\\\\(\\)\\[\\]\\{\\}%])",
+					"captures": {
+						"1": {
+							"name": "constant.character.escape"
+						}
+					}
+				}
+			]
+		},
+		"bareDictWordSingle": {
+			"comment": "A stop character or a character representing a keypress, right before a space or a Dialog special character.",
+			"patterns": [
+				{
+					"comment": "Characters that don't need to be escaped.",
+					"name": "string.unquoted.dg",
+					"match": "[\\.,;\"](?=[\\s#\\$@~\\*\\|\\\\\\(\\)\\[\\]\\{\\}%])"
+				},
+				{
+					"comment": "Characters that need to be escaped with a backslash. The letters represent the space, the newline and the arrows.",
+					"name": "string.unquoted.dg",
+					"match": "\\\\[\\*\\(\\)\\|nsbudlr](?=[\\s#\\$@~\\*\\|\\\\\\(\\)\\[\\]\\{\\}%])",
+					"captures": {
+						"0": {
+							"name": "constant.character.escape"
+						}
+					}
+				}
+			]
+		},
+		"dictWordMultiple": {
+			"comment": "Begins with an `@` and ends right before a space or a Dialog special character.",
+			"name": "string.quoted.other.dg",
+			"begin": "@",
+			"end": "(?=[\\s#\\$@~\\*\\|\\(\\)\\[\\]\\{\\}%])",
+			"patterns": [
+				{
+					"include": "#dictWordContents"
+				}
+			]
+		},
+		"bareDictWordMultiple": {
+			"comment": "Begins right before something that is not a space nor a Dialog special character, and ends right before a space or a Dialog special character.",
+			"name": "string.unquoted.dg",
+			"begin": "(?![\\s#\\$@~\\*\\|\\(\\)\\[\\]\\{\\}%/])",
+			"end": "(?=[\\s#\\$@~\\*\\|\\(\\)\\[\\]\\{\\}%/])",
+			"patterns": [
+				{
+					"include": "#dictWordContents"
+				}
+			]
+		},
+		"dictWordContents": {
+			"patterns": [
+				{
+					"comment": "Stop characters and character representing keypresses are invalid since they can only appear in dictionary words of length 1.",
+					"name": "invalid.illegal.dg",
+					"match": "\\.|,|;|\"|\\\\[\\*\\(\\)nsbudlr]"
+				},
+				{
+					"name": "constant.character.escape.dg",
+					"match": "\\\\\\S"
+				}
+			]
+		},
+		"brace": {
+			"name": "punctuation.definition.block.dg",
+			"match": "\\{|\\}"
+		},
+		"unexpected": {
+			"name": "invalid.illegal.dg",
+			"match": "[^\\s%]+"
+		}
+	}
+}

@@ -1,0 +1,43 @@
+{
+    "comments": {
+        // symbol used for single line comment. Remove this entry if your language does not support line comments
+        "lineComment": "%%"
+    },
+    // symbols used as brackets
+    "brackets": [
+        ["{", "}"],
+        ["[", "]"],
+        ["(", ")"]
+    ],
+    // symbols that are auto closed when typing
+    "autoClosingPairs": [
+        ["{", "}"],
+        ["[", "]"],
+        ["(", ")"],
+        ["\"", "\""],
+        ["'", "'"]
+    ],
+    // symbols that that can be used to surround a selection
+    "surroundingPairs": [
+        ["{", "}"],
+        ["[", "]"],
+        ["(", ")"],
+        ["\"", "\""],
+        ["'", "'"]
+    ],
+    "folding": {
+        "markers": {
+            "start": "^#",
+            "end": "^%%%"
+        }
+    },
+    // A word is one of the following:
+    // - A dictionary word: An "@" followed by escaped non-space characters or any other non-space non-special characters.
+    // - An identifier: A "#" or a "$" followed by letters (accented or not), numbers, underscores, plus signs, minus signs, greater and less than signs. (Some characters may be missing, Dialog's documentation is not clear about which are allowed exactly.)
+    // - Any other word composed of letters, minus signs and apostrophes (for the prose and rule names). If VS Code used the U flag for the regex, we would be able to use "\p{L}" for any Unicode letter, but alas, that's not the case, so we only list Latin-1 characters.
+    "wordPattern": "@(\\\\\\S|[^\\s#\\$@~\\*\\|\\\\\\(\\)\\[\\]\\{\\}])+|(#|\\$)[\\wäáàãåâÄÁÀÃÅÂëéèêËÉÈÊïíìîÏÍÌÎöóòõøôÖÓÒÕØÔüúùûÜÚÙÛÿýŸÝñÑçÇæÆœŒ\\+<>-]+|[\\wäáàãåâÄÁÀÃÅÂëéèêËÉÈÊïíìîÏÍÌÎöóòõøôÖÓÒÕØÔüúùûÜÚÙÛÿýŸÝñÑçÇæÆœŒ'-]+",
+    "indentationRules": {
+        "increaseIndentPattern": "^\\s*\\(if\\)|\\(then\\)|\\(else\\)|\\(elseif\\)",
+        "decreaseIndentPattern": "^\\s*\\(endif\\)"
+    }
+}

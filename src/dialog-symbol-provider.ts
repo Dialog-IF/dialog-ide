@@ -1,8 +1,8 @@
 /**
  * Thin vscode.DocumentSymbolProvider adapter over dialog-outline.ts's pure parser - powers the
  * Outline view, breadcrumbs, and Ctrl+Shift+O for .dg files. Registered against the `dialog`
- * language id (contributed by the sideburns3000.dialog-language-support extension dependency,
- * not by this extension) in extension.ts's activate().
+ * language id (contributed by this extension's own package.json - see syntaxes/) in
+ * extension.ts's activate().
  */
 
 import * as vscode from 'vscode';

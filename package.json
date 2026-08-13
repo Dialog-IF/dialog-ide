@@ -18,10 +18,31 @@
   ],
   "main": "./dist/extension.js",
   "activationEvents": [],
-  "extensionDependencies": [
-    "sideburns3000.dialog-language-support"
-  ],
   "contributes": {
+    "languages": [
+      {
+        "id": "dialog",
+        "aliases": [
+          "Dialog",
+          "dialog"
+        ],
+        "extensions": [
+          ".dg"
+        ],
+        "configuration": "./language-configuration.json",
+        "icon": {
+          "light": "./media/icons/dg-file-light.svg",
+          "dark": "./media/icons/dg-file-dark.svg"
+        }
+      }
+    ],
+    "grammars": [
+      {
+        "language": "dialog",
+        "scopeName": "source.dg",
+        "path": "./syntaxes/dialog.tmLanguage.json"
+      }
+    ],
     "commands": [
       {
         "command": "dialog-ide.openSkein",
@@ -116,9 +137,12 @@
   "files": [
     "dist/**/*",
     "media/**/*",
+    "syntaxes/**/*",
+    "language-configuration.json",
     "README.md",
     "CHANGELOG.md",
     "LICENSE",
+    "THIRD_PARTY_LICENSES.md",
     "node_modules/diff/**/*",
     "node_modules/immutable/**/*",
     "node_modules/jsonc-parser/**/*",

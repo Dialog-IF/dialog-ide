@@ -47,7 +47,7 @@ Jest. Nearly everything mocks `child_process` - the two exceptions (`dgdebug-int
 ```bash
 npx vsce package
 ```
-Produces a `.vsix` installable via `code --install-extension` or the Extensions view's "Install from VSIX...", without needing the Marketplace. `package.json`'s `"files"` array is an explicit allowlist (`dist/**/*`, `media/**/*`, `README.md`, `LICENSE`, plus each production dependency's `node_modules` path individually) - there's no bundler (no webpack/esbuild), so a new runtime dependency needs its own line there or it silently won't ship, producing a `Cannot find module` crash on activation on a machine without this repo's own `node_modules`. Not yet published to the Marketplace.
+Produces a `.vsix` installable via `code --install-extension` or the Extensions view's "Install from VSIX...", without needing the Marketplace. `package.json`'s `"files"` array is an explicit allowlist (`dist/**/*`, `media/**/*`, `syntaxes/**/*`, `language-configuration.json`, `README.md`, `LICENSE`, `THIRD_PARTY_LICENSES.md`, plus each production dependency's `node_modules` path individually) - there's no bundler (no webpack/esbuild), so a new runtime dependency (or new static asset like the grammar) needs its own line there or it silently won't ship, producing a `Cannot find module` crash on activation on a machine without this repo's own `node_modules`. Not yet published to the Marketplace.
 
 ## Key Files
 
@@ -60,7 +60,7 @@ Core engine (`src/dialoged/skein/`):
 - `dynamic.ts` - `DynamicProcessor`: parses `@dynamic` output into flags/vars, diffs two snapshots
 - `trace.ts` - parses `(trace on)`/`--trace` output into a searchable node tree
 - `search.ts` - full-text search over knot labels/responses
-- `syntax.ts` - reuses the `sideburns3000.dialog-language-support` extension's real TextMate grammar (via `vscode-textmate`/`vscode-oniguruma`) to highlight source snippets in the Trace panel - not a from-scratch tokenizer, and not the same thing as `.dg` editor syntax highlighting (that's the other extension's own job, declared as an `extensionDependencies` entry)
+- `syntax.ts` - reuses the real TextMate grammar vendored under this repo's own `syntaxes/` (via `vscode-textmate`/`vscode-oniguruma`), originally from the `sideburns3000.dialog-language-support` extension (MIT-licensed - see `THIRD_PARTY_LICENSES.md`), to highlight source snippets in the Trace panel - not a from-scratch tokenizer. This same vendored grammar (plus `language-configuration.json`) also drives general `.dg` editor syntax highlighting/folding/bracket-matching/indentation, contributed by this extension's own `package.json` (`contributes.languages`/`grammars`) - no longer a separate `extensionDependencies` entry
 - `persistence.ts` - `.skein` flat-file I/O (VCS-diff-friendly, not JSON)
 - `project.ts` - reads this IDE's `dialog.json` project descriptor, expands declared sources
 - `compile-error.ts` - `DialogCompileError`, thrown when a freshly spawned `dgdebug` dies before its startup banner (a source compile error)
