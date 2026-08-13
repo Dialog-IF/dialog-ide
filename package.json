@@ -1,7 +1,7 @@
 {
   "name": "dialog-ide",
   "displayName": "Dialog IDE",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "VS Code extension for creating interactive fiction using the Dialog programming language",
   "publisher": "hlship",
   "icon": "media/icon.png",
@@ -103,6 +103,7 @@
     "dist/**/*",
     "media/**/*",
     "README.md",
+    "CHANGELOG.md",
     "LICENSE",
     "node_modules/diff/**/*",
     "node_modules/immutable/**/*",
