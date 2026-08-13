@@ -13,6 +13,7 @@ import {
   PersistenceManager,
   readProject,
   expandSources,
+  isFileCoveredBySource,
   resolveCommandPath,
   SkeinService,
   SkeinSession
@@ -20,6 +21,8 @@ import {
 import { DialogDocumentSymbolProvider } from './dialog-symbol-provider';
 import { DialogWorkspaceWatcher } from './dialog-workspace-watcher';
 import { DialogWorkspaceSymbolProvider } from './dialog-workspace-symbol-provider';
+import { DialogSourceDecorationProvider } from './dialog-source-decoration-provider';
+import { addSourceToDialogJson, toDialogJsonPath, SOURCE_CATEGORIES } from './dialog-source-coverage';
 import {
   DEFAULT_SESSION_ID,
   EngineChoice,
@@ -42,6 +45,14 @@ let statusBarItem: vscode.StatusBarItem;
 let activeSession: SkeinSession | undefined;
 let activeSessionId: string | undefined;
 let activeProjectRoot: string | undefined;
+
+// Set once deactivate() starts. By the time it runs, VS Code has already begun tearing down this
+// extension's UI contributions (statusBarItem included, despite it being disposed via
+// context.subscriptions rather than here) - touching them past that point throws "Trying to add a
+// disposable to a DisposableStore that has already been disposed of" from deep inside the
+// extension host. refreshStatusBar/refreshSkeinPanel check this and no-op, since nothing is left
+// to see the update anyway.
+let deactivating = false;
 
 // Squiggly + Problems-panel entry for the source location of the most recent DialogCompileError
 // (see session.ts's throw sites) - dialog-tool's equivalent was a modal dialog; a real editor
@@ -113,14 +124,33 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.languages.registerWorkspaceSymbolProvider(workspaceSymbolProvider)
   );
 
+  const sourceDecorationProvider = new DialogSourceDecorationProvider(getWorkspaceRoot);
+  context.subscriptions.push(
+    sourceDecorationProvider,
+    vscode.window.registerFileDecorationProvider(sourceDecorationProvider)
+  );
+
   // A .dg source file or dialog.json changing on disk means the active session's live dgdebug
   // process may now be running against stale sources - mark it so runCommand forces a restart
   // before its next command (see SkeinSession.markSourcesChanged's doc comment). Reads the
   // module-level `activeSession` at call time, not capture time, so this is a no-op whenever no
   // session is running and always targets whichever session is active when a file changes.
   context.subscriptions.push(
-    workspaceWatcher.onDidChangeFiles(() => activeSession?.markSourcesChanged()),
-    workspaceWatcher.onDidChangeProjectConfig(() => activeSession?.markSourcesChanged())
+    workspaceWatcher.onDidChangeFiles((event) => {
+      activeSession?.markSourcesChanged();
+      if (event.type === 'create' || event.type === 'delete') {
+        sourceDecorationProvider.refresh([event.filePath]);
+      }
+      if (event.type === 'create') {
+        warnIfUncoveredSource(getWorkspaceRoot(), event.filePath).catch((error) => {
+          console.error('Failed to check dialog.json source coverage:', error);
+        });
+      }
+    }),
+    workspaceWatcher.onDidChangeProjectConfig(() => {
+      activeSession?.markSourcesChanged();
+      sourceDecorationProvider.refresh(workspaceWatcher.listFiles());
+    })
   );
 
   context.subscriptions.push(
@@ -142,20 +172,29 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand(
       'dialog-ide.debugInTerminal',
       withErrorHandling(() => debugInTerminal(resolveProjectRoot(getWorkspaceRoot())))
+    ),
+    vscode.commands.registerCommand(
+      'dialog-ide.addSourceToProject',
+      withErrorHandling((filePath?: string) =>
+        addSourceToProject(resolveProjectRoot(getWorkspaceRoot()), filePath ?? activeEditorDgFilePath())
+      )
     )
   );
 }
 
 export async function deactivate(): Promise<void> {
+  deactivating = true;
   await stopActiveSession();
   await skeinService?.stop();
   skeinService = undefined;
 }
 
-function withErrorHandling(action: () => Promise<void>): () => Promise<void> {
-  return async () => {
+function withErrorHandling<Args extends unknown[]>(
+  action: (...args: Args) => Promise<void>
+): (...args: Args) => Promise<void> {
+  return async (...args: Args) => {
     try {
-      await action();
+      await action(...args);
     } catch (error) {
       vscode.window.showErrorMessage(error instanceof Error ? error.message : String(error));
     }
@@ -377,6 +416,69 @@ async function debugInTerminal(projectRoot: string): Promise<void> {
 }
 
 /**
+ * Warns (via a dismissible toast, not a modal) when a newly created .dg file isn't covered by any
+ * of dialog.json's declared sources - it would otherwise silently never get compiled/loaded, with
+ * no error to explain why. Silently does nothing when there's no workspace, the setting is off,
+ * or dialog.json is missing/invalid (readProject already logs/throws for those elsewhere; this is
+ * just a nudge, not validation, so it has nothing useful to say in that case).
+ */
+async function warnIfUncoveredSource(rootDir: string | undefined, filePath: string): Promise<void> {
+  if (!rootDir || !vscode.workspace.getConfiguration('dialog-ide').get<boolean>('warnOnUncoveredSource', true)) {
+    return;
+  }
+
+  let project;
+  try {
+    project = readProject(rootDir);
+  } catch {
+    return;
+  }
+
+  if (isFileCoveredBySource(project, filePath)) {
+    return;
+  }
+
+  const choice = await vscode.window.showWarningMessage(
+    `${path.basename(filePath)} isn't part of any dialog.json source - it won't be compiled.`,
+    'Add to dialog.json'
+  );
+  if (choice === 'Add to dialog.json') {
+    await vscode.commands.executeCommand('dialog-ide.addSourceToProject', filePath);
+  }
+}
+
+function activeEditorDgFilePath(): string | undefined {
+  const document = vscode.window.activeTextEditor?.document;
+  return document && document.fileName.endsWith('.dg') ? document.fileName : undefined;
+}
+
+/**
+ * Adds `filePath` into one of dialog.json's four source categories, prompting via QuickPick for
+ * which one - never guesses, since a wrong-category guess (e.g. dropping a real source into
+ * `test`) would silently exclude it from normal builds. Invoked either with a known filePath (the
+ * "not covered" warning toast's action button, or the Explorer decoration's uncovered-file badge)
+ * or from the Command Palette against the active editor (see activeEditorDgFilePath).
+ */
+async function addSourceToProject(projectRoot: string, filePath: string | undefined): Promise<void> {
+  if (!filePath) {
+    throw new Error('No .dg file to add - open one first, or use this from the "not covered by dialog.json" warning.');
+  }
+
+  const picked = await vscode.window.showQuickPick(
+    SOURCE_CATEGORIES.map(({ category, description }) => ({ label: category, description, category })),
+    { placeHolder: 'Add to which dialog.json source category?' }
+  );
+  if (!picked) {
+    return;
+  }
+
+  const dialogJsonPath = path.join(projectRoot, 'dialog.json');
+  const relativePath = toDialogJsonPath(projectRoot, filePath);
+  addSourceToDialogJson(dialogJsonPath, picked.category, relativePath);
+  vscode.window.showInformationMessage(`Added ${relativePath} to dialog.json's "${picked.category}" sources.`);
+}
+
+/**
  * If a session is already running, asks the user whether to stop it before continuing.
  * Returns true when it's safe to proceed (nothing was running, or the user confirmed and it's
  * now stopped); false if the user declined, meaning the caller should abort.
@@ -519,6 +621,9 @@ function ensureSkeinPanel(): vscode.WebviewPanel {
 }
 
 function refreshStatusBar(): void {
+  if (deactivating) {
+    return;
+  }
   if (activeSession && activeSessionId) {
     const tree = activeSession.getTree();
     statusBarItem.text = `$(debug-stop) Dialog Skein: ${activeSessionId}.skein (${tree.getEngine()})`;
@@ -532,7 +637,7 @@ function refreshStatusBar(): void {
 }
 
 function refreshSkeinPanel(): void {
-  if (!skeinPanel) {
+  if (deactivating || !skeinPanel) {
     return;
   }
   const display = currentSessionDisplay();

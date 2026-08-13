@@ -105,6 +105,31 @@ export function expandSources(project: DialogProject, options: ExpandSourcesOpti
   return filterByTarget(expanded, target);
 }
 
+/**
+ * True when `filePath` is covered by one of the project's declared source entries in *any*
+ * category (main/test/debug/library), regardless of the debug/test gating `expandSources`
+ * applies for compilation - a file under a declared `test`-only directory is still "part of the
+ * project" for this check even though a default `expandSources({})` call wouldn't include it.
+ * A directory entry covers only its direct children (matching `expandSourceEntry`'s
+ * non-recursive expansion); a file entry covers only itself.
+ */
+export function isFileCoveredBySource(project: DialogProject, filePath: string): boolean {
+  const resolvedFile = path.resolve(filePath);
+  const { main, test = [], debug = [], library = [] } = project.sources;
+  const entries = [...main, ...test, ...debug, ...library];
+
+  return entries.some((entry) => {
+    const fullPath = path.isAbsolute(entry) ? entry : path.join(project.rootDir, entry);
+    if (!fs.existsSync(fullPath)) {
+      return false;
+    }
+    if (fs.statSync(fullPath).isDirectory()) {
+      return path.dirname(resolvedFile) === path.resolve(fullPath);
+    }
+    return path.resolve(fullPath) === resolvedFile;
+  });
+}
+
 function expandSourceEntry(rootDir: string, entry: string): string[] {
   const fullPath = path.isAbsolute(entry) ? entry : path.join(rootDir, entry);
 

@@ -50,8 +50,22 @@
       {
         "command": "dialog-ide.debugInTerminal",
         "title": "Dialog IDE: Debug in Terminal"
+      },
+      {
+        "command": "dialog-ide.addSourceToProject",
+        "title": "Dialog IDE: Add File to dialog.json..."
       }
     ],
+    "configuration": {
+      "title": "Dialog IDE",
+      "properties": {
+        "dialog-ide.warnOnUncoveredSource": {
+          "type": "boolean",
+          "default": true,
+          "description": "Warn when a .dg file isn't covered by any source in dialog.json."
+        }
+      }
+    },
     "viewsContainers": {
       "panel": [
         {
@@ -107,12 +121,14 @@
     "LICENSE",
     "node_modules/diff/**/*",
     "node_modules/immutable/**/*",
+    "node_modules/jsonc-parser/**/*",
     "node_modules/vscode-oniguruma/**/*",
     "node_modules/vscode-textmate/**/*"
   ],
   "dependencies": {
     "diff": "^9.0.0",
     "immutable": "^5.1.9",
+    "jsonc-parser": "^3.3.1",
     "vscode-oniguruma": "^2.0.1",
     "vscode-textmate": "^9.3.2"
   }
