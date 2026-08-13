@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.0.2 - 12 Aug 2026
+## 0.0.2 - 13 Aug 2026
 
 - Rewrote `README.md` for end users (Dialog authors), covering the Skein workflow, keyboard shortcuts, and project setup
 - Moved developer-facing content (source layout, build/test/package workflow) into `technical-design.md`
