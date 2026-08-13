@@ -1,5 +1,5 @@
 ---
-name: release
+name: release-to-marketplace
 description: Use when the user explicitly asks to release, cut a release, or publish a new version of Dialog IDE to the VS Code Marketplace (e.g. "release", "cut a release", "publish 0.0.2", "ship this version"). Not triggered by ordinary commits or PR merges - only an explicit release request.
 ---
 
@@ -14,7 +14,7 @@ approved.
 
 ## Facts specific to this project (don't re-derive these)
 
-- The extension is already live on the Marketplace (`hlship.dialog-ide`) - publishing credentials
+- The extension is already live on the Marketplace (`hlship.dialog-ide`) - publishing credentials/
   (`vsce login hlship`, PAT stored in the OS keychain) are already configured on this machine from
   a prior publish. If `vsce publish` fails with an auth error, tell the user to run
   `npx vsce login hlship` and retry - don't try to source or create a PAT yourself.
