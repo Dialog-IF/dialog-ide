@@ -1,5 +1,7 @@
 # Changelog
 
+## 0.1.0 - Unreleased
+
 ## 0.0.2 - 13 Aug 2026
 
 - Rewrote `README.md` for end users (Dialog authors), covering the Skein workflow, keyboard shortcuts, and project setup
