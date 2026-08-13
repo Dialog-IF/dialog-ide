@@ -47,7 +47,9 @@ Jest. Nearly everything mocks `child_process` - the two exceptions (`dgdebug-int
 ```bash
 npx vsce package
 ```
-Produces a `.vsix` installable via `code --install-extension` or the Extensions view's "Install from VSIX...", without needing the Marketplace. `package.json`'s `"files"` array is an explicit allowlist (`dist/**/*`, `media/**/*`, `syntaxes/**/*`, `language-configuration.json`, `README.md`, `LICENSE`, `THIRD_PARTY_LICENSES.md`, plus each production dependency's `node_modules` path individually) - there's no bundler (no webpack/esbuild), so a new runtime dependency (or new static asset like the grammar) needs its own line there or it silently won't ship, producing a `Cannot find module` crash on activation on a machine without this repo's own `node_modules`. Not yet published to the Marketplace.
+Produces a `.vsix` installable via `code --install-extension` or the Extensions view's "Install from VSIX...", without needing the Marketplace. `package.json`'s `"files"` array is an explicit allowlist (`dist/**/*`, `media/**/*`, `syntaxes/**/*`, `language-configuration.json`, `README.md`, `LICENSE`, `THIRD_PARTY_LICENSES.md`, plus each production dependency's `node_modules` path individually) - there's no bundler (no webpack/esbuild), so a new runtime dependency (or new static asset like the grammar) needs its own line there or it silently won't ship, producing a `Cannot find module` crash on activation on a machine without this repo's own `node_modules`.
+
+Published to the VS Code Marketplace as `hlship.dialog-ide`. See the `release` skill (`.claude/skills/release/SKILL.md`) for the actual release/publish workflow.
 
 ## Key Files
 
@@ -103,4 +105,3 @@ Sessions are created via `SkeinSession.createNew(config)` (fresh skein) or `Skei
 
 - `frotz`/`frotz-release` engines aren't runnable yet (see Development Notes #1).
 - No "Reload" action (re-reading a `.skein` file from disk after external changes) - dialog-tool has one, dialog-ide doesn't yet.
-- Not yet published to the VS Code Marketplace (packaging is set up - see "Packaging" above - but publisher registration/PAT setup is a manual, one-time step outside this repo).
