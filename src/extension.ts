@@ -17,6 +17,7 @@ import {
   SkeinService,
   SkeinSession
 } from './dialoged/skein';
+import { DialogDocumentSymbolProvider } from './dialog-symbol-provider';
 import {
   DEFAULT_SESSION_ID,
   EngineChoice,
@@ -89,6 +90,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.window.registerWebviewViewProvider('dialogIdeTraceView', new TraceViewProvider(), {
       webviewOptions: { retainContextWhenHidden: true }
     })
+  );
+
+  context.subscriptions.push(
+    vscode.languages.registerDocumentSymbolProvider(
+      { language: 'dialog' },
+      new DialogDocumentSymbolProvider()
+    )
   );
 
   context.subscriptions.push(
