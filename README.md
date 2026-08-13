@@ -22,7 +22,10 @@ Each command/response pair is called a **knot**. Knots form a tree - the same co
 - The [Dialog toolchain](https://github.com/dialog-if/dialog) installed, with `dgdebug` on your `PATH` (or pointed at via `binDir` - see below)
 - A project folder containing a `dialog.json` file (see [Project Setup](#project-setup))
 
-The companion [`dialog-language-support`](https://marketplace.visualstudio.com/items?itemName=sideburns3000.dialog-language-support) extension is installed automatically alongside Dialog IDE - it provides `.dg` syntax highlighting in the regular text editor. Dialog IDE itself doesn't touch source editing; it's all about running the project through the Skein.
+`.dg` syntax highlighting, folding, and bracket/indentation support are built in. Dialog IDE itself doesn't otherwise touch source editing; it's all about running the project through the Skein.
+
+> [!NOTE]
+> If you previously had the separate [`dialog-language-support`](https://marketplace.visualstudio.com/items?itemName=sideburns3000.dialog-language-support) extension installed, Dialog IDE will warn you once at startup and suggest disabling or uninstalling it - having both installed can cause inconsistent `.dg` highlighting and a duplicate "Compile to..." context menu.
 
 ## Installing
 
@@ -141,4 +144,4 @@ Get involved at [Interactive Fiction Community Forum](https://intfiction.org/t/d
 
 ## License
 
-[Apache License 2.0](LICENSE)
+[Apache License 2.0](LICENSE). The vendored `.dg` TextMate grammar and language configuration are separately MIT-licensed - see [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md).

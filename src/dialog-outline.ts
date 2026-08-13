@@ -5,8 +5,9 @@
  * dialog-symbol-provider.ts for the thin vscode.DocumentSymbolProvider adapter built on top of
  * this.
  *
- * Dialog syntax rules driving this (confirmed against sideburns3000.dialog-language-support's
- * own TextMate grammar, dialog.tmLanguage.json):
+ * Dialog syntax rules driving this (confirmed against the vendored TextMate grammar,
+ * syntaxes/dialog.tmLanguage.json - originally from sideburns3000.dialog-language-support, see
+ * THIRD_PARTY_LICENSES.md):
  * - A topic declaration is a line starting at column 0 with `#`, e.g. `#player`.
  * - A rule definition is a line starting at column 0, optionally prefixed with `@` (access
  *   predicate) or `~` (negation), then `(`. Its "head" is the balanced-paren span from that `(`

@@ -73,7 +73,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     port: 0,
     host: 'localhost',
     mediaRoot: path.join(context.extensionPath, 'media'),
-    grammarPath: resolveDialogGrammarPath(),
+    grammarPath: resolveDialogGrammarPath(context),
     onCompileError: (error) => {
       handleCompileError(error).catch((handlerError) => {
         console.error('Failed to report compile error:', handlerError);
@@ -180,6 +180,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       )
     )
   );
+
+  warnAboutConflictingLanguageExtension(context);
 }
 
 export async function deactivate(): Promise<void> {
@@ -704,18 +706,55 @@ function getWebviewHtml(active: ActiveSessionDisplay | undefined): string {
 }
 
 /**
- * Resolves the installed dialog-language-support extension's real TextMate grammar to a plain
- * file path, handed down to SkeinService/syntax.ts for the trace panel's hover-preview snippet
- * coloring (see syntax.ts's own doc comment for why this needs the vscode API - and therefore
- * has to happen here, not in the vscode-agnostic skein/ layer - while the actual tokenizing
- * doesn't). Safe to call synchronously in activate(): the extension is declared as an
- * extensionDependencies entry (package.json), which guarantees VS Code activates it first.
- * Returns undefined (falling back to plain, uncolored snippets) only if that extension somehow
- * isn't installed/active.
+ * Resolves this extension's own vendored TextMate grammar to a plain file path, handed down to
+ * SkeinService/syntax.ts for the trace panel's hover-preview snippet coloring (see syntax.ts's
+ * own doc comment for why this needs the vscode API - and therefore has to happen here, not in
+ * the vscode-agnostic skein/ layer - while the actual tokenizing doesn't). The grammar (and
+ * language-configuration.json, contributing `.dg` editor highlighting/folding/indentation
+ * generally, not just this one preview) is vendored under syntaxes/ - see THIRD_PARTY_LICENSES.md
+ * - rather than pulled from the separate sideburns3000.dialog-language-support extension this
+ * used to declare as an extensionDependencies entry.
  */
-function resolveDialogGrammarPath(): string | undefined {
-  const grammarExtension = vscode.extensions.getExtension('sideburns3000.dialog-language-support');
-  return grammarExtension ? path.join(grammarExtension.extensionPath, 'syntaxes', 'dialog.tmLanguage.json') : undefined;
+function resolveDialogGrammarPath(context: vscode.ExtensionContext): string {
+  return path.join(context.extensionPath, 'syntaxes', 'dialog.tmLanguage.json');
+}
+
+const SIDEBURNS_EXTENSION_ID = 'sideburns3000.dialog-language-support';
+const SIDEBURNS_WARNING_SHOWN_KEY = 'dialog-ide.sideburnsConflictWarningShown';
+
+/**
+ * One-time nudge for anyone who separately still has the old dialog-language-support extension
+ * installed (this extension no longer pulls it in as an extensionDependencies entry, but VS Code
+ * doesn't uninstall a dependency just because a later version stops declaring it - see
+ * THIRD_PARTY_LICENSES.md). Both extensions now contribute a `dialog` language id and a
+ * `source.dg` grammar; VS Code has no documented precedence rule for two extensions registering
+ * the same grammar scopeName, so the practical effect is inconsistent/flickering highlighting,
+ * plus a redundant "Compile to..." context menu from the old extension. There's no API for one
+ * extension to disable/uninstall another, so this can only point the user at the Extensions view
+ * and let them do it - shown once per install (tracked in globalState) rather than every reload.
+ */
+function warnAboutConflictingLanguageExtension(context: vscode.ExtensionContext): void {
+  if (context.globalState.get<boolean>(SIDEBURNS_WARNING_SHOWN_KEY)) {
+    return;
+  }
+  if (!vscode.extensions.getExtension(SIDEBURNS_EXTENSION_ID)) {
+    return;
+  }
+
+  context.globalState.update(SIDEBURNS_WARNING_SHOWN_KEY, true);
+  vscode.window
+    .showWarningMessage(
+      'Dialog IDE now provides its own .dg syntax highlighting, folding, and indentation. ' +
+        'Having the separate "Dialog Language Support" extension installed too can cause ' +
+        'inconsistent highlighting and a duplicate "Compile to..." menu - consider disabling or ' +
+        'uninstalling it.',
+      'Show Extension'
+    )
+    .then((choice) => {
+      if (choice === 'Show Extension') {
+        vscode.commands.executeCommand('workbench.extensions.search', `@id:${SIDEBURNS_EXTENSION_ID}`);
+      }
+    });
 }
 
 function createNonce(): string {

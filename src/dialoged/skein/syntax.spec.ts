@@ -3,31 +3,13 @@ import * as path from 'path';
 import { INITIAL } from 'vscode-textmate';
 import { loadDialogGrammar, renderHighlightedSnippet } from './syntax';
 
-const GRAMMAR_PATH = path.join(
-  process.env.HOME ?? '',
-  '.vscode',
-  'extensions',
-  'sideburns3000.dialog-language-support-1.1.0',
-  'syntaxes',
-  'dialog.tmLanguage.json'
-);
-
-function isGrammarInstalled(): boolean {
-  try {
-    return fs.existsSync(GRAMMAR_PATH);
-  } catch {
-    return false;
-  }
-}
-
-// Mirrors dgdebug-integration.spec.ts's describeIfDgdebug: skip (not fail) when the real
-// dialog-language-support extension isn't installed on this machine, so the rest of the suite
-// stays portable to machines/CI without it.
-const describeIfGrammarInstalled = isGrammarInstalled() ? describe : describe.skip;
+// The repo's own vendored copy (see THIRD_PARTY_LICENSES.md) - a committed asset, always present,
+// unlike the old sideburns3000.dialog-language-support extension install this used to point at.
+const GRAMMAR_PATH = path.join(__dirname, '..', '..', '..', 'syntaxes', 'dialog.tmLanguage.json');
 
 const STDLIB_PATH = path.join(__dirname, '__fixtures__', 'project', 'dgsample', 'lib', 'dialog', 'stdlib.dg');
 
-describeIfGrammarInstalled('syntax highlighting against the real installed Dialog grammar', () => {
+describe('syntax highlighting against the real Dialog grammar', () => {
   let allLines: string[];
 
   beforeAll(() => {

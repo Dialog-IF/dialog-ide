@@ -1,14 +1,13 @@
 /**
  * Dialog source syntax highlighting for the trace panel's hover/source snippets.
  *
- * Reuses the real TextMate grammar shipped by the `sideburns3000.dialog-language-support`
- * extension (declared as an `extensionDependencies` entry in package.json, so it's guaranteed
- * installed and active before this extension runs) rather than a hand-written tokenizer - the
- * grammar is the actual source of truth for what Dialog syntax looks like, already maintained
- * separately. `vscode-textmate`/`vscode-oniguruma` are standalone libraries (not the `vscode`
- * module), so this stays in the vscode-agnostic skein/ layer - extension.ts resolves the
- * grammar's file path (which needs `vscode.extensions.getExtension(...)`) and hands it down as
- * a plain string.
+ * Reuses the real TextMate grammar vendored under this extension's own `syntaxes/` directory
+ * (originally from the `sideburns3000.dialog-language-support` extension, MIT-licensed - see
+ * THIRD_PARTY_LICENSES.md) rather than a hand-written tokenizer - the grammar is the actual
+ * source of truth for what Dialog syntax looks like. `vscode-textmate`/`vscode-oniguruma` are
+ * standalone libraries (not the `vscode` module), so this stays in the vscode-agnostic skein/
+ * layer - extension.ts resolves the grammar's file path (which needs `context.extensionPath`)
+ * and hands it down as a plain string.
  */
 
 import * as fs from 'fs/promises';
@@ -79,8 +78,8 @@ function highlightLine(lineText: string, tokens: IToken[]): string {
 /**
  * Same row markup as renderHighlightedSnippet, without tokenizing - the fallback service.ts
  * uses when no grammarPath was configured (defensive: extension.ts always resolves one today,
- * since dialog-language-support is a declared extensionDependencies entry, but this keeps the
- * source-preview endpoint working rather than erroring if that ever isn't true).
+ * since the grammar is a vendored, always-present asset, but this keeps the source-preview
+ * endpoint working rather than erroring if that ever isn't true).
  */
 export function renderPlainSnippet(allLines: string[], windowStart: number, windowEnd: number, highlightedLine: number): string {
   const rows: string[] = [];

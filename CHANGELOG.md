@@ -10,6 +10,8 @@
 - Workspace-wide "Go to Symbol" (Ctrl+T/Cmd+T) across all `.dg` source files in a project, kept current via a file watcher as sources are edited/added/removed
 - Editing, adding, or deleting a project's `.dg` source files, or its `dialog.json`, now restarts the `dgdebug` process on the next command so changes take effect immediately
 - Warn when a newly created `.dg` file isn't covered by any `dialog.json` source: a dismissible notification plus a persistent Explorer badge, both with a one-click "Add to dialog.json" fix; configurable via `dialog-ide.warnOnUncoveredSource`
+- Vendored `.dg` syntax highlighting, folding, and bracket/indentation support directly into the extension (previously provided by the separate `sideburns3000.dialog-language-support` extension via `extensionDependencies`, which also brought along conflicting "Compile to Z8/etc." commands); that dependency has been dropped. If it's still separately installed, a one-time startup notice suggests disabling/uninstalling it
+- A custom `.dg` file icon (two overlapping speech bubbles) for icon themes that don't already provide one of their own
 
 ## 0.0.1 - 11 Aug 2026
 
