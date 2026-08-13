@@ -1,5 +1,5 @@
 import * as path from 'path';
-import { readProject, expandSources, resolveCommandPath, DialogProject } from './project';
+import { readProject, expandSources, resolveCommandPath, isFileCoveredBySource, DialogProject } from './project';
 
 const FIXTURES_DIR = path.join(__dirname, '__fixtures__', 'project');
 const DGSAMPLE_DIR = path.join(FIXTURES_DIR, 'dgsample');
@@ -108,6 +108,57 @@ describe('expandSources', () => {
       const sources = expandSources(project, { target: 'aa' });
       expect(sources.map((p) => path.basename(p))).toEqual(['always.dg', 'sometimes.aa.dg']);
     });
+  });
+});
+
+describe('isFileCoveredBySource', () => {
+  it('covers a file inside a declared main directory', () => {
+    const project = readProject(DGSAMPLE_DIR);
+    expect(isFileCoveredBySource(project, path.join(DGSAMPLE_DIR, 'src', 'orb.dg'))).toBe(true);
+  });
+
+  it('covers a file inside a declared library directory', () => {
+    const project = readProject(DGSAMPLE_DIR);
+    expect(isFileCoveredBySource(project, path.join(DGSAMPLE_DIR, 'lib', 'dialog', 'stdlib.dg'))).toBe(true);
+  });
+
+  it('covers a file inside a declared test-only directory, unlike expandSources({}) which omits it', () => {
+    // lib/dialog/debug happens to exist on disk from the debug fixture - reused here as a stand-in
+    // "test" directory purely to exercise the test-category branch without a dedicated fixture.
+    const project: DialogProject = {
+      name: 'stand-in',
+      target: ['zblorb'],
+      sources: { main: ['src'], test: ['lib/dialog/debug'] },
+      rootDir: DGSAMPLE_DIR
+    };
+    const filePath = path.join(DGSAMPLE_DIR, 'lib', 'dialog', 'debug', 'stddebug.dg');
+    expect(isFileCoveredBySource(project, filePath)).toBe(true);
+    expect(expandSources(project, {})).not.toContain(filePath);
+  });
+
+  it('covers a file matched by an exact-file source entry', () => {
+    const project: DialogProject = {
+      name: 'stand-in',
+      target: ['zblorb'],
+      sources: { main: [path.join('src', 'meta.dg')] },
+      rootDir: DGSAMPLE_DIR
+    };
+    expect(isFileCoveredBySource(project, path.join(DGSAMPLE_DIR, 'src', 'meta.dg'))).toBe(true);
+  });
+
+  it('does not cover a file in a directory not declared as any source', () => {
+    const project = readProject(DGSAMPLE_DIR);
+    expect(isFileCoveredBySource(project, path.join(DGSAMPLE_DIR, 'scratch', 'stray.dg'))).toBe(false);
+  });
+
+  it('does not cover a file that is merely a sibling of an exact-file source entry', () => {
+    const project: DialogProject = {
+      name: 'stand-in',
+      target: ['zblorb'],
+      sources: { main: [path.join('src', 'meta.dg')] },
+      rootDir: DGSAMPLE_DIR
+    };
+    expect(isFileCoveredBySource(project, path.join(DGSAMPLE_DIR, 'src', 'orb.dg'))).toBe(false);
   });
 });
 
