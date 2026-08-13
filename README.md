@@ -22,7 +22,7 @@ Each command/response pair is called a **knot**. Knots form a tree - the same co
 - The [Dialog toolchain](https://github.com/dialog-if/dialog) installed, with `dgdebug` on your `PATH` (or pointed at via `binDir` - see below)
 - A project folder containing a `dialog.json` file (see [Project Setup](#project-setup))
 
-`.dg` syntax highlighting, folding, and bracket/indentation support are built in. Dialog IDE itself doesn't otherwise touch source editing; it's all about running the project through the Skein.
+`.dg` syntax highlighting, folding, and bracket/indentation support are built in, along with an Outline view (and breadcrumbs, ⌘⇧O / Ctrl+Shift+O) and workspace-wide "Go to Symbol" (⌘T / Ctrl+T) across every `.dg` file in the project. Dialog IDE itself doesn't otherwise touch source editing; it's all about running the project through the Skein.
 
 > [!NOTE]
 > If you previously had the separate [`dialog-language-support`](https://marketplace.visualstudio.com/items?itemName=sideburns3000.dialog-language-support) extension installed, Dialog IDE will warn you once at startup and suggest disabling or uninstalling it - having both installed can cause inconsistent `.dg` highlighting and a duplicate "Compile to..." context menu.
@@ -44,6 +44,7 @@ Dialog IDE reads a `dialog.json` file at the root of your project (opened as a V
   "name": "my-project",
   "sources": {
     "main": ["src"],
+    "test": ["test"],
     "debug": ["lib/dialog/debug"],
     "library": ["lib/dialog"]
   }
@@ -51,12 +52,14 @@ Dialog IDE reads a `dialog.json` file at the root of your project (opened as a V
 ```
 
 - Each entry under `sources` is a list of directories (all `.dg` files in the directory) or individual file paths
-- `main` is always included; `debug` is pulled in for Skein/debug sessions; `library` (including the Dialog standard library) is always included
-- Order is very important: main comes before debug, which comes before library.
+- `main` is always included; `debug` is pulled in for Skein/debug sessions; `library` (including the Dialog standard library) is always included; `test` is recognized as a project source today but isn't loaded by a running Skein session yet - reserved for a planned Test Runner
+- Order is very important: main comes before test, which comes before debug, which comes before library.
 
 The order of sources in a single directory is not guaranteed; if order counts, you should list the files in the directory
 in the order you need them to be.  Remember that Dialog searches for rules top to bottom, so you should have 
 exceptions first, before default rules.
+
+If you create a `.dg` file that isn't covered by any of the categories above, Dialog IDE flags it - a dismissible notification plus a persistent Explorer badge, both with a one-click "Add to dialog.json" fix. Turn this off via the `dialog-ide.warnOnUncoveredSource` setting.
 
 ## Getting Started
 
@@ -71,6 +74,7 @@ Open your project folder in VS Code, then use the Command Palette (⌘⇧P / Ctr
 | **Dialog IDE: Save Skein** | Save the current session's tree back to its `.skein` file |
 | **Dialog IDE: Stop Skein** | Stop the running session |
 | **Dialog IDE: Debug in Terminal** | Open a plain, unmanaged `dgdebug` session in a VS Code terminal |
+| **Dialog IDE: Add File to dialog.json...** | Add the current (or a picked) `.dg` file to one of dialog.json's source categories |
 
 A status bar item on the left also shows the current session (or lets you start the default one with a click).
 
@@ -135,10 +139,9 @@ Undo/redo is unlimited and covers structural edits (bless, delete, splice, runni
 
 This is an early alpha release of the extension; we have many more features planned, including:
 
-- An outline view for dialog source files showing topics and rules
-- A warning when a dialog source is present in the project but not matched by an source category
 - A new project wizard
 - An export wizard to build a playable .zblorb file, or package the game for distribution
+- A Test Runner for the `test` source category
 
 Get involved at [Interactive Fiction Community Forum](https://intfiction.org/t/dialog-ide-0-0-1/81465/7) to provide feedback and ideas!
 
