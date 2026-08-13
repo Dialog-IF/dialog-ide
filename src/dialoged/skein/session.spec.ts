@@ -446,6 +446,61 @@ describe('SkeinSession', () => {
       expect(mockTerminate).not.toHaveBeenCalled();
     });
 
+    it('restarts the process before the next command when markSourcesChanged was called, even though the active knot already matches where the process is', async () => {
+      mockReadResponse
+        .mockResolvedValueOnce(BANNER_RESPONSE) // session.start()
+        .mockResolvedValueOnce(dynamicResponse([])) // session.start()'s own @dynamic, for knot 0
+        .mockResolvedValueOnce(BANNER_RESPONSE) // forced replay's relaunch
+        .mockResolvedValueOnce(dynamicResponse([])) // the relaunch's own @dynamic, for knot 0 again
+        .mockResolvedValueOnce({ command: 'look', response: 'Room A.\n', promptType: 'line' })
+        .mockResolvedValueOnce(dynamicResponse([]));
+      const session = SkeinSession.createNew(DGDEBUG_CONFIG);
+      await session.start();
+
+      session.markSourcesChanged();
+      await session.runCommand('look');
+
+      expect(mockTerminate).toHaveBeenCalledTimes(1);
+      expect(mockStart).toHaveBeenCalledTimes(2); // session.start() + the forced relaunch
+    });
+
+    it('does not restart again on a second command once markSourcesChanged has already been consumed', async () => {
+      mockReadResponse
+        .mockResolvedValueOnce(BANNER_RESPONSE) // session.start()
+        .mockResolvedValueOnce(dynamicResponse([])) // session.start()'s own @dynamic, for knot 0
+        .mockResolvedValueOnce(BANNER_RESPONSE) // forced replay's relaunch
+        .mockResolvedValueOnce(dynamicResponse([])) // the relaunch's own @dynamic, for knot 0 again
+        .mockResolvedValueOnce({ command: 'look', response: 'Room A.\n', promptType: 'line' })
+        .mockResolvedValueOnce(dynamicResponse([]))
+        .mockResolvedValueOnce({ command: 'north', response: 'Room B.\n', promptType: 'line' })
+        .mockResolvedValueOnce(dynamicResponse([]));
+      const session = SkeinSession.createNew(DGDEBUG_CONFIG);
+      await session.start();
+
+      session.markSourcesChanged();
+      await session.runCommand('look');
+      await session.runCommand('north');
+
+      expect(mockTerminate).toHaveBeenCalledTimes(1);
+      expect(mockStart).toHaveBeenCalledTimes(2); // session.start() + the one forced relaunch
+    });
+
+    it('markSourcesChanged called before start() does not cause a spurious extra restart on the first command afterwards', async () => {
+      mockReadResponse
+        .mockResolvedValueOnce(BANNER_RESPONSE) // session.start()
+        .mockResolvedValueOnce(dynamicResponse([])) // session.start()'s own @dynamic, for knot 0
+        .mockResolvedValueOnce({ command: 'look', response: 'Room A.\n', promptType: 'line' })
+        .mockResolvedValueOnce(dynamicResponse([]));
+      const session = SkeinSession.createNew(DGDEBUG_CONFIG);
+
+      session.markSourcesChanged();
+      await session.start();
+      await session.runCommand('look');
+
+      expect(mockTerminate).not.toHaveBeenCalled();
+      expect(mockStart).toHaveBeenCalledTimes(1); // just session.start() - no forced replay
+    });
+
     it('replays the path to the active knot first when it no longer matches where the process is - e.g. after loading a skein or jumping around the tree and adding a new command from an earlier knot (normal, everyday use, not an error)', async () => {
       // A loaded tree whose active knot is already knot 1 ("look") - the freshly-spawned process
       // is only ever at knot 0 (the banner), regardless of what the loaded tree says, so the very

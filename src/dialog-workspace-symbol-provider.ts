@@ -50,8 +50,11 @@ export class DialogWorkspaceSymbolProvider implements vscode.WorkspaceSymbolProv
   private updateChain: Promise<void>;
   public readonly ready: Promise<void>;
 
-  constructor(rootDir: string | undefined) {
-    this.watcher = new DialogWorkspaceWatcher(rootDir);
+  // watcher is owned by extension.ts (shared with other features that react to Dialog source
+  // changes, e.g. restarting dgdebug - see DialogWorkspaceWatcher's own doc comment) - this
+  // class only subscribes to it, it never constructs or disposes it.
+  constructor(watcher: DialogWorkspaceWatcher) {
+    this.watcher = watcher;
     this.watcherSubscription = this.watcher.onDidChangeFiles((event) => this.queueFileEvent(event));
     this.ready = this.initialize();
     this.updateChain = this.ready;
@@ -74,7 +77,6 @@ export class DialogWorkspaceSymbolProvider implements vscode.WorkspaceSymbolProv
 
   dispose(): void {
     this.watcherSubscription.dispose();
-    this.watcher.dispose();
   }
 
   private async initialize(): Promise<void> {

@@ -1,10 +1,14 @@
 /**
- * Reusable vscode.FileSystemWatcher wrapper over a project's .dg source files - not specific to
- * any one feature. dialog-workspace-symbol-provider.ts is the first consumer, but other
- * editor-wide features that need to react to Dialog source changes should subscribe here rather
- * than standing up their own watcher. Deliberately minimal: reports only file paths and
- * change/create/delete events, no content caching - each consumer decides what it needs from a
- * file once it hears about a change.
+ * Reusable vscode.FileSystemWatcher wrapper over a project's .dg source files (plus its
+ * dialog.json project descriptor, which can add/remove/reorder which .dg files are actually
+ * loaded) - not specific to any one feature. dialog-workspace-symbol-provider.ts is the first
+ * consumer, but other editor-wide features that need to react to Dialog source changes should
+ * subscribe here rather than standing up their own watcher. Deliberately minimal: reports only
+ * file paths/change type, no content caching - each consumer decides what it needs from a file
+ * once it hears about a change. dialog.json changes are reported through a separate event
+ * (onDidChangeProjectConfig) rather than folded into onDidChangeFiles's DgFileEvent stream,
+ * since dialog.json isn't itself a .dg source and existing consumers assume every DgFileEvent
+ * path is one.
  */
 
 import * as vscode from 'vscode';
@@ -41,7 +45,9 @@ async function resolveDgFiles(rootDir: string | undefined): Promise<string[]> {
 
 export class DialogWorkspaceWatcher implements vscode.Disposable {
   private readonly emitter = new vscode.EventEmitter<DgFileEvent>();
+  private readonly configEmitter = new vscode.EventEmitter<DgFileChangeType>();
   private readonly watcher: vscode.FileSystemWatcher | undefined;
+  private readonly configWatcher: vscode.FileSystemWatcher | undefined;
   private files: string[] = [];
   public readonly ready: Promise<void>;
 
@@ -55,6 +61,13 @@ export class DialogWorkspaceWatcher implements vscode.Disposable {
       this.watcher.onDidChange((uri) => this.emit('change', uri));
       this.watcher.onDidCreate((uri) => this.emit('create', uri));
       this.watcher.onDidDelete((uri) => this.emit('delete', uri));
+
+      this.configWatcher = vscode.workspace.createFileSystemWatcher(
+        new vscode.RelativePattern(rootDir, 'dialog.json')
+      );
+      this.configWatcher.onDidChange(() => this.configEmitter.fire('change'));
+      this.configWatcher.onDidCreate(() => this.configEmitter.fire('create'));
+      this.configWatcher.onDidDelete(() => this.configEmitter.fire('delete'));
     }
   }
 
@@ -66,9 +79,16 @@ export class DialogWorkspaceWatcher implements vscode.Disposable {
     return this.emitter.event(listener);
   }
 
+  /** Fires whenever this project's dialog.json is created, changed, or deleted. */
+  onDidChangeProjectConfig(listener: (type: DgFileChangeType) => void): vscode.Disposable {
+    return this.configEmitter.event(listener);
+  }
+
   dispose(): void {
     this.watcher?.dispose();
+    this.configWatcher?.dispose();
     this.emitter.dispose();
+    this.configEmitter.dispose();
   }
 
   // Merges the resolved snapshot with anything that already arrived via an early watcher event

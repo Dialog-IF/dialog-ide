@@ -138,6 +138,17 @@ export class SkeinSession {
   // typing a new command from an earlier knot is normal, everyday use (dgdebug restarts and
   // replays fast), so the replay it triggers is silent, not an error.
   private processPositionId: number = 0;
+  // Set by markSourcesChanged (called from extension.ts's file-watcher wiring) whenever a .dg
+  // source file or dialog.json changes on disk - the counterpart to processPositionId's
+  // "active knot moved elsewhere" catch-up, but for "the files this.process was launched
+  // against may no longer be current" instead. Purely advisory, same as processPositionId:
+  // dgdebug only re-reads its sources at launch, so runCommand treats this exactly like a
+  // processPositionId mismatch and forces a restart-and-replay before the next command, even
+  // when the active knot otherwise already matches where the process is. Cleared wherever a
+  // fresh process actually picks up current sources (launchProcessAndCaptureBanner, replayAll)
+  // rather than only in runCommand, so it can't cause a redundant second restart on top of one
+  // that already happened for some other reason (e.g. Replay All while an edit is pending).
+  private sourcesChanged: boolean = false;
   // Which knot has its actions menu expanded, tracked separately per pane - the graph pane and
   // the transcript can show the same knot at different tree positions (or, on the transcript,
   // not at all if it's off the active spine), so a single shared id would open both panes' menus
@@ -255,6 +266,7 @@ export class SkeinSession {
    */
   private async launchProcessAndCaptureBanner(tree: SkeinTree, blessRoot: boolean): Promise<SkeinTree> {
     this.process = new SkeinProcess(this.buildProcessConfig());
+    this.sourcesChanged = false;
     await this.process.start();
 
     const banner = await this.process.readResponse();
@@ -303,6 +315,18 @@ export class SkeinSession {
   }
 
   /**
+   * Marks the live process as possibly running against stale sources - called from a file
+   * watcher when a .dg file or dialog.json changes on disk (see extension.ts). Cheap and
+   * side-effect-free: the actual restart+replay only happens lazily, on the next runCommand,
+   * exactly like the existing "active knot moved elsewhere" catch-up already does - restarting
+   * eagerly here would mean every single file saved during a batch of edits pays for its own
+   * dgdebug relaunch instead of just the next command actually run.
+   */
+  public markSourcesChanged(): void {
+    this.sourcesChanged = true;
+  }
+
+  /**
    * Run a command in the session
    */
   public async runCommand(command: string): Promise<void> {
@@ -318,10 +342,11 @@ export class SkeinSession {
     // processPositionId tracking is purely an optimization, not a correctness gate: jumping
     // around the tree and adding new commands from an earlier knot is normal, everyday use, not
     // an error condition - dgdebug starts and replays fast enough that this is cheap. When the
-    // active knot isn't where the process currently is, replay there first (silently - the user
-    // already made the only decision that matters, typing a new command), then proceed exactly
-    // as if the process had been there all along.
-    if (parentId !== this.processPositionId) {
+    // active knot isn't where the process currently is, or a source file/dialog.json changed
+    // since this.process was last (re)launched (sourcesChanged), replay there first (silently -
+    // the user already made the only decision that matters, typing a new command), then proceed
+    // exactly as if the process had been there all along.
+    if (parentId !== this.processPositionId || this.sourcesChanged) {
       await this.replayTo(parentId);
     }
 
@@ -626,6 +651,7 @@ export class SkeinSession {
         await this.process!.terminate();
         this.process = originalResult.process;
         this.processPositionId = originalResult.reachedId;
+        this.sourcesChanged = false;
       }
       // Not selectKnot: every updateKnotResponse fold above preserves baseTree's activeKnotId and
       // selectedChild structure untouched (only knot text/state changes), so the active knot stays

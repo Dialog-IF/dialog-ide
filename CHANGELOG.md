@@ -8,6 +8,7 @@
 - Nav graph's expand/collapse control is now a larger boxed +/- icon instead of a small chevron, with an opaque interior so the connector line no longer bleeds through it
 - Outline view (and breadcrumbs, Ctrl+Shift+O) for `.dg` source files: topics as collapsible nodes, rule definitions nested underneath
 - Workspace-wide "Go to Symbol" (Ctrl+T/Cmd+T) across all `.dg` source files in a project, kept current via a file watcher as sources are edited/added/removed
+- Editing, adding, or deleting a project's `.dg` source files, or its `dialog.json`, now restarts the `dgdebug` process on the next command so changes take effect immediately
 
 ## 0.0.1 - 11 Aug 2026
 

@@ -18,6 +18,7 @@ import {
   SkeinSession
 } from './dialoged/skein';
 import { DialogDocumentSymbolProvider } from './dialog-symbol-provider';
+import { DialogWorkspaceWatcher } from './dialog-workspace-watcher';
 import { DialogWorkspaceSymbolProvider } from './dialog-workspace-symbol-provider';
 import {
   DEFAULT_SESSION_ID,
@@ -100,10 +101,26 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     )
   );
 
-  const workspaceSymbolProvider = new DialogWorkspaceSymbolProvider(getWorkspaceRoot());
+  // Shared across every feature that needs to react to Dialog source changes (see
+  // DialogWorkspaceWatcher's own doc comment) - the workspace symbol provider below and the
+  // dgdebug-restart wiring further down both subscribe to this one instance rather than each
+  // standing up their own vscode.FileSystemWatcher.
+  const workspaceWatcher = new DialogWorkspaceWatcher(getWorkspaceRoot());
+  const workspaceSymbolProvider = new DialogWorkspaceSymbolProvider(workspaceWatcher);
   context.subscriptions.push(
+    workspaceWatcher,
     workspaceSymbolProvider,
     vscode.languages.registerWorkspaceSymbolProvider(workspaceSymbolProvider)
+  );
+
+  // A .dg source file or dialog.json changing on disk means the active session's live dgdebug
+  // process may now be running against stale sources - mark it so runCommand forces a restart
+  // before its next command (see SkeinSession.markSourcesChanged's doc comment). Reads the
+  // module-level `activeSession` at call time, not capture time, so this is a no-op whenever no
+  // session is running and always targets whichever session is active when a file changes.
+  context.subscriptions.push(
+    workspaceWatcher.onDidChangeFiles(() => activeSession?.markSourcesChanged()),
+    workspaceWatcher.onDidChangeProjectConfig(() => activeSession?.markSourcesChanged())
   );
 
   context.subscriptions.push(
