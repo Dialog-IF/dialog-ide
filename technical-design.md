@@ -3,14 +3,16 @@
 ## Table of Contents
 1. [Introduction](#introduction)
 2. [Architecture Overview](#architecture-overview)
-3. [Core Components](#core-components)
-4. [Data Models](#data-models)
-5. [UI Components](#ui-components)
-6. [Tool Integration](#tool-integration)
-7. [File Format Specifications](#file-format-specifications)
-8. [Performance Considerations](#performance-considerations)
-9. [Security Considerations](#security-considerations)
-10. [Testing Strategy](#testing-strategy)
+3. [Source Layout](#source-layout)
+4. [Development Workflow](#development-workflow)
+5. [Core Components](#core-components)
+6. [Data Models](#data-models)
+7. [UI Components](#ui-components)
+8. [Tool Integration](#tool-integration)
+9. [File Format Specifications](#file-format-specifications)
+10. [Performance Considerations](#performance-considerations)
+11. [Security Considerations](#security-considerations)
+12. [Testing Strategy](#testing-strategy)
 
 ## Introduction
 
@@ -70,7 +72,64 @@ At this time, the primary architecture remains server-driven with Datastar's DOM
 - **Core Engine**: TypeScript with immutable data structures
 - **UI Framework**: Custom implementation with Datastar-inspired reactivity
 - **Build Tools**: tsc, npm scripts for build processes
-- **Testing**: Jest for unit tests, Playwright for integration tests
+- **Testing**: Jest, for both unit and integration tests (see [Development Workflow](#development-workflow) - there is no Playwright/E2E layer)
+
+## Source Layout
+
+```
+src/
+├── extension.ts                 # VS Code extension entry point
+├── session-runner.ts            # Pure logic behind run-configuration commands
+└── dialoged/
+    └── skein/
+        ├── process.ts           # Process management for the dgdebug interpreter
+        ├── session.ts           # Session orchestration - commands, navigation, bless/undo, trace, search
+        ├── tree.ts              # Immutable tree structure for execution history
+        ├── service.ts           # HTTP + SSE web service backing the webview UI
+        ├── dynamic.ts           # @dynamic output parsing and diffing
+        ├── trace.ts             # (trace on)/--trace output parsing into a searchable node tree
+        ├── search.ts            # Full-text search over knot labels/responses
+        ├── syntax.ts            # Trace-panel source highlighting (reuses the Dialog language extension's grammar)
+        ├── persistence.ts       # Skein flat-file (.skein) persistence
+        ├── project.ts           # dialog.json project discovery and source expansion
+        ├── compile-error.ts     # DialogCompileError - a source compile failure on process startup
+        ├── progress.ts          # Seam over vscode.window.withProgress (keeps session/service vscode-free)
+        ├── io.ts                # Tag-line prompt detection (line vs. single-keystroke) and response parsing
+        └── ui/
+            ├── render.ts        # Main skein webview: navbar, transcript, command input
+            ├── tree-pane.ts     # Left-pane nav graph (the whole tree, not just the active spine)
+            ├── knot-menu.ts     # Per-knot actions popover, shared by both panes
+            ├── traceRender.ts   # Trace panel webview
+            ├── diff.ts          # Word-level diff between a knot's blessed/unblessed response
+            └── ansi.ts          # ANSI SGR -> styled HTML / visible diff markers
+media/js/
+├── main.js                      # Keyboard accelerators, modals, tree-graph drawing/drag-to-pan
+└── trace.js                     # Trace panel's own search/source-preview interactions
+```
+
+Each file's class/function-level responsibilities are covered in [Core Components](#core-components) below; this tree is the quick map from filename to what lives there.
+
+## Development Workflow
+
+```bash
+# Install dependencies
+npm install
+
+# Build the project (Tailwind CSS, then tsc)
+npm run build
+
+# Run tests
+npm test
+
+# Package as a .vsix, installable without the Marketplace
+npx vsce package
+```
+
+To run the extension itself, open the project in VS Code and press F5 to launch an Extension Development Host (see `.vscode/launch.json`).
+
+CI runs `npm run build` and `npm test` on every pull request (`.github/workflows/test.yml`). The test suite (Jest) mocks the interpreter process almost everywhere; the couple of spec files that spawn a real `dgdebug` (`dgdebug-integration.spec.ts`, `session-runner.spec.ts`) skip themselves automatically when it isn't installed, so no Dialog toolchain setup is needed to get a meaningful CI signal (verified: 675/681 pass with the toolchain fully hidden).
+
+Publishing to the Marketplace is `npx vsce publish` (or `publish patch`/`minor`), gated on a one-time `vsce login <publisher>` using an Azure DevOps PAT scoped to Marketplace: Manage.
 
 ## Core Components
 

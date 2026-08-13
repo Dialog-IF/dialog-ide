@@ -1,118 +1,144 @@
-# Dialog IDE with Skein Engine
+# Dialog IDE
 
-This project is a VS Code extension for Dialog interactive fiction development. Its core is the Skein engine: process management for the `dgdebug` interpreter, session orchestration, an immutable tree structure for command execution history, and a web service interface (Datastar/SSE) for UI rendering inside a webview panel.
+Dialog IDE is a VS Code extension for developing interactive fiction in the [Dialog](https://github.com/dialog-if/dialog) programming language. Its centerpiece is the **Skein**: an interactive, web-style panel for running, testing, and debugging your project without leaving the editor.
 
-See `technical-design.md` for the full design and `master-spec.md` for the product-level spec.
+> [!NOTE]
+> Not every work of IF is a "game", so the Dialog tooling generally says "project" instead.
 
-## Project Structure
+## What the Skein does
 
-```
-src/
-├── extension.ts                 # VS Code extension entry point
-├── session-runner.ts            # Pure logic behind run-configuration commands
-└── dialoged/
-    └── skein/
-        ├── process.ts           # Process management for the dgdebug interpreter
-        ├── session.ts           # Session orchestration - commands, navigation, bless/undo, trace, search
-        ├── tree.ts              # Immutable tree structure for execution history
-        ├── service.ts           # HTTP + SSE web service backing the webview UI
-        ├── dynamic.ts           # @dynamic output parsing and diffing
-        ├── trace.ts             # (trace on)/--trace output parsing into a searchable node tree
-        ├── search.ts            # Full-text search over knot labels/responses
-        ├── syntax.ts            # Trace-panel source highlighting (reuses the Dialog language extension's grammar)
-        ├── persistence.ts       # Skein flat-file (.skein) persistence
-        ├── project.ts           # dialog.json project discovery and source expansion
-        ├── compile-error.ts     # DialogCompileError - a source compile failure on process startup
-        ├── progress.ts          # Seam over vscode.window.withProgress (keeps session/service vscode-free)
-        ├── io.ts                # Tag-line prompt detection (line vs. single-keystroke) and response parsing
-        └── ui/
-            ├── render.ts        # Main skein webview: navbar, transcript, command input
-            ├── tree-pane.ts     # Left-pane nav graph (the whole tree, not just the active spine)
-            ├── knot-menu.ts     # Per-knot actions popover, shared by both panes
-            ├── traceRender.ts   # Trace panel webview
-            ├── diff.ts          # Word-level diff between a knot's blessed/unblessed response
-            └── ansi.ts          # ANSI SGR -> styled HTML / visible diff markers
-media/js/
-├── main.js                      # Keyboard accelerators, modals, tree-graph drawing/drag-to-pan
-└── trace.js                     # Trace panel's own search/source-preview interactions
-```
+At its simplest, the Skein is a live wrapper around Dialog's own debugger (`dgdebug`): you type player commands, and the project's responses come back into the panel. What makes it powerful is that it *remembers*. Every command and response you've ever tried is kept in an ever-growing tree, so you can:
 
-## Components
+- **Time travel** back to any earlier point and try a different command, without losing the path you already explored
+- **Bless** a response as correct, so you'll be warned if a later code change ever produces a different response
+- **Replay All** every path through your project in seconds, to confirm a change didn't break anything
+- **Trace** exactly which predicates fired for a given command, with clickable links to the source
+- Inspect the **dynamic state** (flags, relations, attributes) that changed as a result of a command
 
-1. **Process Management** (`process.ts`)
-   - `SkeinProcess` class for managing the interpreter process
-   - Command line argument construction for `dgdebug`, `frotz`, and `frotz-release` (only `dgdebug` is runnable end-to-end today - see Status)
+Each command/response pair is called a **knot**. Knots form a tree - the same command can appear at multiple points in the tree, each with its own knot, because the same input can mean something different depending on what came before.
 
-2. **Session Management** (`session.ts`)
-   - `SkeinSession` class: the whole session API - running commands, keyboard/click navigation of the spine and siblings, bless/undo/redo, Insert Parent, tracing, dynamic-state capture, search, seek-to-next-error/new knot
+## Requirements
 
-3. **Tree Structure** (`tree.ts`)
-   - `SkeinTree` class representing execution history as an immutable persistent tree
-   - `WireKnot`/`DerivedKnot` data structures for command/response pairs
-   - Tree navigation, blessing, and editing operations (delete, splice, insert parent, rename, label, lock)
+- The [Dialog toolchain](https://github.com/dialog-if/dialog) installed, with `dgdebug` on your `PATH` (or pointed at via `binDir` - see below)
+- A project folder containing a `dialog.json` file (see [Project Setup](#project-setup))
 
-4. **Web Service Interface** (`service.ts`)
-   - `SkeinService` class: plain `http` + SSE (no framework), one route per user action
-   - Also serves the separate Trace panel webview
+The companion [`dialog-language-support`](https://marketplace.visualstudio.com/items?itemName=sideburns3000.dialog-language-support) extension is installed automatically alongside Dialog IDE - it provides `.dg` syntax highlighting in the regular text editor. Dialog IDE itself doesn't touch source editing; it's all about running the project through the Skein.
 
-5. **Dynamic State Processing** (`dynamic.ts`)
-   - `DynamicProcessor` class for parsing dgdebug's `@dynamic` output into flags/vars
-   - State change diffing between two snapshots
+## Installing
 
-6. **Trace and Search** (`trace.ts`, `search.ts`)
-   - Parses dgdebug's trace output into a searchable, collapsible node tree shown in a dedicated Trace panel view
-   - Full-text search over knot labels and responses, surfaced in the transcript's search box
-
-7. **Persistence Layer** (`persistence.ts`)
-   - `PersistenceManager` for `.skein` file I/O
-   - Flat-file, VCS-diff-friendly format matching dialog-tool's real format (not JSON)
-
-8. **Input/Output Detection** (`io.ts`)
-   - `IoDetector` class implementing the tag-line prompt protocol (`--tag-lines` / `-r lt`)
-   - Buffers raw interpreter output and parses it into clean content, plus whether the next input is a normal line or a single keystroke
-
-9. **UI Layer** (`ui/`)
-   - Server-rendered HTML (template literals, no JSX/client framework) reactive via [Datastar](https://data-star.dev/)'s SSE-driven DOM patching
-   - Main transcript/nav-graph webview, a separate Trace panel webview, and the shared per-knot actions menu
-
-## Keyboard
-
-The skein is designed to be fully usable without a mouse: ⌥↑/↓/←/→ and ⌥⇧↑/↓ move through the spine and its siblings, ⌥B/⌥R/⌥A/⌥E/⌥L/⌥K/⌥D cover the common per-knot operations, ⌥T traces, ⌥X toggles a subtree, ⌥F focuses search, and ⌘S/⌘Z/⌘⇧Z/⌥⇧R/⌥⇧B cover save/undo/redo/replay-all/bless-transcript. See `media/js/main.js`'s own accelerator table for the full list.
-
-## Technical Specifications
-
-- **Language**: TypeScript (extension host + core engine), plain JavaScript (webview client scripts, no build step)
-- **Build System**: TypeScript compiler (`tsc`) + Tailwind CLI for `media/style.css`
-- **Runtime**: VS Code extension host (Node.js)
-- **File Format**: Flat-text `.skein` files, diff-friendly for version control
-- **Architecture**: A local HTTP + SSE service, driven entirely by plain `http`/Datastar - no web framework, no client-side bundler
-
-## Building and Testing
+Search for **Dialog IDE** in the VS Code Extensions view and install it, or install from the command line:
 
 ```bash
-# Install dependencies
-npm install
-
-# Build the project
-npm run build
-
-# Run tests
-npm test
-
-# Package as a .vsix, installable without the Marketplace
-npx vsce package
+code --install-extension hlship.dialog-ide
 ```
 
-To run the extension itself, open the project in VS Code and press F5 to launch an Extension Development Host.
+## Project Setup
 
-CI runs `npm run build` and `npm test` on every pull request (`.github/workflows/test.yml`). The test suite mocks the interpreter process almost everywhere; the couple of spec files that spawn a real `dgdebug` skip themselves automatically when it isn't installed, so no Dialog toolchain setup is needed to get a meaningful CI signal.
+Dialog IDE reads a `dialog.json` file at the root of your project (opened as a VS Code workspace folder):
+
+```json
+{
+  "name": "my-project",
+  "sources": {
+    "main": ["src"],
+    "debug": ["lib/dialog/debug"],
+    "library": ["lib/dialog"]
+  }
+}
+```
+
+- Each entry under `sources` is a list of directories (all `.dg` files in the directory) or individual file paths
+- `main` is always included; `debug` is pulled in for Skein/debug sessions; `library` (including the Dialog standard library) is always included
+- Order is very important: main comes before debug, which comes before library.
+
+The order of sources in a single directory is not guaranteed; if order counts, you should list the files in the directory
+in the order you need them to be.  Remember that Dialog searches for rules top to bottom, so you should have 
+exceptions first, before default rules.
+
+## Getting Started
+
+Open your project folder in VS Code, then use the Command Palette (⌘⇧P / Ctrl+Shift+P) for:
+
+| Command | Effect |
+|---|---|
+| **Dialog IDE: New Skein...** | Create a new `.skein` file (prompts for a random seed and file name) |
+| **Dialog IDE: Run Default Skein** | Run `default.skein` if one already exists |
+| **Dialog IDE: Run Skein...** | Pick from any existing `.skein` file in the project |
+| **Dialog IDE: Open Skein** | Reveal the Skein panel for whatever session is currently running |
+| **Dialog IDE: Save Skein** | Save the current session's tree back to its `.skein` file |
+| **Dialog IDE: Stop Skein** | Stop the running session |
+| **Dialog IDE: Debug in Terminal** | Open a plain, unmanaged `dgdebug` session in a VS Code terminal |
+
+A status bar item on the left also shows the current session (or lets you start the default one with a click).
+
+`.skein` files are plain text, designed to diff cleanly under version control - commit them alongside your source.
+
+## Using the Skein
+
+The Skein panel opens beside your editor, split into a **nav graph** (left) and a **transcript** (right), with a command field at the bottom.
+
+**Transcript.** Each knot shows a command and its response. The active knot (the one you're positioned at) has a blue left border. Others are colored by status:
+
+| Color | Meaning |
+|---|---|
+| Grey | Valid - matches the blessed response |
+| Yellow | New - no blessed response yet |
+| Red | In error - the latest response doesn't match what's blessed |
+
+New or errored knots are shown in a fixed-width font with visible whitespace, and word-level diffs (red for removed, blue for added) when a response has changed.
+
+**Nav graph.** The full tree of every knot you've ever explored, color-coded the same way (with faded tinting on ancestors that have a new/errored descendant, so you can spot trouble without expanding every branch). Click any knot to make it active; the transcript updates to show the path down to it. Clicking through a chain with only one child at each step auto-expands down to the next branch or leaf.
+
+**Blessing.** *Bless Knot* accepts that the active knot's response is correct; *Bless Transcript* blesses every knot visible in the transcript. Once blessed, a knot turns from new/error to valid.
+
+**Replaying.** *Replay* re-runs the project from the root through the active knot and checks each response against what's blessed - the fast way to confirm a source change did what you intended. *Replay All* does this for every leaf in the tree at once, so you know the *entire* skein still holds together, not just the path you happen to be looking at.
+
+**Time travel.** Click any earlier knot, then *New Child* to branch off with a different command from that point - nothing you already recorded is lost, it's just no longer on the displayed path.
+
+**Trace and Dynamic State** (dgdebug only). From a knot's action menu, *Trace...* (also ⌥T) shows which predicates were tried, in what order, and why, with clickable links into your source; *Dynamic State...* shows exactly what changed in the game world as a result of that command. A navbar toggle can also switch on an always-visible summary of dynamic state changes, which are displayed inline in the transcript (after each knot).
+
+## Keyboard shortcuts
+
+The Skein is designed to be fully usable without a mouse (all shortcuts below are Option/⌥ on Mac, Alt on Windows/Linux):
+
+| Shortcut | Action |
+|---|---|
+| ⌥↑ / ⌥↓ | Parent / child knot |
+| ⌥← / ⌥→ | Previous / next sibling |
+| ⌥⇧↑ / ⌥⇧↓ | First knot (root) / last knot (leaf) |
+| ⌥B / ⌥⇧B | Bless Knot / Bless Transcript |
+| ⌥R / ⌥⇧R | Replay to active knot / Replay All |
+| ⌥A | New Child (time travel) |
+| ⌥E | Edit Command |
+| ⌥L | Edit Label |
+| ⌥K | Toggle Lock |
+| ⌥D | Delete |
+| ⌥X | Toggle Expand (nav graph) |
+| ⌥T | Trace... |
+| ⌥F | Focus search |
+| ⌘S / ⌘Z / ⌘⇧Z | Save / Undo / Redo |
+
+Insert Parent and Splice Out are available from a knot's action menu but have no keyboard accelerator.
+
+Undo/redo is unlimited and covers structural edits (bless, delete, splice, running a new command); it doesn't re-run anything, so it's always instant.
+
+## Known limitations
+
+- Only the `dgdebug` engine is runnable today - `frotz`/`frotz-release` are offered as engine choices when creating a skein, but selecting either just explains they're not implemented yet
+- No "Reload from disk" action yet for picking up external changes to a `.skein` file
+- Dynamic state and tracing require `dgdebug`, and are unavailable for a command that ends on a single-keystroke prompt (the debugger can't be interrupted mid-keystroke to ask for either)
+
+## Future Improvements
+
+This is an early alpha release of the extension; we have many more features planned, including:
+
+- An outline view for dialog source files showing topics and rules
+- A warning when a dialog source is present in the project but not matched by an source category
+- A new project wizard
+- An export wizard to build a playable .zblorb file, or package the game for distribution
+
+Get involved at [Interactive Fiction Community Forum](https://intfiction.org/t/dialog-ide-0-0-1/81465/7) to provide feedback and ideas!
 
 ## License
 
-[Apache License 2.0](LICENSE).
-
-## Status
-
-The Skein engine is implemented end-to-end against the `dgdebug` engine: process management, session orchestration (including keyboard navigation, keystroke-input prompts, Insert Parent, and undo/redo), the transcript/nav-graph webview, a separate Trace panel, full-text search, and `.skein` file persistence are all implemented and unit-tested (also validated against a real `dgdebug` binary where available - see Testing).
-
-Known gaps: the `frotz`/`frotz-release` engines aren't runnable yet (only `dgdebug` is wired up at the session layer); there's no "Reload from disk" action; the extension isn't yet published to the VS Code Marketplace (a `.vsix` build works today - see Building and Testing).
+[Apache License 2.0](LICENSE)
