@@ -20,6 +20,14 @@ The codebase follows a clear separation of concerns:
 
 ## Development Commands and Workflows
 
+## Commits
+
+Do not commit with out confirming with the user.
+
+## Changelog
+
+When committing, ensure the changelog is up to date with the committed changes.
+
 ### Running the IDE
 Open the project in VS Code and press F5 to launch an Extension Development Host (see `.vscode/launch.json`).
 
