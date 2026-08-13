@@ -18,6 +18,7 @@ import {
   SkeinSession
 } from './dialoged/skein';
 import { DialogDocumentSymbolProvider } from './dialog-symbol-provider';
+import { DialogWorkspaceSymbolProvider } from './dialog-workspace-symbol-provider';
 import {
   DEFAULT_SESSION_ID,
   EngineChoice,
@@ -97,6 +98,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       { language: 'dialog' },
       new DialogDocumentSymbolProvider()
     )
+  );
+
+  const workspaceSymbolProvider = new DialogWorkspaceSymbolProvider(getWorkspaceRoot());
+  context.subscriptions.push(
+    workspaceSymbolProvider,
+    vscode.languages.registerWorkspaceSymbolProvider(workspaceSymbolProvider)
   );
 
   context.subscriptions.push(
