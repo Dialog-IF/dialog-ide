@@ -64,8 +64,12 @@ export function isValidSessionId(id: string): boolean {
  * A loaded tree already carries its own engine/seed (fixed at creation) - this just adds the
  * project root to make a full SessionConfig for SkeinSession.createLoaded.
  */
-export function sessionConfigFromTree(tree: SkeinTree, projectRoot: string): SessionConfig {
-  return { engine: tree.getEngine(), seed: tree.getSeed(), projectRoot };
+export function sessionConfigFromTree(
+  tree: SkeinTree,
+  projectRoot: string,
+  bundledBinDir?: string
+): SessionConfig {
+  return { engine: tree.getEngine(), seed: tree.getSeed(), projectRoot, bundledBinDir };
 }
 
 export async function listSkeinFiles(projectRoot: string): Promise<string[]> {
@@ -95,9 +99,9 @@ const execFileAsync = promisify(execFile);
  * before a response was received" - this preflight check gives a clear, actionable message
  * instead, checked before session.start() is attempted.
  */
-export async function isDgdebugAvailable(binDir?: string): Promise<boolean> {
+export async function isDgdebugAvailable(binDir?: string, bundledBinDir?: string): Promise<boolean> {
   try {
-    await execFileAsync(resolveCommandPath(binDir, 'dgdebug'), ['--version']);
+    await execFileAsync(resolveCommandPath(binDir, 'dgdebug', bundledBinDir), ['--version']);
     return true;
   } catch {
     return false;

@@ -1,0 +1,11 @@
+{
+  "tag": "release-1c02-1.2.3",
+  "sha256": {
+    "dialog-1c02-1.2.3.zip": "a12cd535d8db5c947fe2d6139536a2f2b3f57a538a7a6d283761c0eda6bf1d95"
+  },
+  "targets": {
+    "win32-x64": { "upstreamDir": "win32", "exeSuffix": ".exe" },
+    "darwin-arm64": { "upstreamDir": "macos-arm64", "exeSuffix": "" },
+    "linux-x64": { "upstreamDir": "linux-x86_64", "exeSuffix": "" }
+  }
+}

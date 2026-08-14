@@ -38,3 +38,66 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
+
+## `bin/` — bundled `dgdebug`/`dialogc` binaries
+
+Platform-specific builds of this extension (`win32-x64`, `darwin-arm64`, `linux-x64`) bundle the
+`dgdebug` and `dialogc` binaries under `bin/<target>/`. These are unmodified, prebuilt
+redistributions from the [Dialog-IF/dialog](https://github.com/Dialog-IF/dialog) project — a
+community-maintained fork of the Dialog interactive fiction language originally created by
+Linus Åkesson — taken from the release pinned in `scripts/dialog-toolchain-version.json`
+(currently `release-1c02-1.2.3`). They are staged at package time by
+`scripts/fetch-dialog-binaries.js` and are not bundled in the universal (no-target) package,
+which continues to rely on `PATH`/`dialog.json`'s `binDir` like every prior release of this
+extension.
+
+The upstream `license.txt` (2-clause-BSD-style, permitting binary redistribution with the
+copyright notice retained), reproduced verbatim:
+
+```
+Copyright 2018-2026 Linus Åkesson and the Dialog Project contributors
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+	1. Redistributions of source code must retain the above copyright
+	notice, this list of conditions and the following disclaimer.
+
+	2. Redistributions in binary form must reproduce the above copyright
+	notice, this list of conditions and the following disclaimer in the
+	documentation and/or other materials provided with the distribution.
+
+	THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS
+	IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED
+	TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A
+	PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+	HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+	SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+	LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+	DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+	THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+	(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+	OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+This license is intended to apply to the Dialog compiler and debugger and
+the source code of the standard libraries. Any time those components are
+distributed, this copyright notice should be attached. But it is not meant
+to limit what the compiler's output can be used for, even for projects that
+include the standard libraries. To make this explicit, the project is ALSO
+released under a modified two-clause BSD license, which is exactly the same
+as the above but adds this exception:
+
+	As an exception, if, as a result of you compiling your source code,
+	portions of this software are embedded into compiler output in binary
+	form, you may redistribute such embedded portions without complying
+	with condition 2 of the license.
+
+In other words, you can distribute the Z-machine and Å-machine bytecode that
+the compiler produces in any way you like, without needing to include this
+license file or comply with the attribution requirements (for the library
+or for the Z-machine runtime routines).
+```
+
+(The full upstream `license.txt` also covers the Windows GUI debugger's bundled Glk/WinGlk/libogg/
+libvorbis components — this extension does not bundle `dgdebug_gui.exe` or `Glk.dll`, only the
+console `dgdebug`/`dialogc` binaries covered by the BSD-style block above.)

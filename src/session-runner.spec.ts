@@ -1,5 +1,5 @@
 import * as path from 'path';
-import { SkeinTree } from './dialoged/skein';
+import { SkeinTree, resolveBundledBinDir } from './dialoged/skein';
 import {
   DEFAULT_SESSION_ID,
   ENGINE_CHOICES,
@@ -63,6 +63,16 @@ describe('sessionConfigFromTree', () => {
       engine: 'frotz-release',
       seed: 777,
       projectRoot: '/tmp/proj'
+    });
+  });
+
+  it('carries bundledBinDir through when given', () => {
+    const tree = SkeinTree.newTree('dgdebug', 42);
+    expect(sessionConfigFromTree(tree, '/tmp/proj', '/ext/bin/darwin-arm64')).toEqual({
+      engine: 'dgdebug',
+      seed: 42,
+      projectRoot: '/tmp/proj',
+      bundledBinDir: '/ext/bin/darwin-arm64'
     });
   });
 });
@@ -141,4 +151,19 @@ describe('isDgdebugAvailable', () => {
   (dgdebugOnPath ? it : it.skip)('is true when dgdebug is on PATH (no binDir given)', async () => {
     expect(await isDgdebugAvailable(undefined)).toBe(true);
   });
+
+  it('is false when neither binDir nor bundledBinDir could contain a real dgdebug binary', async () => {
+    expect(await isDgdebugAvailable(undefined, '/nonexistent/bundled-bin-dir')).toBe(false);
+  });
+
+  // Only meaningful once `npm run fetch-dialog-binaries -- --target <this platform-arch>` has
+  // staged bin/<platform>-<arch>/dgdebug locally (see scripts/fetch-dialog-binaries.js) - skips
+  // rather than fails when absent, same convention as dgdebugOnPath above.
+  const bundledBinDir = resolveBundledBinDir(path.join(__dirname, '..'));
+  (bundledBinDir ? it : it.skip)(
+    'is true when bundledBinDir contains a real dgdebug binary, with no binDir/PATH needed',
+    async () => {
+      expect(await isDgdebugAvailable(undefined, bundledBinDir)).toBe(true);
+    }
+  );
 });

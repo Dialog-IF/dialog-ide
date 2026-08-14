@@ -25,6 +25,7 @@ export interface ProcessConfig {
   sourceFiles?: string[];
   gamePath?: string;
   binDir?: string;
+  bundledBinDir?: string;
   debugFlags?: string[];
 }
 
@@ -171,7 +172,7 @@ export class SkeinProcess extends EventEmitter {
    * Build the command line for starting the interpreter
    */
   private buildCommand(): { command: string, args: string[] } {
-    const { engine, seed, gamePath, sourceFiles, binDir, debugFlags = [] } = this.config;
+    const { engine, seed, gamePath, sourceFiles, binDir, bundledBinDir, debugFlags = [] } = this.config;
 
     switch (engine) {
       case 'dgdebug': {
@@ -179,7 +180,7 @@ export class SkeinProcess extends EventEmitter {
           throw new Error('dgdebug requires sourceFiles (see project.ts\'s expandSources)');
         }
         return {
-          command: resolveCommandPath(binDir, 'dgdebug'),
+          command: resolveCommandPath(binDir, 'dgdebug', bundledBinDir),
           args: [
             '--numbered',
             '--seed', seed.toString(),
@@ -200,7 +201,7 @@ export class SkeinProcess extends EventEmitter {
           throw new Error(`${engine} requires gamePath`);
         }
         return {
-          command: resolveCommandPath(binDir, 'dfrotz'),
+          command: resolveCommandPath(binDir, 'dfrotz', bundledBinDir),
           args: [
             '-q', '-m', '-r', 'lt', '-f', 'normal',
             '-s', seed.toString(),

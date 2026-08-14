@@ -160,10 +160,30 @@ function filterByTarget(paths: string[], target: string | undefined): string[] {
 }
 
 /**
- * Resolves the command to launch a Dialog toolchain binary (dgdebug, dfrotz, dialogc) -
- * from the project's binDir if given, otherwise the bare command name, relying on PATH.
+ * Resolves the command to launch a Dialog toolchain binary (dgdebug, dfrotz, dialogc) - from
+ * the project's binDir if given, then bundledBinDir (this extension's own bundled copy, if one
+ * was packaged for the current platform/arch - see resolveBundledBinDir), otherwise the bare
+ * command name, relying on PATH.
  */
-export function resolveCommandPath(binDir: string | undefined, command: string): string {
+export function resolveCommandPath(
+  binDir: string | undefined,
+  command: string,
+  bundledBinDir?: string
+): string {
   const named = process.platform === 'win32' ? `${command}.exe` : command;
-  return binDir ? path.join(binDir, named) : named;
+  const dir = binDir ?? bundledBinDir;
+  return dir ? path.join(dir, named) : named;
+}
+
+/**
+ * The platform-specific bundled-binary directory inside this installed extension package
+ * (bin/<process.platform>-<process.arch>/), if this build was packaged for the current
+ * platform/arch (see scripts/fetch-dialog-binaries.js and package.json's per-target vsce
+ * packages) - undefined for the universal package or an unsupported platform/arch, in which
+ * case callers fall back to PATH.
+ */
+export function resolveBundledBinDir(extensionPath: string): string | undefined {
+  const dir = path.join(extensionPath, 'bin', `${process.platform}-${process.arch}`);
+  const named = process.platform === 'win32' ? 'dgdebug.exe' : 'dgdebug';
+  return fs.existsSync(path.join(dir, named)) ? dir : undefined;
 }

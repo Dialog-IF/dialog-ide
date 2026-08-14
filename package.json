@@ -113,7 +113,8 @@
     "watch:css": "tailwindcss -i styles/input.css -o media/style.css --watch",
     "watch": "tsc -w",
     "test": "jest",
-    "clean": "rm -rf dist"
+    "clean": "rm -rf dist",
+    "fetch-dialog-binaries": "node scripts/fetch-dialog-binaries.js"
   },
   "keywords": [
     "dialog",
@@ -138,6 +139,7 @@
     "dist/**/*",
     "media/**/*",
     "syntaxes/**/*",
+    "bin/**/*",
     "language-configuration.json",
     "README.md",
     "CHANGELOG.md",

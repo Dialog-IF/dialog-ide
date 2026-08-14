@@ -33,6 +33,15 @@ approved.
 - `package.json`'s `files` allowlist is an explicit, manually-maintained list (see CLAUDE.md's
   Packaging section) - a new static asset or dependency not added there silently won't ship. Worth
   a `vsce ls` sanity check before publishing, especially if this release touched that list.
+- This extension bundles the `dgdebug`/`dialogc` binaries for exactly three targets -
+  `win32-x64`, `darwin-arm64`, `linux-x64` - staged into the gitignored `bin/<target>/` by
+  `scripts/fetch-dialog-binaries.js` from the release pinned in
+  `scripts/dialog-toolchain-version.json`. Every other target, and the universal (no-`--target`)
+  package, ship with no bundled binary and keep relying on `PATH`/`dialog.json`'s `binDir` as
+  before - this means publishing is now **4 passes** (3 targeted + 1 universal), not 1, and each
+  targeted pass must re-run the fetch script for its own target immediately beforehand so the
+  `.vsix` only ever contains that platform's binaries (`vsce`'s `--target` flag does not filter
+  which files get packaged - it only tags the output's platform metadata).
 
 ## Steps
 
@@ -66,7 +75,10 @@ notes.
 - `npm run build` - must succeed cleanly.
 - `npx vsce ls` - eyeball the file list, especially if this release added any new static asset,
   dependency, or touched the `files` allowlist. This is the point to catch a missing entry before
-  it ships as a `Cannot find module` crash on activation.
+  it ships as a `Cannot find module` crash on activation. `vsce ls` has no `--target` flag - the
+  `files` allowlist is the same regardless of target, so a plain `vsce ls` is enough to confirm
+  `bin/**/*` is present once something is staged there (`node scripts/fetch-dialog-binaries.js
+  --target <any-target>` first if `bin/` is currently empty).
 
 If anything here fails, stop and fix it (or hand it back to the user) rather than proceeding past
 a red step.
@@ -93,26 +105,50 @@ git push origin main --follow-tags
 
 ### 6. Publish to the Marketplace
 
-**CONFIRM** before running - publishing is a one-way door: a version number, once published,
-can't be republished, only unpublished as a separate, heavier action.
+**CONFIRM once** before running the whole sequence below - publishing is a one-way door: a
+version number, once published, can't be republished, only unpublished as a separate, heavier
+action. Don't ask for a separate confirmation per target; this is one logical step.
 
 ```
-npx vsce publish
+for target in win32-x64 darwin-arm64 linux-x64; do
+  node scripts/fetch-dialog-binaries.js --target "$target"
+  npx vsce publish --target "$target"
+done
+node scripts/fetch-dialog-binaries.js --target none
+npx vsce publish --allow-unused-files-pattern
 ```
 
-No version argument - this ships whatever's currently in `package.json` as-is (see the facts
-above for why).
+No version argument on any of the four `vsce publish` calls - this ships whatever's currently in
+`package.json` as-is (see the facts above for why). The final call needs
+`--allow-unused-files-pattern` because `bin/` is empty for the universal package, which would
+otherwise make `vsce` error on the `bin/**/*` entry in `files` matching nothing.
 
 ### 7. GitHub Release (recommended, but skippable if the user doesn't want it)
 
 ```
-npx vsce package
-gh release create vX.Y.Z dialog-ide-X.Y.Z.vsix --title "vX.Y.Z" --notes "<the changelog bullets from step 2>"
-rm dialog-ide-X.Y.Z.vsix
+for target in win32-x64 darwin-arm64 linux-x64; do
+  node scripts/fetch-dialog-binaries.js --target "$target"
+  npx vsce package --target "$target"
+done
+node scripts/fetch-dialog-binaries.js --target none
+npx vsce package --allow-unused-files-pattern
+
+gh release create vX.Y.Z dialog-ide-X.Y.Z-win32-x64.vsix dialog-ide-X.Y.Z-darwin-arm64.vsix \
+  dialog-ide-X.Y.Z-linux-x64.vsix dialog-ide-X.Y.Z.vsix \
+  --title "vX.Y.Z" --notes "<the changelog bullets from step 2>"
+rm dialog-ide-X.Y.Z*.vsix
 ```
 
-Gives a changelog-anchored release page and a non-Marketplace `.vsix` download option. Clean up
-the local `.vsix` afterward - it's gitignored but there's no reason to leave it lying around.
+Gives a changelog-anchored release page and non-Marketplace `.vsix` download options (one per
+bundled target, plus the universal package). Clean up the local `.vsix` files afterward - they're
+gitignored but there's no reason to leave them lying around.
+
+**First time only** (this project has never shipped a `.vsix` with native executables before):
+install one of the freshly built targeted `.vsix` files in a clean VS Code profile with no Dialog
+toolchain on `PATH` and no `binDir` set, and run "New Skein..." once to confirm it actually
+launches using the bundled binary. Also budget extra time for this first bundled-binary publish -
+the Marketplace's malware/antivirus scanning may take longer over a package containing native
+executables than this project's past pure-JS/TS releases.
 
 ### 8. Open the next development cycle
 

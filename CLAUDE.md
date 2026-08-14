@@ -47,9 +47,11 @@ Jest. Nearly everything mocks `child_process` - the two exceptions (`dgdebug-int
 ```bash
 npx vsce package
 ```
-Produces a `.vsix` installable via `code --install-extension` or the Extensions view's "Install from VSIX...", without needing the Marketplace. `package.json`'s `"files"` array is an explicit allowlist (`dist/**/*`, `media/**/*`, `syntaxes/**/*`, `language-configuration.json`, `README.md`, `LICENSE`, `THIRD_PARTY_LICENSES.md`, plus each production dependency's `node_modules` path individually) - there's no bundler (no webpack/esbuild), so a new runtime dependency (or new static asset like the grammar) needs its own line there or it silently won't ship, producing a `Cannot find module` crash on activation on a machine without this repo's own `node_modules`.
+Produces a `.vsix` installable via `code --install-extension` or the Extensions view's "Install from VSIX...", without needing the Marketplace. `package.json`'s `"files"` array is an explicit allowlist (`dist/**/*`, `media/**/*`, `syntaxes/**/*`, `bin/**/*`, `language-configuration.json`, `README.md`, `LICENSE`, `THIRD_PARTY_LICENSES.md`, plus each production dependency's `node_modules` path individually) - there's no bundler (no webpack/esbuild), so a new runtime dependency (or new static asset like the grammar) needs its own line there or it silently won't ship, producing a `Cannot find module` crash on activation on a machine without this repo's own `node_modules`.
 
-Published to the VS Code Marketplace as `hlship.dialog-ide`. See the `release` skill (`.claude/skills/release/SKILL.md`) for the actual release/publish workflow.
+`win32-x64`/`darwin-arm64`/`linux-x64` builds also bundle the `dgdebug`/`dialogc` binaries under `bin/<target>/`, so those platforms work without a separately installed Dialog toolchain (see `resolveBundledBinDir`/`resolveCommandPath` in `project.ts`). `bin/` is gitignored and populated on demand by `scripts/fetch-dialog-binaries.js` from the upstream release pinned in `scripts/dialog-toolchain-version.json` - it's normal for `bin/` to be absent during ordinary local development (`npm test`/`npm run build` don't need it), and every other platform/target (including the universal no-target package) keeps relying on `PATH`/`dialog.json`'s `binDir` exactly as before. See `THIRD_PARTY_LICENSES.md` for the bundled binaries' upstream license.
+
+Published to the VS Code Marketplace as `hlship.dialog-ide`. See the `release-to-marketplace` skill (`.claude/skills/release-to-marketplace/SKILL.md`) for the actual release/publish workflow, including staging bundled binaries per target before publishing.
 
 ## Key Files
 

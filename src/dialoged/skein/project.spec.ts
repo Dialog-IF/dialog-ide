@@ -1,5 +1,14 @@
+import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
-import { readProject, expandSources, resolveCommandPath, isFileCoveredBySource, DialogProject } from './project';
+import {
+  readProject,
+  expandSources,
+  resolveCommandPath,
+  resolveBundledBinDir,
+  isFileCoveredBySource,
+  DialogProject
+} from './project';
 
 const FIXTURES_DIR = path.join(__dirname, '__fixtures__', 'project');
 const DGSAMPLE_DIR = path.join(FIXTURES_DIR, 'dgsample');
@@ -182,5 +191,62 @@ describe('resolveCommandPath', () => {
   it('appends .exe on Windows', () => {
     Object.defineProperty(process, 'platform', { value: 'win32' });
     expect(resolveCommandPath(undefined, 'dgdebug')).toBe('dgdebug.exe');
+  });
+
+  it('falls back to bundledBinDir when no binDir is given', () => {
+    Object.defineProperty(process, 'platform', { value: 'darwin' });
+    expect(resolveCommandPath(undefined, 'dgdebug', '/ext/bin/darwin-arm64')).toBe(
+      path.join('/ext/bin/darwin-arm64', 'dgdebug')
+    );
+  });
+
+  it('prefers binDir over bundledBinDir when both are given', () => {
+    Object.defineProperty(process, 'platform', { value: 'darwin' });
+    expect(resolveCommandPath('/opt/dialog/bin', 'dgdebug', '/ext/bin/darwin-arm64')).toBe(
+      path.join('/opt/dialog/bin', 'dgdebug')
+    );
+  });
+});
+
+describe('resolveBundledBinDir', () => {
+  const originalPlatform = process.platform;
+  const originalArch = process.arch;
+  let tempDir: string;
+
+  beforeEach(() => {
+    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dialog-ide-bundled-bin-'));
+  });
+
+  afterEach(() => {
+    Object.defineProperty(process, 'platform', { value: originalPlatform });
+    Object.defineProperty(process, 'arch', { value: originalArch });
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  it('returns the platform-arch subdir when a bundled dgdebug is present', () => {
+    Object.defineProperty(process, 'platform', { value: 'darwin' });
+    Object.defineProperty(process, 'arch', { value: 'arm64' });
+    const binDir = path.join(tempDir, 'bin', 'darwin-arm64');
+    fs.mkdirSync(binDir, { recursive: true });
+    fs.writeFileSync(path.join(binDir, 'dgdebug'), '');
+
+    expect(resolveBundledBinDir(tempDir)).toBe(binDir);
+  });
+
+  it('returns undefined when no bundled binary exists for this platform/arch', () => {
+    Object.defineProperty(process, 'platform', { value: 'darwin' });
+    Object.defineProperty(process, 'arch', { value: 'x64' });
+
+    expect(resolveBundledBinDir(tempDir)).toBeUndefined();
+  });
+
+  it('looks for dgdebug.exe on Windows', () => {
+    Object.defineProperty(process, 'platform', { value: 'win32' });
+    Object.defineProperty(process, 'arch', { value: 'x64' });
+    const binDir = path.join(tempDir, 'bin', 'win32-x64');
+    fs.mkdirSync(binDir, { recursive: true });
+    fs.writeFileSync(path.join(binDir, 'dgdebug.exe'), '');
+
+    expect(resolveBundledBinDir(tempDir)).toBe(binDir);
   });
 });

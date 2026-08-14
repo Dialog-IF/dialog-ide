@@ -19,7 +19,8 @@ Each command/response pair is called a **knot**. Knots form a tree - the same co
 
 ## Requirements
 
-- The [Dialog toolchain](https://github.com/dialog-if/dialog) installed, with `dgdebug` on your `PATH` (or pointed at via `binDir` - see below)
+- On Windows, Apple Silicon Macs, and Linux (x64): nothing extra - the Dialog toolchain (`dgdebug`) is bundled with the extension and just works.
+- On other platforms (Intel Macs, Linux ARM, etc.): install the [Dialog toolchain](https://github.com/dialog-if/dialog) yourself, with `dgdebug` on your `PATH`, or point `dialog.json`'s `binDir` at it (see [Project Setup](#project-setup))
 - A project folder containing a `dialog.json` file (see [Project Setup](#project-setup))
 
 `.dg` syntax highlighting, folding, and bracket/indentation support are built in, along with an Outline view (and breadcrumbs, ⌘⇧O / Ctrl+Shift+O) and workspace-wide "Go to Symbol" (⌘T / Ctrl+T) across every `.dg` file in the project. Dialog IDE itself doesn't otherwise touch source editing; it's all about running the project through the Skein.
@@ -60,6 +61,18 @@ in the order you need them to be.  Remember that Dialog searches for rules top t
 exceptions first, before default rules.
 
 If you create a `.dg` file that isn't covered by any of the categories above, Dialog IDE flags it - a dismissible notification plus a persistent Explorer badge, both with a one-click "Add to dialog.json" fix. Turn this off via the `dialog-ide.warnOnUncoveredSource` setting.
+
+If you need a specific `dgdebug` (e.g. a locally built one, or a platform Dialog IDE doesn't bundle a toolchain for - see [Requirements](#requirements)), add a `binDir` field pointing at the directory containing it:
+
+```json
+{
+  "name": "my-project",
+  "binDir": "/opt/dialog/bin",
+  "sources": { "main": ["src"] }
+}
+```
+
+`binDir` always takes priority, overriding both Dialog IDE's bundled toolchain and anything found on `PATH`.
 
 ## Getting Started
 

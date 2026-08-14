@@ -14,6 +14,7 @@ import {
   readProject,
   expandSources,
   isFileCoveredBySource,
+  resolveBundledBinDir,
   resolveCommandPath,
   SkeinService,
   SkeinSession
@@ -46,6 +47,13 @@ let activeSession: SkeinSession | undefined;
 let activeSessionId: string | undefined;
 let activeProjectRoot: string | undefined;
 
+// This extension's own bundled dgdebug/dialogc directory, if this particular installed package
+// was built for the current platform/arch (see scripts/fetch-dialog-binaries.js) - undefined for
+// the universal package or an unsupported platform/arch. Computed once in activate() from
+// context.extensionPath, which is fixed for the lifetime of the extension host. A dialog.json
+// binDir always takes priority over this - see resolveCommandPath's precedence.
+let bundledBinDir: string | undefined;
+
 // Set once deactivate() starts. By the time it runs, VS Code has already begun tearing down this
 // extension's UI contributions (statusBarItem included, despite it being disposed via
 // context.subscriptions rather than here) - touching them past that point throws "Trying to add a
@@ -66,6 +74,8 @@ function clearCompileErrorDiagnostics(): void {
 }
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
+  bundledBinDir = resolveBundledBinDir(context.extensionPath);
+
   compileErrorDiagnostics = vscode.languages.createDiagnosticCollection('dialog-compile-error');
   context.subscriptions.push(compileErrorDiagnostics);
 
@@ -245,15 +255,19 @@ async function runLoadedSession(projectRoot: string, sessionId: string): Promise
   }
 
   const project = readProject(projectRoot);
-  if (!(await isDgdebugAvailable(project.binDir))) {
+  if (!(await isDgdebugAvailable(project.binDir, bundledBinDir))) {
     throw new Error(
-      'dgdebug was not found on PATH (or in binDir). Install the Dialog toolchain or set "binDir" in dialog.json.'
+      'dgdebug was not found on PATH, in binDir, or bundled with this extension. Install the Dialog toolchain or set "binDir" in dialog.json.'
     );
   }
 
   const manager = new PersistenceManager(projectRoot);
   const tree = await manager.loadSession(sessionId);
-  const session = SkeinSession.createLoaded(tree, sessionConfigFromTree(tree, projectRoot), skeinService);
+  const session = SkeinSession.createLoaded(
+    tree,
+    sessionConfigFromTree(tree, projectRoot, bundledBinDir),
+    skeinService
+  );
   if (!(await runSessionStep(() => session.start()))) {
     return;
   }
@@ -331,13 +345,16 @@ async function newSkeinSession(projectRoot: string): Promise<void> {
   }
 
   const project = readProject(projectRoot);
-  if (!(await isDgdebugAvailable(project.binDir))) {
+  if (!(await isDgdebugAvailable(project.binDir, bundledBinDir))) {
     throw new Error(
-      'dgdebug was not found on PATH (or in binDir). Install the Dialog toolchain or set "binDir" in dialog.json.'
+      'dgdebug was not found on PATH, in binDir, or bundled with this extension. Install the Dialog toolchain or set "binDir" in dialog.json.'
     );
   }
 
-  const session = SkeinSession.createNew({ engine: engineChoice.engine, seed, projectRoot }, skeinService);
+  const session = SkeinSession.createNew(
+    { engine: engineChoice.engine, seed, projectRoot, bundledBinDir },
+    skeinService
+  );
   if (!(await runSessionStep(() => session.start()))) {
     return;
   }
@@ -402,16 +419,16 @@ async function saveActiveSession(): Promise<void> {
  */
 async function debugInTerminal(projectRoot: string): Promise<void> {
   const project = readProject(projectRoot);
-  if (!(await isDgdebugAvailable(project.binDir))) {
+  if (!(await isDgdebugAvailable(project.binDir, bundledBinDir))) {
     throw new Error(
-      'dgdebug was not found on PATH (or in binDir). Install the Dialog toolchain or set "binDir" in dialog.json.'
+      'dgdebug was not found on PATH, in binDir, or bundled with this extension. Install the Dialog toolchain or set "binDir" in dialog.json.'
     );
   }
 
   const sourceFiles = expandSources(project, { debug: true, target: 'dgdebug' });
   const terminal = vscode.window.createTerminal({
     name: 'Dialog Debugger',
-    shellPath: resolveCommandPath(project.binDir, 'dgdebug'),
+    shellPath: resolveCommandPath(project.binDir, 'dgdebug', bundledBinDir),
     shellArgs: debugTerminalShellArgs(sourceFiles)
   });
   terminal.show();

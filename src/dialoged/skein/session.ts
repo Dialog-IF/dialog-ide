@@ -103,6 +103,7 @@ export interface SessionConfig {
   engine: EngineType;
   seed: number;
   projectRoot: string;
+  bundledBinDir?: string;
 }
 
 /**
@@ -294,7 +295,7 @@ export class SkeinSession {
    * Process Management section for the dfrotz/frotz-release compile-time distinction).
    */
   private buildProcessConfig(debugFlags?: string[]): ProcessConfig {
-    const { engine, seed, projectRoot } = this.config;
+    const { engine, seed, projectRoot, bundledBinDir } = this.config;
 
     if (engine !== 'dgdebug') {
       throw new Error(`${engine} is not yet supported - compiling a game file isn't implemented`);
@@ -303,7 +304,7 @@ export class SkeinSession {
     const project = readProject(projectRoot);
     const sourceFiles = expandSources(project, { debug: true, target: DGDEBUG_TARGET_FILTER });
 
-    return { engine, seed, sourceFiles, binDir: project.binDir, debugFlags };
+    return { engine, seed, sourceFiles, binDir: project.binDir, bundledBinDir, debugFlags };
   }
 
   /**

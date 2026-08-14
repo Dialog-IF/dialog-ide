@@ -2,6 +2,8 @@
 
 ## 0.1.0 - Unreleased
 
+- Bundle the Dialog toolchain (`dgdebug`/`dialogc`) with the extension on Windows, Apple Silicon Macs, and Linux (x64), so most users no longer need to install it separately; other platforms still resolve via `PATH` or `dialog.json`'s `binDir`, which always takes priority
+
 ## 0.0.2 - 13 Aug 2026
 
 - Rewrote `README.md` for end users (Dialog authors), covering the Skein workflow, keyboard shortcuts, and project setup
