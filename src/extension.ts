@@ -29,11 +29,13 @@ import { DialogSourceDecorationProvider } from './dialog-source-decoration-provi
 import { addSourceToDialogJson, toDialogJsonPath, SOURCE_CATEGORIES } from './dialog-source-coverage';
 import { scaffoldProject } from './dialog-project-init';
 import { addExportConfig, defaultOutputPath, removeExportConfig, runDialogcExport } from './dialog-export';
+import { bundleWebExport, WebExportPaths } from './dialog-web-export';
 import {
   DEFAULT_SESSION_ID,
   EngineChoice,
   ENGINE_CHOICES,
   debugTerminalShellArgs,
+  isAambundleAvailable,
   isDgdebugAvailable,
   isDialogcAvailable,
   isValidSessionId,
@@ -206,7 +208,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     ),
     vscode.commands.registerCommand(
       'dialog-ide.initProject',
-      withErrorHandling(() => initDialogProject(resolveProjectRoot(getWorkspaceRoot()), bundledLibraryDir))
+      withErrorHandling(() =>
+        initDialogProject(
+          resolveProjectRoot(getWorkspaceRoot()),
+          bundledLibraryDir,
+          path.join(context.extensionPath, 'resources', 'bundle', 'default-cover.png')
+        )
+      )
     ),
     vscode.commands.registerCommand(
       'dialog-ide.configureExports',
@@ -215,6 +223,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand(
       'dialog-ide.exportProject',
       withErrorHandling(() => exportDialogProject(resolveProjectRoot(getWorkspaceRoot())))
+    ),
+    vscode.commands.registerCommand(
+      'dialog-ide.exportWebPage',
+      withErrorHandling(() =>
+        exportWebPage(
+          resolveProjectRoot(getWorkspaceRoot()),
+          path.join(context.extensionPath, 'resources', 'bundle')
+        )
+      )
     )
   );
 
@@ -529,7 +546,11 @@ async function addSourceToProject(projectRoot: string, filePath: string | undefi
  * workspace folder (see dialog-project-init.ts's scaffoldProject for the actual file layout).
  * Requires an already-open folder, same as every other dialog-ide command - no folder picker.
  */
-async function initDialogProject(projectRoot: string, libraryDir: string | undefined): Promise<void> {
+async function initDialogProject(
+  projectRoot: string,
+  libraryDir: string | undefined,
+  coverImageSource: string
+): Promise<void> {
   const name = await vscode.window.showInputBox({
     prompt: 'Dialog project name',
     value: path.basename(projectRoot),
@@ -547,7 +568,12 @@ async function initDialogProject(projectRoot: string, libraryDir: string | undef
     return;
   }
 
-  scaffoldProject(projectRoot, { name: name.trim(), targets: targetPicks.map((pick) => pick.label) }, libraryDir);
+  scaffoldProject(
+    projectRoot,
+    { name: name.trim(), targets: targetPicks.map((pick) => pick.label) },
+    libraryDir,
+    coverImageSource
+  );
 
   const storyDgPath = path.join(projectRoot, 'main', 'story.dg');
   await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(storyDgPath));
@@ -695,6 +721,57 @@ async function exportDialogProject(projectRoot: string): Promise<void> {
   } else {
     const location = result.filePath && result.line ? ` (${result.filePath}, line ${result.line})` : '';
     vscode.window.showErrorMessage(`Export failed${location}: ${result.message}`);
+  }
+}
+
+/**
+ * "Export Web Page..." - produces a downloadable web page (out/web/, plus a zip) with the
+ * story's download links, an AAmachine in-browser player, and the two vendored "how to play IF"
+ * PDFs (see dialog-web-export.ts's bundleWebExport for the actual pipeline). Unlike
+ * "Export Dialog Project...", this isn't one of dialog.json's named export configurations - it
+ * always builds every one of the project's own targets plus "aa", with no per-run configuration.
+ */
+async function exportWebPage(projectRoot: string, assetsDir: string): Promise<void> {
+  const project = readProject(projectRoot);
+
+  const [dialogcOk, dgdebugOk, aambundleOk] = await Promise.all([
+    isDialogcAvailable(project.binDir, bundledBinDir),
+    isDgdebugAvailable(project.binDir, bundledBinDir),
+    isAambundleAvailable(project.binDir, bundledBinDir)
+  ]);
+  const missing = [
+    !dialogcOk && 'dialogc',
+    !dgdebugOk && 'dgdebug',
+    !aambundleOk && 'aambundle'
+  ].filter((name): name is string => Boolean(name));
+  if (missing.length > 0) {
+    throw new Error(
+      `${missing.join(', ')} not found on PATH, in binDir, or bundled with this extension. Install the Dialog toolchain (and AAmachine, for aambundle) or set "binDir" in dialog.json.`
+    );
+  }
+
+  const paths: WebExportPaths = {
+    dialogcPath: resolveCommandPath(project.binDir, 'dialogc', bundledBinDir),
+    aambundlePath: resolveCommandPath(project.binDir, 'aambundle', bundledBinDir),
+    binDir: project.binDir,
+    bundledBinDir
+  };
+
+  const result = await vscode.window.withProgress(
+    { location: vscode.ProgressLocation.Notification, title: `Exporting "${project.name}" as a web page...` },
+    () => bundleWebExport(project, paths, assetsDir)
+  );
+
+  if (result.ok === true) {
+    const choice = await vscode.window.showInformationMessage(
+      `Exported "${project.name}" to ${result.zipPath}.`,
+      'Reveal in Explorer'
+    );
+    if (choice === 'Reveal in Explorer') {
+      vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(result.zipPath));
+    }
+  } else {
+    vscode.window.showErrorMessage(`Web page export failed (${result.step}): ${result.message}`);
   }
 }
 

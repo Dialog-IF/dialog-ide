@@ -118,6 +118,16 @@ export async function isDialogcAvailable(binDir?: string, bundledBinDir?: string
   }
 }
 
+/** Same preflight as isDialogcAvailable, for aambundle ahead of "Export Web Page...". */
+export async function isAambundleAvailable(binDir?: string, bundledBinDir?: string): Promise<boolean> {
+  try {
+    await execFileAsync(resolveCommandPath(binDir, 'aambundle', bundledBinDir), ['--version']);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Args for launching dgdebug as a genuinely interactive terminal session - matching
  * dialog-tool's own `dgt debug` command exactly: just --quit (exit the debugger when the

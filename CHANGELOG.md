@@ -2,9 +2,10 @@
 
 ## 0.1.0 - Unreleased
 
-- Bundle the Dialog toolchain (`dgdebug`/`dialogc`) with the extension on Windows, Apple Silicon Macs, and Linux (x64), so most users no longer need to install it separately; other platforms still resolve via `PATH` or `dialog.json`'s `binDir`, which always takes priority
-- "Initialize Dialog Project" command: scaffolds `dialog.json`, `main`/`lib`/`debug`/`test` directories, a starter `main/main.dg`, and bundled copies of the standard libraries (`stdlib.dg`/`stddebug.dg`/`unit.dg`) into an open, empty workspace folder
-- "Configure Exports..." and "Export Dialog Project..." commands: define named export configurations (output format, whether to include debug sources, output path) in `dialog.json`, then compile a `.zblorb`/`.z8`/`.aa` game file via `dialogc`
+- Bundle the Dialog toolchain (`dgdebug`/`dialogc`) and AAmachine (`aambundle`) with the extension on Windows, Apple Silicon Macs, and Linux (x64), so most users no longer need to install either separately; other platforms still resolve via `PATH` or `dialog.json`'s `binDir`, which always takes priority
+- "Initialize Dialog Project" command: scaffolds `dialog.json`, `main`/`lib`/`debug`/`test` directories, a starter `main/main.dg`, bundled copies of the standard libraries (`stdlib.dg`/`stddebug.dg`/`unit.dg`), and a placeholder `cover.png` into an open, empty workspace folder
+- "Configure Exports..." and "Export Dialog Project..." commands: define named export configurations (output format, whether to include debug sources, output path) in `dialog.json`, then compile a `.zblorb`/`.z8`/`.aa` game file via `dialogc`; a `zblorb` export bakes in the project's `cover.png`, if present
+- "Export Web Page..." command: builds every one of the project's targets plus an AAmachine in-browser player, and assembles a downloadable web page (cover thumbnail, story file downloads, two "how to play IF" PDFs, an optional walkthrough from `default.skein`) into `out/web/` plus a zip
 
 ## 0.0.2 - 13 Aug 2026
 

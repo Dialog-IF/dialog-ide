@@ -28,6 +28,18 @@ type Segment = { type: 'text'; value: string } | { type: 'sgr'; params: number[]
 // eslint-disable-next-line no-control-regex
 const SGR_PATTERN = /\x1b\[([0-9;]*)m/g;
 
+// eslint-disable-next-line no-control-regex
+const SGR_STRIP_PATTERN = /\x1b\[[0-9;]*m/g;
+
+/**
+ * Removes ANSI SGR escape codes entirely, leaving plain text - for contexts (dynamic.ts's
+ * @dynamic parsing, dialog-web-export.ts's walkthrough extraction) that want the raw text with no
+ * styling at all, unlike ansiToHtml/ansiToMarkers which preserve the styling in another form.
+ */
+export function stripAnsi(text: string): string {
+  return text.replace(SGR_STRIP_PATTERN, '');
+}
+
 const COLOR_NAMES: Record<number, string> = {
   30: 'black',
   31: 'red',

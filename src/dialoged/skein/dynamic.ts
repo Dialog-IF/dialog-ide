@@ -5,6 +5,8 @@
  * see dynamic.spec.ts).
  */
 
+import { stripAnsi } from './ui/ansi';
+
 /**
  * The result of parsing @dynamic output.
  * - flags: predicates (global and per-object, with object names substituted for "$") that
@@ -28,7 +30,6 @@ export interface DynamicChanges {
   changed: Set<[string, string]>;
 }
 
-const ANSI_RE = /\x1b\[[0-9;]*m/g;
 const SECTION_HEADER_RE = /^[A-Z \-]+$/;
 const FACT_VALUE_RE = /^(\(.+\))\s+(.*)$/;
 const OBJECT_VALUE_RE = /^(\S+)\s+(.+)$/;
@@ -36,10 +37,6 @@ const OBJECT_VALUE_RE = /^(\S+)\s+(.+)$/;
 const PARENT_PATTERN = '($ has parent $)';
 const RELATION_PATTERN = '($ has relation $)';
 const LOCATION_PATTERN = '($ is $ $)';
-
-function stripAnsi(s: string): string {
-  return s.replace(ANSI_RE, '');
-}
 
 /**
  * A line ends a run of per-object flag/var values when it's missing (end of input), blank,

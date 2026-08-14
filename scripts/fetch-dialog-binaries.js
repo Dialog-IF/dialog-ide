@@ -1,11 +1,15 @@
 #!/usr/bin/env node
 /**
- * Downloads the pinned Dialog-IF/dialog release and stages its prebuilt dgdebug/dialogc
- * binaries into bin/<vsce-target>/ for packaging, plus its stdlib.dg/stddebug.dg/unit.dg
- * standard library sources into bin/dialog-lib/ (platform-independent, staged for every target
- * including "none" - see stageLibrary). Run manually before a targeted `vsce package`/
- * `vsce publish` pass - see the release-to-marketplace skill. Never run as part of
- * `npm test`/`npm run build` or CI.
+ * Downloads the pinned Dialog-IF/dialog and Dialog-IF/aamachine releases and stages their
+ * prebuilt dgdebug/dialogc/aambundle binaries into bin/<vsce-target>/ for packaging, plus
+ * dialog's stdlib.dg/stddebug.dg/unit.dg standard library sources into bin/dialog-lib/
+ * (platform-independent, staged for every target including "none" - see stageLibrary). Run
+ * manually before a targeted `vsce package`/`vsce publish` pass - see the
+ * release-to-marketplace skill. Never run as part of `npm test`/`npm run build` or CI.
+ *
+ * Only `aambundle` is staged from the aamachine release, not `aamrun`/`aamshow` - those are
+ * large (tens of MB) local-playback tools unrelated to "Export Web Page..."'s use of aambundle
+ * to produce the AAmachine web player bundle.
  *
  * Usage: node scripts/fetch-dialog-binaries.js --target <win32-x64|darwin-arm64|linux-x64|all|none>
  */
@@ -32,7 +36,7 @@ function parseArgs() {
   return args[idx + 1];
 }
 
-function loadVersion() {
+function loadVersions() {
   return JSON.parse(fs.readFileSync(VERSION_FILE, 'utf8'));
 }
 
@@ -65,12 +69,15 @@ function sha256(filePath) {
 }
 
 /**
- * Returns the cached-and-verified `prebuilt/` dir for the pinned release, downloading and
- * extracting it first if this is the first invocation for this tag.
+ * Returns the cached-and-verified `prebuilt/` dir for a pinned release, downloading and
+ * extracting it first if this is the first invocation for this tag. `repo` is the GitHub
+ * "owner/name" to download from; `zipPrefix` is the artifact's filename prefix (e.g. "dialog" ->
+ * "dialog-1c02-1.2.3.zip", "aamachine" -> "aamachine-1.0.1.zip" - both releases follow the same
+ * "<prefix>-<tag-without-'release-'-prefix>.zip" naming convention).
  */
-async function ensureExtracted(version) {
-  const zipName = `dialog-${version.tag.replace(/^release-/, '')}.zip`;
-  const releaseCacheDir = path.join(CACHE_DIR, version.tag);
+async function ensureExtracted(repo, zipPrefix, release) {
+  const zipName = `${zipPrefix}-${release.tag.replace(/^release-/, '')}.zip`;
+  const releaseCacheDir = path.join(CACHE_DIR, repo, release.tag);
   const extractedDir = path.join(releaseCacheDir, zipName.replace(/\.zip$/, ''));
   const prebuiltDir = path.join(extractedDir, 'prebuilt');
 
@@ -82,12 +89,12 @@ async function ensureExtracted(version) {
   const zipPath = path.join(releaseCacheDir, zipName);
 
   if (!fs.existsSync(zipPath)) {
-    const url = `https://github.com/Dialog-IF/dialog/releases/download/${version.tag}/${zipName}`;
+    const url = `https://github.com/${repo}/releases/download/${release.tag}/${zipName}`;
     console.log(`Downloading ${url}`);
     await download(url, zipPath);
   }
 
-  const expectedSha = version.sha256[zipName];
+  const expectedSha = release.sha256[zipName];
   if (!expectedSha) {
     throw new Error(`No pinned sha256 for ${zipName} in ${VERSION_FILE}`);
   }
@@ -109,12 +116,19 @@ async function ensureExtracted(version) {
   return prebuiltDir;
 }
 
-function stageTarget(prebuiltDir, targetName, targetConfig) {
+/**
+ * Copies `commands` (each a bare command name, no exe suffix) from prebuiltDir/targetConfig's
+ * upstream subdirectory into bin/<targetName>/, alongside whatever's already staged there -
+ * called once for dialog's {dgdebug,dialogc} and again for aamachine's {aambundle}, both landing
+ * in the same per-target directory so resolveBundledBinDir/resolveCommandPath (project.ts) see
+ * one merged toolchain directory.
+ */
+function stageCommands(prebuiltDir, targetName, targetConfig, commands) {
   const src = path.join(prebuiltDir, targetConfig.upstreamDir);
   const dest = path.join(BIN_DIR, targetName);
   fs.mkdirSync(dest, { recursive: true });
 
-  for (const command of ['dgdebug', 'dialogc']) {
+  for (const command of commands) {
     const name = `${command}${targetConfig.exeSuffix}`;
     const srcPath = path.join(src, name);
     const destPath = path.join(dest, name);
@@ -127,7 +141,7 @@ function stageTarget(prebuiltDir, targetName, targetConfig) {
       fs.chmodSync(destPath, 0o755);
     }
   }
-  console.log(`Staged bin/${targetName}/{dgdebug,dialogc}${targetConfig.exeSuffix}`);
+  console.log(`Staged bin/${targetName}/{${commands.join(',')}}${targetConfig.exeSuffix}`);
 }
 
 const LIBRARY_FILES = ['stdlib.dg', 'stddebug.dg', 'unit.dg'];
@@ -153,35 +167,45 @@ function stageLibrary(extractedDir) {
   console.log(`Staged bin/dialog-lib/{${LIBRARY_FILES.join(',')}}`);
 }
 
+async function stageTarget(targetName, dialogPrebuiltDir, dialogTargets, aamachinePrebuiltDir, aamachineTargets) {
+  const dialogConfig = dialogTargets[targetName];
+  if (!dialogConfig) {
+    throw new Error(`Unknown target "${targetName}" - expected one of: ${Object.keys(dialogTargets).join(', ')}, all, none`);
+  }
+  stageCommands(dialogPrebuiltDir, targetName, dialogConfig, ['dgdebug', 'dialogc']);
+
+  const aamachineConfig = aamachineTargets[targetName];
+  if (!aamachineConfig) {
+    throw new Error(`No aamachine target mapping for "${targetName}" in ${VERSION_FILE}`);
+  }
+  stageCommands(aamachinePrebuiltDir, targetName, aamachineConfig, ['aambundle']);
+}
+
 async function main() {
   const target = parseArgs();
-  const version = loadVersion();
+  const versions = loadVersions();
 
   fs.rmSync(BIN_DIR, { recursive: true, force: true });
 
-  const prebuiltDir = await ensureExtracted(version);
-  const extractedDir = path.dirname(prebuiltDir);
-  stageLibrary(extractedDir);
+  const dialogPrebuiltDir = await ensureExtracted('Dialog-IF/dialog', 'dialog', versions.dialog);
+  const dialogExtractedDir = path.dirname(dialogPrebuiltDir);
+  stageLibrary(dialogExtractedDir);
 
   if (target === 'none') {
     console.log('Cleared bin/ (no bundled platform binaries staged)');
     return;
   }
 
+  const aamachinePrebuiltDir = await ensureExtracted('Dialog-IF/aamachine', 'aamachine', versions.aamachine);
+
   if (target === 'all') {
-    for (const [name, config] of Object.entries(version.targets)) {
-      stageTarget(prebuiltDir, name, config);
+    for (const name of Object.keys(versions.dialog.targets)) {
+      await stageTarget(name, dialogPrebuiltDir, versions.dialog.targets, aamachinePrebuiltDir, versions.aamachine.targets);
     }
     return;
   }
 
-  const config = version.targets[target];
-  if (!config) {
-    throw new Error(
-      `Unknown target "${target}" - expected one of: ${Object.keys(version.targets).join(', ')}, all, none`
-    );
-  }
-  stageTarget(prebuiltDir, target, config);
+  await stageTarget(target, dialogPrebuiltDir, versions.dialog.targets, aamachinePrebuiltDir, versions.aamachine.targets);
 }
 
 main().catch((error) => {

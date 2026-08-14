@@ -87,6 +87,10 @@
       {
         "command": "dialog-ide.exportProject",
         "title": "Dialog IDE: Export Dialog Project..."
+      },
+      {
+        "command": "dialog-ide.exportWebPage",
+        "title": "Dialog IDE: Export Web Page..."
       }
     ],
     "configuration": {
@@ -140,7 +144,9 @@
     "@tailwindcss/cli": "^4.3.3",
     "@types/jest": "^30.0.0",
     "@types/node": "^20.0.0",
+    "@types/pngjs": "^6.0.5",
     "@types/vscode": "^1.85.0",
+    "@types/yazl": "^3.3.1",
     "@vscode/vsce": "^3.9.2",
     "daisyui": "^5.7.16",
     "jest": "^30.4.2",
@@ -151,6 +157,7 @@
     "dist/**/*",
     "media/**/*",
     "syntaxes/**/*",
+    "resources/**/*",
     "bin/**/*",
     "language-configuration.json",
     "README.md",
@@ -161,13 +168,18 @@
     "node_modules/immutable/**/*",
     "node_modules/jsonc-parser/**/*",
     "node_modules/vscode-oniguruma/**/*",
-    "node_modules/vscode-textmate/**/*"
+    "node_modules/vscode-textmate/**/*",
+    "node_modules/pngjs/**/*",
+    "node_modules/yazl/**/*",
+    "node_modules/buffer-crc32/**/*"
   ],
   "dependencies": {
     "diff": "^9.0.0",
     "immutable": "^5.1.9",
     "jsonc-parser": "^3.3.1",
+    "pngjs": "^7.0.0",
     "vscode-oniguruma": "^2.0.1",
-    "vscode-textmate": "^9.3.2"
+    "vscode-textmate": "^9.3.2",
+    "yazl": "^3.3.1"
   }
 }

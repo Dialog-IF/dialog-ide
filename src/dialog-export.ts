@@ -58,14 +58,37 @@ export function defaultOutputPath(config: { name: string; format: string }): str
 }
 
 /**
+ * The project's cover image, if one exists - dialog-ide follows dialog-tool's own hardcoded
+ * convention (no dialog.json field for this) of a plain "cover.png" at the project root, seeded
+ * by "Initialize Dialog Project" (see dialog-project-init.ts). Used both to bake a cover into a
+ * zblorb export (buildDialogcArgs, below) and as the source image for "Export Web Page..."'s
+ * resized thumbnail.
+ */
+export function resolveCoverImage(rootDir: string): string | null {
+  const coverPath = path.join(rootDir, 'cover.png');
+  return fs.existsSync(coverPath) ? coverPath : null;
+}
+
+/**
  * Builds dialogc's argv for `config`: -t/-o plus the project's expanded source files, reusing
  * expandSources' existing debug-inclusion and target-suffix filtering unchanged (a
  * "main.zblorb.dg"-style suffixed file is included/excluded exactly like it is for a dgdebug run).
+ * For a zblorb export, also bakes in the project's cover.png (if one exists) via dialogc's
+ * --cover/--cover-alt flags - matching dialog-tool's dialog.edn template
+ * (["--cover" "cover.png" "--cover-alt" "{{project-name}}"]). --cover is zblorb-specific (a Blorb
+ * resource), so it's only added for that format.
  */
 export function buildDialogcArgs(project: DialogProject, config: ExportConfig): string[] {
   const outputPath = path.isAbsolute(config.output) ? config.output : path.join(project.rootDir, config.output);
   const sourceFiles = expandSources(project, { debug: config.includeDebug, target: config.format });
-  return ['-t', config.format, '-o', outputPath, ...sourceFiles];
+  const coverArgs: string[] = [];
+  if (config.format === 'zblorb') {
+    const coverImage = resolveCoverImage(project.rootDir);
+    if (coverImage) {
+      coverArgs.push('--cover', coverImage, '--cover-alt', project.name);
+    }
+  }
+  return ['-t', config.format, '-o', outputPath, ...coverArgs, ...sourceFiles];
 }
 
 export type ExportResult =

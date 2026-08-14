@@ -101,6 +101,30 @@ describe('scaffoldProject', () => {
     );
   });
 
+  describe('cover image seeding', () => {
+    let coverSource: string;
+
+    beforeEach(() => {
+      coverSource = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'dialog-ide-init-cover-')), 'default-cover.png');
+      fs.writeFileSync(coverSource, 'not really a png');
+    });
+
+    it('copies coverImageSource to cover.png when given and it exists', () => {
+      scaffoldProject(rootDir, { name: 'The Orb', targets: ['zblorb'] }, libraryDir, coverSource);
+      expect(fs.readFileSync(path.join(rootDir, 'cover.png'), 'utf8')).toBe('not really a png');
+    });
+
+    it('writes no cover.png when coverImageSource is omitted', () => {
+      scaffoldProject(rootDir, { name: 'The Orb', targets: ['zblorb'] }, libraryDir);
+      expect(fs.existsSync(path.join(rootDir, 'cover.png'))).toBe(false);
+    });
+
+    it('writes no cover.png when coverImageSource does not exist', () => {
+      scaffoldProject(rootDir, { name: 'The Orb', targets: ['zblorb'] }, libraryDir, path.join(rootDir, 'missing.png'));
+      expect(fs.existsSync(path.join(rootDir, 'cover.png'))).toBe(false);
+    });
+  });
+
   function isDialogcAvailable(): boolean {
     try {
       execFileSync('dialogc', ['--version'], { stdio: 'ignore' });

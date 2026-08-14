@@ -73,11 +73,23 @@ const STARTER_STORY_DG = `#void
  * by listing the individual file path alongside each category's own directory (expandSources
  * already supports a source entry being either a directory or a specific file).
  *
+ * Also seeds a placeholder cover.png at the project root (from coverImageSource, if given and it
+ * exists) - matching dialog-tool's own `dgt new` convention. "Export Dialog Project..." bakes
+ * this into a zblorb export via dialogc's --cover flag (see dialog-export.ts's
+ * resolveCoverImage), and "Export Web Page..." uses it as the page's cover thumbnail. Silently
+ * skipped (no cover.png written) if coverImageSource is undefined or missing, rather than
+ * failing the whole scaffold over a cosmetic asset.
+ *
  * Throws if dialog.json already exists at rootDir (no silent overwrite of an existing project),
  * or if libraryDir is undefined (local dev before `npm run fetch-dialog-binaries` has ever been
  * run - every packaged/published build always has it bundled).
  */
-export function scaffoldProject(rootDir: string, options: ScaffoldOptions, libraryDir: string | undefined): void {
+export function scaffoldProject(
+  rootDir: string,
+  options: ScaffoldOptions,
+  libraryDir: string | undefined,
+  coverImageSource?: string
+): void {
   const dialogJsonPath = path.join(rootDir, 'dialog.json');
   if (fs.existsSync(dialogJsonPath)) {
     throw new Error(`${dialogJsonPath} already exists - this folder already has a Dialog project.`);
@@ -98,6 +110,10 @@ export function scaffoldProject(rootDir: string, options: ScaffoldOptions, libra
 
   for (const file of LIBRARY_FILES) {
     fs.copyFileSync(path.join(libraryDir, file), path.join(rootDir, 'lib', file));
+  }
+
+  if (coverImageSource && fs.existsSync(coverImageSource)) {
+    fs.copyFileSync(coverImageSource, path.join(rootDir, 'cover.png'));
   }
 
   const dialogJson = {

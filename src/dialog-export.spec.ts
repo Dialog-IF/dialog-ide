@@ -3,7 +3,14 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { DialogProject, ExportConfig } from './dialoged/skein';
-import { addExportConfig, buildDialogcArgs, defaultOutputPath, removeExportConfig, runDialogcExport } from './dialog-export';
+import {
+  addExportConfig,
+  buildDialogcArgs,
+  defaultOutputPath,
+  removeExportConfig,
+  resolveCoverImage,
+  runDialogcExport
+} from './dialog-export';
 
 describe('addExportConfig', () => {
   let tmpDir: string;
@@ -133,6 +140,63 @@ describe('buildDialogcArgs', () => {
     const config: ExportConfig = { name: 'Release', format: 'zblorb', includeDebug: false, output: absolute };
     const args = buildDialogcArgs(project(), config);
     expect(args[3]).toBe(absolute);
+  });
+
+  describe('cover image', () => {
+    let tmpDir: string;
+
+    beforeEach(() => {
+      tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dialog-export-cover-'));
+      fs.mkdirSync(path.join(tmpDir, 'src'));
+      fs.writeFileSync(path.join(tmpDir, 'src', 'main.dg'), '');
+    });
+
+    afterEach(() => {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    });
+
+    function projectWithCover(): DialogProject {
+      return {
+        name: 'The Orb',
+        target: ['zblorb'],
+        sources: { main: ['src'] },
+        exports: [],
+        rootDir: tmpDir
+      };
+    }
+
+    it('adds no --cover flags when cover.png does not exist', () => {
+      const config: ExportConfig = { name: 'Release', format: 'zblorb', includeDebug: false, output: 'build/r.zblorb' };
+      const args = buildDialogcArgs(projectWithCover(), config);
+      expect(args).not.toContain('--cover');
+    });
+
+    it('bakes in --cover/--cover-alt for a zblorb export when cover.png exists', () => {
+      fs.writeFileSync(path.join(tmpDir, 'cover.png'), 'not really a png');
+      const config: ExportConfig = { name: 'Release', format: 'zblorb', includeDebug: false, output: 'build/r.zblorb' };
+      const args = buildDialogcArgs(projectWithCover(), config);
+      const coverIndex = args.indexOf('--cover');
+      expect(coverIndex).toBeGreaterThan(-1);
+      expect(args[coverIndex + 1]).toBe(path.join(tmpDir, 'cover.png'));
+      expect(args[coverIndex + 2]).toBe('--cover-alt');
+      expect(args[coverIndex + 3]).toBe('The Orb');
+    });
+
+    it('does not add --cover for a non-zblorb format even when cover.png exists', () => {
+      fs.writeFileSync(path.join(tmpDir, 'cover.png'), 'not really a png');
+      const config: ExportConfig = { name: 'Release', format: 'z8', includeDebug: false, output: 'build/r.z8' };
+      const args = buildDialogcArgs(projectWithCover(), config);
+      expect(args).not.toContain('--cover');
+    });
+
+    it('resolveCoverImage returns null when no cover.png exists', () => {
+      expect(resolveCoverImage(tmpDir)).toBeNull();
+    });
+
+    it('resolveCoverImage returns the path when cover.png exists', () => {
+      fs.writeFileSync(path.join(tmpDir, 'cover.png'), 'not really a png');
+      expect(resolveCoverImage(tmpDir)).toBe(path.join(tmpDir, 'cover.png'));
+    });
   });
 });
 

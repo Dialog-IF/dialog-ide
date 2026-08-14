@@ -5,6 +5,7 @@ import {
   ENGINE_CHOICES,
   SessionRunnerError,
   debugTerminalShellArgs,
+  isAambundleAvailable,
   isDgdebugAvailable,
   isValidSessionId,
   parseSeed,
@@ -164,6 +165,41 @@ describe('isDgdebugAvailable', () => {
     'is true when bundledBinDir contains a real dgdebug binary, with no binDir/PATH needed',
     async () => {
       expect(await isDgdebugAvailable(undefined, bundledBinDir)).toBe(true);
+    }
+  );
+});
+
+describe('isAambundleAvailable', () => {
+  it('is false for a binDir that could not possibly contain a real aambundle binary', async () => {
+    expect(await isAambundleAvailable('/nonexistent/definitely-not-a-real-path')).toBe(false);
+  });
+
+  // Only meaningful when aambundle is actually installed - see the "Export Web Page..." feature's
+  // own dependency on it, same skip-rather-than-fail convention as isDgdebugAvailable above.
+  const aambundleOnPath = (() => {
+    try {
+      require('child_process').execFileSync('aambundle', ['--version'], { stdio: 'ignore' });
+      return true;
+    } catch {
+      return false;
+    }
+  })();
+  (aambundleOnPath ? it : it.skip)('is true when aambundle is on PATH (no binDir given)', async () => {
+    expect(await isAambundleAvailable(undefined)).toBe(true);
+  });
+
+  it('is false when neither binDir nor bundledBinDir could contain a real aambundle binary', async () => {
+    expect(await isAambundleAvailable(undefined, '/nonexistent/bundled-bin-dir')).toBe(false);
+  });
+
+  // Only meaningful once `npm run fetch-dialog-binaries -- --target <this platform-arch>` has
+  // staged bin/<platform>-<arch>/aambundle locally - skips rather than fails when absent, same
+  // convention as isDgdebugAvailable above.
+  const bundledBinDirForAambundle = resolveBundledBinDir(path.join(__dirname, '..'));
+  (bundledBinDirForAambundle ? it : it.skip)(
+    'is true when bundledBinDir contains a real aambundle binary, with no binDir/PATH needed',
+    async () => {
+      expect(await isAambundleAvailable(undefined, bundledBinDirForAambundle)).toBe(true);
     }
   );
 });

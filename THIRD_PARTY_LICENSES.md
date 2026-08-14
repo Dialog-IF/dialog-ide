@@ -101,3 +101,57 @@ or for the Z-machine runtime routines).
 (The full upstream `license.txt` also covers the Windows GUI debugger's bundled Glk/WinGlk/libogg/
 libvorbis components — this extension does not bundle `dgdebug_gui.exe` or `Glk.dll`, only the
 console `dgdebug`/`dialogc` binaries covered by the BSD-style block above.)
+
+## `bin/` — bundled `aambundle` binary
+
+The same platform-specific builds also bundle `aambundle` under `bin/<target>/`, alongside
+`dgdebug`/`dialogc`. This is an unmodified, prebuilt redistribution from the
+[Dialog-IF/aamachine](https://github.com/Dialog-IF/aamachine) project (the Å-machine, used by
+"Export Web Page..." to produce an in-browser player for the exported story), taken from the
+release pinned in `scripts/dialog-toolchain-version.json` (currently `release-1.0.1`) and staged
+by the same `scripts/fetch-dialog-binaries.js`. Only `aambundle` itself is bundled — not
+`aamrun`/`aamshow`, which this extension doesn't use.
+
+The upstream `license.txt` (2-clause-BSD-style, permitting binary redistribution with the
+copyright notice retained), reproduced verbatim:
+
+```
+Copyright 2019-2026 Linus Åkesson and the Dialog Project
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+	1. Redistributions of source code must retain the above copyright
+	notice, this list of conditions and the following disclaimer.
+
+	2. Redistributions in binary form must reproduce the above copyright
+	notice, this list of conditions and the following disclaimer in the
+	documentation and/or other materials provided with the distribution.
+
+	THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS
+	IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED
+	TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A
+	PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+	HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+	SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+	LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+	DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+	THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+	(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+	OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+Note that the aambundle tool will automatically insert a license file that
+complies with these requirements.
+```
+
+(The full upstream `license.txt` also covers jquery/minimist, redistributed by `aambundle`
+itself inside the web-player output it generates at export time — not something this extension
+vendors separately — and a public-domain 6502 emulator used only by `aambox6502`, which this
+extension does not bundle.)
+
+## `resources/bundle/` — vendored web-export assets
+
+`default-cover.png`, `style.css`, `play.css`, `introduction-to-if.pdf`, and `play-if-card.pdf`
+under `resources/bundle/` are copied from the
+[dialog-tool](https://github.com/hlship/dialog-tool) project (the same author, also Apache-2.0
+licensed) to keep "Export Web Page..." at feature parity with dialog-tool's own `dgt bundle`.

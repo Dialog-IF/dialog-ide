@@ -1,11 +1,24 @@
 {
-  "tag": "release-1c02-1.2.3",
-  "sha256": {
-    "dialog-1c02-1.2.3.zip": "a12cd535d8db5c947fe2d6139536a2f2b3f57a538a7a6d283761c0eda6bf1d95"
+  "dialog": {
+    "tag": "release-1c02-1.2.3",
+    "sha256": {
+      "dialog-1c02-1.2.3.zip": "a12cd535d8db5c947fe2d6139536a2f2b3f57a538a7a6d283761c0eda6bf1d95"
+    },
+    "targets": {
+      "win32-x64": { "upstreamDir": "win32", "exeSuffix": ".exe" },
+      "darwin-arm64": { "upstreamDir": "macos-arm64", "exeSuffix": "" },
+      "linux-x64": { "upstreamDir": "linux-x86_64", "exeSuffix": "" }
+    }
   },
-  "targets": {
-    "win32-x64": { "upstreamDir": "win32", "exeSuffix": ".exe" },
-    "darwin-arm64": { "upstreamDir": "macos-arm64", "exeSuffix": "" },
-    "linux-x64": { "upstreamDir": "linux-x86_64", "exeSuffix": "" }
+  "aamachine": {
+    "tag": "release-1.0.1",
+    "sha256": {
+      "aamachine-1.0.1.zip": "2413c14130e3bc1462cb4ef35abd75dbfe3a2a770a6308160671dec3e440990d"
+    },
+    "targets": {
+      "win32-x64": { "upstreamDir": "win32", "exeSuffix": ".exe" },
+      "darwin-arm64": { "upstreamDir": "macos-universal", "exeSuffix": "" },
+      "linux-x64": { "upstreamDir": "linux-x86_64", "exeSuffix": "" }
+    }
   }
 }

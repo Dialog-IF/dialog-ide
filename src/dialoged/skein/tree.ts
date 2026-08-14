@@ -519,8 +519,12 @@ export class SkeinTree {
     return new SkeinTree(this.engine, this.seed, this.knots.set(id, updatedKnot), this.knotStates, this.activeKnotId, this.collapsedKnotIds, this.dynamicStates);
   }
 
-  /** The knot currently carrying the given non-null label, if any - setLabel's uniqueness check. */
-  private findByLabel(label: string): WireKnot | null {
+  /**
+   * The knot currently carrying the given non-null label, if any - setLabel's uniqueness check,
+   * also used by dialog-web-export.ts to locate a "WALKTHROUGH"-labeled knot in a saved
+   * default.skein.
+   */
+  public findByLabel(label: string): WireKnot | null {
     for (const knot of this.knots.valueSeq()) {
       if (knot.label === label) {
         return knot;
