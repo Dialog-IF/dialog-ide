@@ -75,6 +75,18 @@
       {
         "command": "dialog-ide.addSourceToProject",
         "title": "Dialog IDE: Add File to dialog.json..."
+      },
+      {
+        "command": "dialog-ide.initProject",
+        "title": "Dialog IDE: Initialize Dialog Project"
+      },
+      {
+        "command": "dialog-ide.configureExports",
+        "title": "Dialog IDE: Configure Exports..."
+      },
+      {
+        "command": "dialog-ide.exportProject",
+        "title": "Dialog IDE: Export Dialog Project..."
       }
     ],
     "configuration": {

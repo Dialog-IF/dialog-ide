@@ -1,9 +1,11 @@
 #!/usr/bin/env node
 /**
  * Downloads the pinned Dialog-IF/dialog release and stages its prebuilt dgdebug/dialogc
- * binaries into bin/<vsce-target>/ for packaging. Run manually before a targeted
- * `vsce package`/`vsce publish` pass - see the release-to-marketplace skill. Never run as part
- * of `npm test`/`npm run build` or CI.
+ * binaries into bin/<vsce-target>/ for packaging, plus its stdlib.dg/stddebug.dg/unit.dg
+ * standard library sources into bin/dialog-lib/ (platform-independent, staged for every target
+ * including "none" - see stageLibrary). Run manually before a targeted `vsce package`/
+ * `vsce publish` pass - see the release-to-marketplace skill. Never run as part of
+ * `npm test`/`npm run build` or CI.
  *
  * Usage: node scripts/fetch-dialog-binaries.js --target <win32-x64|darwin-arm64|linux-x64|all|none>
  */
@@ -128,18 +130,43 @@ function stageTarget(prebuiltDir, targetName, targetConfig) {
   console.log(`Staged bin/${targetName}/{dgdebug,dialogc}${targetConfig.exeSuffix}`);
 }
 
+const LIBRARY_FILES = ['stdlib.dg', 'stddebug.dg', 'unit.dg'];
+
+/**
+ * Stages the platform-independent standard library sources into bin/dialog-lib/, from the
+ * release root (a sibling of prebuiltDir, not inside it - the same place Homebrew's own
+ * dialog-if formula installs them from: `pkgshare.install "stdlib.dg", "stddebug.dg", "unit.dg"`).
+ * Called for every target, including "none", since "Initialize Dialog Project" needs these
+ * bundled regardless of which (if any) platform binaries a build ships.
+ */
+function stageLibrary(extractedDir) {
+  const dest = path.join(BIN_DIR, 'dialog-lib');
+  fs.mkdirSync(dest, { recursive: true });
+
+  for (const name of LIBRARY_FILES) {
+    const srcPath = path.join(extractedDir, name);
+    if (!fs.existsSync(srcPath)) {
+      throw new Error(`Expected ${srcPath} - upstream archive layout may have changed`);
+    }
+    fs.copyFileSync(srcPath, path.join(dest, name));
+  }
+  console.log(`Staged bin/dialog-lib/{${LIBRARY_FILES.join(',')}}`);
+}
+
 async function main() {
   const target = parseArgs();
   const version = loadVersion();
 
   fs.rmSync(BIN_DIR, { recursive: true, force: true });
 
+  const prebuiltDir = await ensureExtracted(version);
+  const extractedDir = path.dirname(prebuiltDir);
+  stageLibrary(extractedDir);
+
   if (target === 'none') {
-    console.log('Cleared bin/ (no bundled binaries staged)');
+    console.log('Cleared bin/ (no bundled platform binaries staged)');
     return;
   }
-
-  const prebuiltDir = await ensureExtracted(version);
 
   if (target === 'all') {
     for (const [name, config] of Object.entries(version.targets)) {

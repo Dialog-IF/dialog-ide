@@ -20,11 +20,19 @@ export interface ProjectSources {
   library?: string[];
 }
 
+export interface ExportConfig {
+  name: string;
+  format: 'zblorb' | 'z8' | 'aa';
+  includeDebug: boolean;
+  output: string;
+}
+
 export interface DialogProject {
   name: string;
   target: string[];
   binDir?: string;
   sources: ProjectSources;
+  exports: ExportConfig[];
   rootDir: string;
 }
 
@@ -45,6 +53,7 @@ export function readProject(rootDir: string): DialogProject {
     target?: string | string[];
     binDir?: string;
     sources?: Partial<ProjectSources>;
+    exports?: unknown;
   };
   try {
     parsed = JSON.parse(fs.readFileSync(filePath, 'utf8'));
@@ -57,8 +66,36 @@ export function readProject(rootDir: string): DialogProject {
     target: normalizeTarget(parsed.target),
     binDir: parsed.binDir,
     sources: { main: [], ...parsed.sources },
+    exports: normalizeExports(parsed.exports),
     rootDir
   };
+}
+
+/**
+ * Parses dialog.json's `exports` array defensively - an entry missing name/format/output is
+ * skipped with a warning rather than failing the whole project read, matching how a missing
+ * source-entry path is handled by expandSourceEntry.
+ */
+function normalizeExports(exports: unknown): ExportConfig[] {
+  if (!Array.isArray(exports)) {
+    return [];
+  }
+  const result: ExportConfig[] = [];
+  for (const entry of exports) {
+    if (
+      entry &&
+      typeof entry === 'object' &&
+      typeof (entry as ExportConfig).name === 'string' &&
+      typeof (entry as ExportConfig).format === 'string' &&
+      typeof (entry as ExportConfig).output === 'string'
+    ) {
+      const { name, format, output } = entry as ExportConfig;
+      result.push({ name, format, output, includeDebug: Boolean((entry as ExportConfig).includeDebug) });
+    } else {
+      console.warn(`Skipping malformed dialog.json export entry: ${JSON.stringify(entry)}`);
+    }
+  }
+  return result;
 }
 
 function normalizeTarget(target: string | string[] | undefined): string[] {
@@ -186,4 +223,15 @@ export function resolveBundledBinDir(extensionPath: string): string | undefined 
   const dir = path.join(extensionPath, 'bin', `${process.platform}-${process.arch}`);
   const named = process.platform === 'win32' ? 'dgdebug.exe' : 'dgdebug';
   return fs.existsSync(path.join(dir, named)) ? dir : undefined;
+}
+
+/**
+ * The bundled standard-library directory (bin/dialog-lib/) inside this installed extension
+ * package - platform-independent (plain Dialog source, not a binary), staged by
+ * scripts/fetch-dialog-binaries.js for every packaged variant. Undefined only in local dev
+ * before that script has ever been run (bin/ is gitignored).
+ */
+export function resolveBundledLibraryDir(extensionPath: string): string | undefined {
+  const dir = path.join(extensionPath, 'bin', 'dialog-lib');
+  return fs.existsSync(path.join(dir, 'stdlib.dg')) ? dir : undefined;
 }

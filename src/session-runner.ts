@@ -108,6 +108,16 @@ export async function isDgdebugAvailable(binDir?: string, bundledBinDir?: string
   }
 }
 
+/** Same preflight as isDgdebugAvailable, for the dialogc compiler ahead of an export. */
+export async function isDialogcAvailable(binDir?: string, bundledBinDir?: string): Promise<boolean> {
+  try {
+    await execFileAsync(resolveCommandPath(binDir, 'dialogc', bundledBinDir), ['--version']);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Args for launching dgdebug as a genuinely interactive terminal session - matching
  * dialog-tool's own `dgt debug` command exactly: just --quit (exit the debugger when the

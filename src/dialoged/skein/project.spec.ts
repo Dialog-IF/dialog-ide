@@ -39,6 +39,61 @@ describe('readProject', () => {
   it('throws when dialog.json does not exist', () => {
     expect(() => readProject(path.join(FIXTURES_DIR, 'does-not-exist'))).toThrow('does not exist');
   });
+
+  describe('exports parsing', () => {
+    let tmpDir: string;
+
+    beforeEach(() => {
+      tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dialog-ide-project-exports-'));
+    });
+
+    afterEach(() => {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    });
+
+    function writeDialogJson(exports: unknown): void {
+      fs.writeFileSync(
+        path.join(tmpDir, 'dialog.json'),
+        JSON.stringify({ name: 'Test', sources: { main: ['src'] }, exports }, null, 2)
+      );
+    }
+
+    it('defaults to an empty array when exports is absent', () => {
+      fs.writeFileSync(
+        path.join(tmpDir, 'dialog.json'),
+        JSON.stringify({ name: 'Test', sources: { main: ['src'] } }, null, 2)
+      );
+      expect(readProject(tmpDir).exports).toEqual([]);
+    });
+
+    it('parses well-formed entries, defaulting includeDebug to false when absent', () => {
+      writeDialogJson([
+        { name: 'Release', format: 'zblorb', output: 'build/release.zblorb' },
+        { name: 'Debug build', format: 'z8', includeDebug: true, output: 'build/debug.z8' }
+      ]);
+      expect(readProject(tmpDir).exports).toEqual([
+        { name: 'Release', format: 'zblorb', includeDebug: false, output: 'build/release.zblorb' },
+        { name: 'Debug build', format: 'z8', includeDebug: true, output: 'build/debug.z8' }
+      ]);
+    });
+
+    it('skips (rather than throwing on) an entry missing a required field', () => {
+      const warnSpy = jest.spyOn(console, 'warn');
+      writeDialogJson([
+        { name: 'Release', format: 'zblorb', output: 'build/release.zblorb' },
+        { name: 'Broken', format: 'zblorb' }
+      ]);
+      expect(readProject(tmpDir).exports).toEqual([
+        { name: 'Release', format: 'zblorb', includeDebug: false, output: 'build/release.zblorb' }
+      ]);
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('Broken'));
+    });
+
+    it('treats a non-array exports value as empty', () => {
+      writeDialogJson('not-an-array');
+      expect(readProject(tmpDir).exports).toEqual([]);
+    });
+  });
 });
 
 describe('expandSources', () => {
@@ -87,6 +142,7 @@ describe('expandSources', () => {
     const project: DialogProject = {
       name: 'broken',
       target: ['zblorb'],
+      exports: [],
       sources: { main: ['does-not-exist'] },
       rootDir: DGSAMPLE_DIR
     };
@@ -137,6 +193,7 @@ describe('isFileCoveredBySource', () => {
     const project: DialogProject = {
       name: 'stand-in',
       target: ['zblorb'],
+      exports: [],
       sources: { main: ['src'], test: ['lib/dialog/debug'] },
       rootDir: DGSAMPLE_DIR
     };
@@ -149,6 +206,7 @@ describe('isFileCoveredBySource', () => {
     const project: DialogProject = {
       name: 'stand-in',
       target: ['zblorb'],
+      exports: [],
       sources: { main: [path.join('src', 'meta.dg')] },
       rootDir: DGSAMPLE_DIR
     };
@@ -164,6 +222,7 @@ describe('isFileCoveredBySource', () => {
     const project: DialogProject = {
       name: 'stand-in',
       target: ['zblorb'],
+      exports: [],
       sources: { main: [path.join('src', 'meta.dg')] },
       rootDir: DGSAMPLE_DIR
     };

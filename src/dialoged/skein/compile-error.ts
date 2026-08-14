@@ -32,7 +32,12 @@ function stripAnsi(text: string): string {
 
 const ERROR_LOCATION_RE = /Error:\s+(.+?),\s+line\s+(\d+):/;
 
-function parseErrorLocation(plainText: string): { filePath: string; line: number } | null {
+/**
+ * Parses the "Error: <path>, line <N>: <message>" shape shared by dgdebug's startup abort text
+ * and dialogc's own compile-failure output (verified directly against a real dialogc run) - null
+ * when the text doesn't match, e.g. an internal error with no source location.
+ */
+export function parseErrorLocation(plainText: string): { filePath: string; line: number } | null {
   const match = ERROR_LOCATION_RE.exec(plainText);
   if (!match) {
     return null;

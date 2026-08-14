@@ -1,0 +1,196 @@
+import { execFileSync } from 'child_process';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
+import { DialogProject, ExportConfig } from './dialoged/skein';
+import { addExportConfig, buildDialogcArgs, defaultOutputPath, removeExportConfig, runDialogcExport } from './dialog-export';
+
+describe('addExportConfig', () => {
+  let tmpDir: string;
+  let dialogJsonPath: string;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dialog-export-'));
+    dialogJsonPath = path.join(tmpDir, 'dialog.json');
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('creates the exports array when it does not exist yet', () => {
+    fs.writeFileSync(dialogJsonPath, JSON.stringify({ name: 'Test', sources: { main: ['src'] } }, null, 2));
+
+    addExportConfig(dialogJsonPath, { name: 'Release', format: 'zblorb', includeDebug: false, output: 'build/r.zblorb' });
+
+    const written = JSON.parse(fs.readFileSync(dialogJsonPath, 'utf8'));
+    expect(written.exports).toEqual([{ name: 'Release', format: 'zblorb', includeDebug: false, output: 'build/r.zblorb' }]);
+  });
+
+  it('appends to an existing exports array without disturbing other entries', () => {
+    fs.writeFileSync(
+      dialogJsonPath,
+      JSON.stringify(
+        { name: 'Test', sources: { main: ['src'] }, exports: [{ name: 'Release', format: 'zblorb', includeDebug: false, output: 'build/r.zblorb' }] },
+        null,
+        2
+      )
+    );
+
+    addExportConfig(dialogJsonPath, { name: 'Debug', format: 'z8', includeDebug: true, output: 'build/d.z8' });
+
+    const written = JSON.parse(fs.readFileSync(dialogJsonPath, 'utf8'));
+    expect(written.exports).toEqual([
+      { name: 'Release', format: 'zblorb', includeDebug: false, output: 'build/r.zblorb' },
+      { name: 'Debug', format: 'z8', includeDebug: true, output: 'build/d.z8' }
+    ]);
+  });
+});
+
+describe('removeExportConfig', () => {
+  let tmpDir: string;
+  let dialogJsonPath: string;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dialog-export-'));
+    dialogJsonPath = path.join(tmpDir, 'dialog.json');
+    fs.writeFileSync(
+      dialogJsonPath,
+      JSON.stringify(
+        {
+          name: 'Test',
+          sources: { main: ['src'] },
+          exports: [
+            { name: 'Release', format: 'zblorb', includeDebug: false, output: 'build/r.zblorb' },
+            { name: 'Debug', format: 'z8', includeDebug: true, output: 'build/d.z8' }
+          ]
+        },
+        null,
+        2
+      )
+    );
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('removes the named entry, leaving others intact', () => {
+    removeExportConfig(dialogJsonPath, 'Release');
+    const written = JSON.parse(fs.readFileSync(dialogJsonPath, 'utf8'));
+    expect(written.exports).toEqual([{ name: 'Debug', format: 'z8', includeDebug: true, output: 'build/d.z8' }]);
+  });
+
+  it('is a no-op when the name is not found', () => {
+    removeExportConfig(dialogJsonPath, 'Does Not Exist');
+    const written = JSON.parse(fs.readFileSync(dialogJsonPath, 'utf8'));
+    expect(written.exports).toHaveLength(2);
+  });
+});
+
+describe('defaultOutputPath', () => {
+  it('slugifies the name into build/<slug>.<format>', () => {
+    expect(defaultOutputPath({ name: 'Release zblorb', format: 'zblorb' })).toBe('build/release-zblorb.zblorb');
+  });
+
+  it('collapses non-alphanumeric runs and trims leading/trailing dashes', () => {
+    expect(defaultOutputPath({ name: '  Beta (v2)!! ', format: 'z8' })).toBe('build/beta-v2.z8');
+  });
+
+  it('falls back to "export" for a name with no alphanumeric characters', () => {
+    expect(defaultOutputPath({ name: '!!!', format: 'aa' })).toBe('build/export.aa');
+  });
+});
+
+describe('buildDialogcArgs', () => {
+  const FIXTURE_ROOT = path.join(__dirname, 'dialoged', 'skein', '__fixtures__', 'project', 'dgsample');
+
+  function project(): DialogProject {
+    return {
+      name: 'The Orb',
+      target: ['zblorb'],
+      sources: { main: ['src'], debug: ['lib/dialog/debug'], library: ['lib/dialog'] },
+      exports: [],
+      rootDir: FIXTURE_ROOT
+    };
+  }
+
+  it('builds -t/-o followed by the expanded, non-debug source files by default', () => {
+    const config: ExportConfig = { name: 'Release', format: 'zblorb', includeDebug: false, output: 'build/r.zblorb' };
+    const args = buildDialogcArgs(project(), config);
+    expect(args.slice(0, 4)).toEqual(['-t', 'zblorb', '-o', path.join(FIXTURE_ROOT, 'build', 'r.zblorb')]);
+    expect(args.slice(4).some((p) => p.includes(path.join('lib', 'dialog', 'debug')))).toBe(false);
+  });
+
+  it('includes debug sources when includeDebug is true', () => {
+    const config: ExportConfig = { name: 'Debug', format: 'z8', includeDebug: true, output: 'build/d.z8' };
+    const args = buildDialogcArgs(project(), config);
+    expect(args.some((p) => p.includes(path.join('lib', 'dialog', 'debug')))).toBe(true);
+  });
+
+  it('leaves an absolute output path untouched', () => {
+    const absolute = path.join(os.tmpdir(), 'out.zblorb');
+    const config: ExportConfig = { name: 'Release', format: 'zblorb', includeDebug: false, output: absolute };
+    const args = buildDialogcArgs(project(), config);
+    expect(args[3]).toBe(absolute);
+  });
+});
+
+function isDialogcAvailable(): boolean {
+  try {
+    execFileSync('dialogc', ['--version'], { stdio: 'ignore' });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// Real (non-mocked) integration test against the actual dialogc binary - skips itself when
+// dialogc isn't on PATH, matching dgdebug-integration.spec.ts's portability convention.
+const describeIfDialogc = isDialogcAvailable() ? describe : describe.skip;
+
+describeIfDialogc('runDialogcExport (real dialogc)', () => {
+  let rootDir: string;
+
+  beforeEach(() => {
+    rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dialog-export-integration-'));
+    fs.mkdirSync(path.join(rootDir, 'main'));
+    fs.writeFileSync(path.join(rootDir, 'main', 'main.dg'), '(program entry point)\n\thello world\n');
+  });
+
+  afterEach(() => {
+    fs.rmSync(rootDir, { recursive: true, force: true });
+  });
+
+  function project(): DialogProject {
+    return {
+      name: 'Test',
+      target: ['z8'],
+      sources: { main: ['main'] },
+      exports: [],
+      rootDir
+    };
+  }
+
+  it('compiles a real z8 file on success', async () => {
+    const config: ExportConfig = { name: 'Release', format: 'z8', includeDebug: false, output: 'build/out.z8' };
+    const result = await runDialogcExport(project(), config, 'dialogc');
+    expect(result.ok).toBe(true);
+    if (result.ok === true) {
+      expect(fs.existsSync(result.outputPath)).toBe(true);
+    }
+  });
+
+  it('parses the file/line out of a real compile failure', async () => {
+    fs.writeFileSync(path.join(rootDir, 'main', 'main.dg'), '(program entry point\n');
+    const config: ExportConfig = { name: 'Release', format: 'z8', includeDebug: false, output: 'build/out.z8' };
+    const result = await runDialogcExport(project(), config, 'dialogc');
+    expect(result.ok).toBe(false);
+    if (result.ok === false) {
+      // dialogc reports the error using the path as given on its commandline - buildDialogcArgs
+      // passes expandSources' absolute paths, so this is the absolute path, not a bare filename.
+      expect(result.filePath).toBe(path.join(rootDir, 'main', 'main.dg'));
+      expect(result.line).toBe(2);
+    }
+  });
+});

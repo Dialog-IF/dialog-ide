@@ -9,12 +9,15 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import {
   DialogCompileError,
+  DialogProject,
   EngineType,
+  ExportConfig,
   PersistenceManager,
   readProject,
   expandSources,
   isFileCoveredBySource,
   resolveBundledBinDir,
+  resolveBundledLibraryDir,
   resolveCommandPath,
   SkeinService,
   SkeinSession
@@ -24,12 +27,15 @@ import { DialogWorkspaceWatcher } from './dialog-workspace-watcher';
 import { DialogWorkspaceSymbolProvider } from './dialog-workspace-symbol-provider';
 import { DialogSourceDecorationProvider } from './dialog-source-decoration-provider';
 import { addSourceToDialogJson, toDialogJsonPath, SOURCE_CATEGORIES } from './dialog-source-coverage';
+import { scaffoldProject } from './dialog-project-init';
+import { addExportConfig, defaultOutputPath, removeExportConfig, runDialogcExport } from './dialog-export';
 import {
   DEFAULT_SESSION_ID,
   EngineChoice,
   ENGINE_CHOICES,
   debugTerminalShellArgs,
   isDgdebugAvailable,
+  isDialogcAvailable,
   isValidSessionId,
   listSkeinFiles,
   parseSeed,
@@ -38,6 +44,8 @@ import {
   sessionConfigFromTree,
   toSessionId
 } from './session-runner';
+
+const EXPORT_FORMATS: ReadonlyArray<ExportConfig['format']> = ['zblorb', 'z8', 'aa'];
 
 let skeinService: SkeinService | undefined;
 let skeinPanel: vscode.WebviewPanel | undefined;
@@ -53,6 +61,12 @@ let activeProjectRoot: string | undefined;
 // context.extensionPath, which is fixed for the lifetime of the extension host. A dialog.json
 // binDir always takes priority over this - see resolveCommandPath's precedence.
 let bundledBinDir: string | undefined;
+
+// This extension's own bundled standard-library directory (bin/dialog-lib/), if this build was
+// packaged for the current platform/arch (see scripts/fetch-dialog-binaries.js) - undefined only
+// in local dev before that script has ever been run. Used by "Initialize Dialog Project" to seed
+// a new project's lib/ folder.
+let bundledLibraryDir: string | undefined;
 
 // Set once deactivate() starts. By the time it runs, VS Code has already begun tearing down this
 // extension's UI contributions (statusBarItem included, despite it being disposed via
@@ -75,6 +89,7 @@ function clearCompileErrorDiagnostics(): void {
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   bundledBinDir = resolveBundledBinDir(context.extensionPath);
+  bundledLibraryDir = resolveBundledLibraryDir(context.extensionPath);
 
   compileErrorDiagnostics = vscode.languages.createDiagnosticCollection('dialog-compile-error');
   context.subscriptions.push(compileErrorDiagnostics);
@@ -188,6 +203,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       withErrorHandling((filePath?: string) =>
         addSourceToProject(resolveProjectRoot(getWorkspaceRoot()), filePath ?? activeEditorDgFilePath())
       )
+    ),
+    vscode.commands.registerCommand(
+      'dialog-ide.initProject',
+      withErrorHandling(() => initDialogProject(resolveProjectRoot(getWorkspaceRoot()), bundledLibraryDir))
+    ),
+    vscode.commands.registerCommand(
+      'dialog-ide.configureExports',
+      withErrorHandling(() => configureExports(resolveProjectRoot(getWorkspaceRoot())))
+    ),
+    vscode.commands.registerCommand(
+      'dialog-ide.exportProject',
+      withErrorHandling(() => exportDialogProject(resolveProjectRoot(getWorkspaceRoot())))
     )
   );
 
@@ -495,6 +522,180 @@ async function addSourceToProject(projectRoot: string, filePath: string | undefi
   const relativePath = toDialogJsonPath(projectRoot, filePath);
   addSourceToDialogJson(dialogJsonPath, picked.category, relativePath);
   vscode.window.showInformationMessage(`Added ${relativePath} to dialog.json's "${picked.category}" sources.`);
+}
+
+/**
+ * "Initialize Dialog Project" - scaffolds dialog.json + main/lib/debug/test into the open
+ * workspace folder (see dialog-project-init.ts's scaffoldProject for the actual file layout).
+ * Requires an already-open folder, same as every other dialog-ide command - no folder picker.
+ */
+async function initDialogProject(projectRoot: string, libraryDir: string | undefined): Promise<void> {
+  const name = await vscode.window.showInputBox({
+    prompt: 'Dialog project name',
+    value: path.basename(projectRoot),
+    validateInput: (value) => (value.trim() === '' ? 'Enter a project name.' : undefined)
+  });
+  if (name === undefined) {
+    return;
+  }
+
+  const targetPicks = await vscode.window.showQuickPick(
+    EXPORT_FORMATS.map((format) => ({ label: format, picked: format === 'zblorb' })),
+    { canPickMany: true, placeHolder: 'Target format(s) for this project' }
+  );
+  if (!targetPicks || targetPicks.length === 0) {
+    return;
+  }
+
+  scaffoldProject(projectRoot, { name: name.trim(), targets: targetPicks.map((pick) => pick.label) }, libraryDir);
+
+  const storyDgPath = path.join(projectRoot, 'main', 'story.dg');
+  await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(storyDgPath));
+  vscode.window.showInformationMessage(`Initialized Dialog project "${name.trim()}" in ${projectRoot}.`);
+}
+
+/**
+ * "Configure Exports..." - a looping QuickPick wizard over dialog.json's `exports` array: add a
+ * new named export configuration, or remove an existing one. Exits on Escape or "Done". Editing
+ * an existing entry isn't supported in v1 - remove and re-add instead.
+ */
+async function configureExports(projectRoot: string): Promise<void> {
+  const dialogJsonPath = path.join(projectRoot, 'dialog.json');
+
+  for (;;) {
+    const project = readProject(projectRoot);
+    type Item = vscode.QuickPickItem & { action: 'add' | 'remove' | 'done'; name?: string };
+    const items: Item[] = [
+      { label: '$(add) Add new export configuration...', action: 'add' },
+      ...project.exports.map(
+        (config): Item => ({
+          label: config.name,
+          description: `${config.format}${config.includeDebug ? ', debug' : ''} → ${config.output}`,
+          action: 'remove',
+          name: config.name
+        })
+      ),
+      { label: '$(check) Done', action: 'done' }
+    ];
+
+    const picked = await vscode.window.showQuickPick(items, {
+      placeHolder: 'Configure Dialog project exports'
+    });
+    if (!picked || picked.action === 'done') {
+      return;
+    }
+
+    if (picked.action === 'add') {
+      await addExportConfigWizard(dialogJsonPath, project);
+    } else if (picked.name) {
+      await removeExportConfigWizard(dialogJsonPath, picked.name);
+    }
+  }
+}
+
+async function addExportConfigWizard(dialogJsonPath: string, project: DialogProject): Promise<void> {
+  const name = await vscode.window.showInputBox({
+    prompt: 'Export configuration name',
+    validateInput: (value) => {
+      const trimmed = value.trim();
+      if (trimmed === '') {
+        return 'Enter a name.';
+      }
+      return project.exports.some((entry) => entry.name === trimmed) ? `"${trimmed}" already exists.` : undefined;
+    }
+  });
+  if (!name) {
+    return;
+  }
+
+  const formatChoice = await vscode.window.showQuickPick(EXPORT_FORMATS, { placeHolder: 'Output format' });
+  if (!formatChoice) {
+    return;
+  }
+  const format = formatChoice as ExportConfig['format'];
+
+  const includeDebugChoice = await vscode.window.showQuickPick(['No', 'Yes'], {
+    placeHolder: 'Include debug sources? (usually No for a release build)'
+  });
+  if (!includeDebugChoice) {
+    return;
+  }
+
+  const draft: ExportConfig = { name: name.trim(), format, includeDebug: includeDebugChoice === 'Yes', output: '' };
+  const output = await vscode.window.showInputBox({
+    prompt: 'Output path (relative to the project root)',
+    value: defaultOutputPath(draft)
+  });
+  if (!output) {
+    return;
+  }
+
+  addExportConfig(dialogJsonPath, { ...draft, output });
+  vscode.window.showInformationMessage(`Added export configuration "${draft.name}".`);
+}
+
+async function removeExportConfigWizard(dialogJsonPath: string, name: string): Promise<void> {
+  const choice = await vscode.window.showQuickPick(['Remove', 'Cancel'], {
+    placeHolder: `Remove export configuration "${name}"?`
+  });
+  if (choice !== 'Remove') {
+    return;
+  }
+  removeExportConfig(dialogJsonPath, name);
+  vscode.window.showInformationMessage(`Removed export configuration "${name}".`);
+}
+
+/**
+ * "Export Dialog Project..." - picks one of dialog.json's named export configurations and runs
+ * dialogc against it (see dialog-export.ts's runDialogcExport). Directs to "Configure Exports..."
+ * first if none are defined yet, rather than guessing at one.
+ */
+async function exportDialogProject(projectRoot: string): Promise<void> {
+  const project = readProject(projectRoot);
+  if (project.exports.length === 0) {
+    const choice = await vscode.window.showErrorMessage(
+      'No export configurations defined yet - use "Configure Exports..." first.',
+      'Configure Exports...'
+    );
+    if (choice === 'Configure Exports...') {
+      await configureExports(projectRoot);
+    }
+    return;
+  }
+
+  const picked = await vscode.window.showQuickPick(
+    project.exports.map((config) => ({
+      label: config.name,
+      description: `${config.format}${config.includeDebug ? ', debug' : ''} → ${config.output}`,
+      config
+    })),
+    { placeHolder: 'Which export configuration?' }
+  );
+  if (!picked) {
+    return;
+  }
+
+  if (!(await isDialogcAvailable(project.binDir, bundledBinDir))) {
+    throw new Error(
+      'dialogc was not found on PATH, in binDir, or bundled with this extension. Install the Dialog toolchain or set "binDir" in dialog.json.'
+    );
+  }
+
+  const dialogcPath = resolveCommandPath(project.binDir, 'dialogc', bundledBinDir);
+  const result = await runDialogcExport(project, picked.config, dialogcPath);
+
+  if (result.ok === true) {
+    const choice = await vscode.window.showInformationMessage(
+      `Exported "${picked.config.name}" to ${result.outputPath}.`,
+      'Reveal in Explorer'
+    );
+    if (choice === 'Reveal in Explorer') {
+      vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(result.outputPath));
+    }
+  } else {
+    const location = result.filePath && result.line ? ` (${result.filePath}, line ${result.line})` : '';
+    vscode.window.showErrorMessage(`Export failed${location}: ${result.message}`);
+  }
 }
 
 /**
