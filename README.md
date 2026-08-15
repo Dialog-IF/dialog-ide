@@ -171,9 +171,11 @@ Undo/redo is unlimited and covers structural edits (bless, delete, splice, runni
 
 ## Future Improvements
 
-This is an early alpha release of the extension; we have many more features planned, including:
+This is an early release of the extension; we have many more features planned, including:
 
-- A Test Runner for the `test` source category
+- Run the Skein using dfrotz as the engine
+- Upload projects to the Interactive Fiction Archive
+- Provide binaries for OS X on Intel hardware
 
 Get involved at [Interactive Fiction Community Forum](https://intfiction.org/t/dialog-ide-0-0-1/81465/7) to provide feedback and ideas!
 
