@@ -613,21 +613,7 @@ async function initDialogProject(
     return;
   }
 
-  const targetPicks = await vscode.window.showQuickPick(
-    EXPORT_FORMATS.map((format) => ({ label: format, picked: format === 'zblorb' })),
-    { canPickMany: true, placeHolder: 'Target format(s) for this project' }
-  );
-  if (!targetPicks || targetPicks.length === 0) {
-    return;
-  }
-
-  scaffoldProject(
-    projectRoot,
-    { name: name.trim(), targets: targetPicks.map((pick) => pick.label) },
-    libraryDir,
-    coverImageSource,
-    pdfAssetsDir
-  );
+  scaffoldProject(projectRoot, { name: name.trim() }, libraryDir, coverImageSource, pdfAssetsDir);
 
   const storyDgPath = path.join(projectRoot, 'main', 'story.dg');
   await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(storyDgPath));
@@ -822,13 +808,37 @@ async function exportDialogProject(projectRoot: string): Promise<void> {
 
 /**
  * "Export Web Page..." - produces a downloadable web page (out/web/, plus a zip) with the
- * story's download links, an AAmachine in-browser player, and the two vendored "how to play IF"
- * PDFs (see dialog-web-export.ts's bundleWebExport for the actual pipeline). Unlike
- * "Export Dialog Project...", this isn't one of dialog.json's named export configurations - it
- * always builds every one of the project's own targets plus "aa", with no per-run configuration.
+ * story's download link, an AAmachine in-browser player, and whichever of the two vendored
+ * "how to play IF" PDFs still exist in the project (see dialog-web-export.ts's bundleWebExport
+ * for the actual pipeline). Like "Export Dialog Project...", it picks one of dialog.json's named
+ * export configurations - that configuration's own format/includeDebug/dialogcOptions become the
+ * downloadable story file's build settings - and directs to "Configure Exports..." first if none
+ * are defined yet.
  */
 async function exportWebPage(projectRoot: string, assetsDir: string): Promise<void> {
   const project = readProject(projectRoot);
+  if (project.exports.length === 0) {
+    const choice = await vscode.window.showErrorMessage(
+      'No export configurations defined yet - use "Configure Exports..." first.',
+      'Configure Exports...'
+    );
+    if (choice === 'Configure Exports...') {
+      await configureExports(projectRoot);
+    }
+    return;
+  }
+
+  const picked = await vscode.window.showQuickPick(
+    project.exports.map((config) => ({
+      label: config.name,
+      description: `${config.format}${config.includeDebug ? ', debug' : ''}`,
+      config
+    })),
+    { placeHolder: 'Which export configuration builds the downloadable story file?' }
+  );
+  if (!picked) {
+    return;
+  }
 
   const [dialogcOk, dgdebugOk, aambundleOk] = await Promise.all([
     isDialogcAvailable(project.binDir, bundledBinDir),
@@ -855,7 +865,7 @@ async function exportWebPage(projectRoot: string, assetsDir: string): Promise<vo
 
   const result = await vscode.window.withProgress(
     { location: vscode.ProgressLocation.Notification, title: `Exporting "${project.name}" as a web page...` },
-    () => bundleWebExport(project, paths, assetsDir)
+    () => bundleWebExport(project, picked.config, paths, assetsDir)
   );
 
   if (result.ok === true) {

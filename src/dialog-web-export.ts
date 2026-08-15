@@ -1,15 +1,20 @@
 /**
  * Logic for "Export Web Page..." - deliberately vscode-free (like dialog-export.ts/
  * dialog-project-init.ts) so it's unit-testable without mocking the extension host.
- * extension.ts resolves the dialogc/dgdebug/aambundle binaries and the vendored
- * resources/bundle/ assets directory, then calls bundleWebExport with the results.
+ * extension.ts resolves the dialogc/dgdebug/aambundle binaries, asks which of dialog.json's
+ * named export configurations should build the downloadable story file (see buildStoryFile),
+ * and the vendored resources/bundle/ assets directory, then calls bundleWebExport with the
+ * results.
  *
- * Mirrors dialog-tool's dgt bundle (src/dialog_tool/bundle.clj): compile every one of the
- * project's own targets plus :aa (for the in-browser player), query title/author/ifid/noun/
- * blurb/release live from dgdebug, run aambundle to produce the AAmachine web player, assemble
- * everything (vendored CSS, story files, cover thumbnail, whichever "how to play IF" PDFs are
- * still present in the project - see PDF_ASSETS/resolvePdfLinks, optional walkthrough,
- * index.html) into out/web/, then zip it into out/<name>-<release>.zip.
+ * Loosely mirrors dialog-tool's dgt bundle (src/dialog_tool/bundle.clj), adapted for dialog-ide's
+ * own named-export-configuration model rather than dialog.edn's single :target list: compile the
+ * chosen export configuration's format as the downloadable story file, plus :aa separately (for
+ * the in-browser player, unless the chosen configuration is itself :aa - see bundleWebExport),
+ * query title/author/ifid/noun/blurb/release live from dgdebug, run aambundle to produce the
+ * AAmachine web player, assemble everything (vendored CSS, the story file, cover thumbnail,
+ * whichever "how to play IF" PDFs are still present in the project - see
+ * PDF_ASSETS/resolvePdfLinks, optional walkthrough, index.html) into out/web/, then zip it into
+ * out/<name>-<release>.zip.
  */
 
 import { execFile } from 'child_process';
@@ -18,7 +23,7 @@ import { promises as fsp } from 'fs';
 import * as path from 'path';
 import { promisify } from 'util';
 import { ZipFile } from 'yazl';
-import { DialogProject, SkeinProcess, deserializeTree, expandSources } from './dialoged/skein';
+import { DialogProject, ExportConfig, SkeinProcess, deserializeTree, expandSources } from './dialoged/skein';
 import { stripAnsi } from './dialoged/skein/ui/ansi';
 import { BuiltTarget, PdfLink, StoryInfo, renderWebExportPage } from './dialoged/skein/ui/webExportPage';
 import { resizeCoverPng } from './dialog-cover-resize';
@@ -95,76 +100,84 @@ async function resolvePdfLinks(project: DialogProject, outDir: string): Promise<
 }
 
 /**
- * Compiles a single target via dialogc into outputDir/<project.name>.<ext> - --strip (a release
- * build) plus, for zblorb specifically, --cover/--cover-alt if the project has a cover.png (see
+ * Compiles `format` via dialogc into outputDir/<project.name>.<ext> - --strip (a release build)
+ * plus, for zblorb specifically, --cover/--cover-alt if the project has a cover.png (see
  * dialog-export.ts's resolveCoverImage/buildDialogcArgs, which bakes the same cover into the
- * regular "Export Dialog Project..." zblorb export). Also appends the project's default extra
- * dialogc options (project.dialogcOptions - see resolveDialogcOptions), if any - there's no
- * per-target override here, unlike a named ExportConfig, since "Export Web Page..." has no
- * per-run configuration of its own.
+ * regular "Export Dialog Project..." zblorb export).
  */
-async function buildTarget(
+async function compile(
   project: DialogProject,
-  target: string,
+  spec: { format: string; includeDebug: boolean; dialogcOptions: string[] },
   dialogcPath: string,
   outputDir: string
 ): Promise<BuiltTarget> {
-  const outputPath = path.join(outputDir, `${project.name}.${extFor(target)}`);
-  const sourceFiles = expandSources(project, { target });
+  const outputPath = path.join(outputDir, `${project.name}.${extFor(spec.format)}`);
+  const sourceFiles = expandSources(project, { target: spec.format, debug: spec.includeDebug });
 
   const coverArgs: string[] = [];
-  if (target === 'zblorb') {
+  if (spec.format === 'zblorb') {
     const coverImage = resolveCoverImage(project.rootDir);
     if (coverImage) {
       coverArgs.push('--cover', coverImage, '--cover-alt', project.name);
     }
   }
-  const dialogcOptions = resolveDialogcOptions(project, {});
 
   await execFileAsync(dialogcPath, [
     '-t',
-    target,
+    spec.format,
     '-o',
     outputPath,
     '--strip',
     ...coverArgs,
-    ...dialogcOptions,
+    ...spec.dialogcOptions,
     ...sourceFiles
   ]);
   const stat = await fsp.stat(outputPath);
   return {
-    target,
+    target: spec.format,
     path: outputPath,
     name: path.basename(outputPath),
-    description: `${target} ${formatSize(stat.size)}`
+    description: `${spec.format} ${formatSize(stat.size)}`
   };
 }
 
 /**
- * Compiles every unique target in project.target plus "aa" (needed for the in-browser player
- * regardless of whether the project itself targets aa) - matching bundle.clj's all-targets.
+ * Builds the downloadable story file for "Export Web Page..." from a dialog.json export
+ * configuration the user picked (see extension.ts's exportWebPage) - reusing that
+ * configuration's own format/includeDebug/dialogcOptions (falling back to the project's default
+ * dialogcOptions, same as a regular "Export Dialog Project..." run - see resolveDialogcOptions),
+ * rather than "Export Web Page..." having its own separate notion of which format(s) to build.
  */
-export async function buildAllTargets(project: DialogProject, dialogcPath: string): Promise<BuiltTarget[]> {
+export async function buildStoryFile(
+  project: DialogProject,
+  config: ExportConfig,
+  dialogcPath: string
+): Promise<BuiltTarget> {
   const outputDir = path.join(project.rootDir, 'out', 'release');
   await fsp.mkdir(outputDir, { recursive: true });
-
-  const allTargets = Array.from(new Set([...project.target, 'aa']));
-  const built: BuiltTarget[] = [];
-  for (const target of allTargets) {
-    built.push(await buildTarget(project, target, dialogcPath, outputDir));
-  }
-  return built;
+  return compile(
+    project,
+    { format: config.format, includeDebug: config.includeDebug, dialogcOptions: resolveDialogcOptions(project, config) },
+    dialogcPath,
+    outputDir
+  );
 }
 
 /**
- * The subset of built targets meant for direct download - drops the "aa" build (it exists only
- * to drive the web player) unless the project explicitly targets "aa" itself.
+ * Builds a plain "aa" release (no debug sources, just the project's default dialogcOptions) to
+ * drive the in-browser player - separate from buildStoryFile's own build, since the chosen story
+ * export configuration might not itself target "aa" (bundleWebExport reuses buildStoryFile's own
+ * output instead of calling this when it does, to avoid building "aa" twice).
  */
-export function storyFilesFor(project: DialogProject, built: BuiltTarget[]): BuiltTarget[] {
-  if (project.target.includes('aa')) {
-    return built;
-  }
-  return built.filter((b) => b.target !== 'aa');
+export async function buildAaPlayer(project: DialogProject, dialogcPath: string): Promise<BuiltTarget> {
+  const outputDir = path.join(project.rootDir, 'out', 'release');
+  await fsp.mkdir(outputDir, { recursive: true });
+  return compile(
+    project,
+    { format: 'aa', includeDebug: false, dialogcOptions: resolveDialogcOptions(project, {}) },
+    dialogcPath,
+    outputDir
+  );
 }
 
 /**
@@ -279,27 +292,39 @@ async function zipDirectory(sourceDir: string, zipPath: string): Promise<void> {
 /**
  * Orchestrates the whole "Export Web Page..." pipeline into <rootDir>/out/web/ plus a zip at
  * <rootDir>/out/<name>-<release>.zip - see bundle.clj's bundle-project for the dialog-tool
- * original this mirrors. assetsDir is this extension's own vendored resources/bundle/ directory
- * (style.css, play.css) - the "how to play IF" PDFs, by contrast, come from the project itself
- * (see resolvePdfLinks), since those are meant to be deletable per-project.
+ * original this loosely mirrors. storyConfig is the dialog.json export configuration the user
+ * picked (extension.ts's exportWebPage) to build as the downloadable story file - if its own
+ * format is "aa", that same build also drives the in-browser player (no separate build); for any
+ * other format, "aa" is built separately (see buildAaPlayer) purely to drive the player, and
+ * isn't itself offered as a download. assetsDir is this extension's own vendored
+ * resources/bundle/ directory (style.css, play.css) - the "how to play IF" PDFs, by contrast,
+ * come from the project itself (see resolvePdfLinks), since those are meant to be deletable
+ * per-project.
  */
 export async function bundleWebExport(
   project: DialogProject,
+  storyConfig: ExportConfig,
   paths: WebExportPaths,
   assetsDir: string
 ): Promise<WebExportResult> {
-  let built: BuiltTarget[];
+  let storyBuild: BuiltTarget;
   try {
-    built = await buildAllTargets(project, paths.dialogcPath);
+    storyBuild = await buildStoryFile(project, storyConfig, paths.dialogcPath);
   } catch (error) {
     return { ok: false, step: 'build', message: messageOf(error) };
   }
 
-  const aaBuild = built.find((b) => b.target === 'aa');
-  if (!aaBuild) {
-    return { ok: false, step: 'build', message: 'The "aa" target did not build (unexpected).' };
+  let aaBuild: BuiltTarget;
+  if (storyConfig.format === 'aa') {
+    aaBuild = storyBuild;
+  } else {
+    try {
+      aaBuild = await buildAaPlayer(project, paths.dialogcPath);
+    } catch (error) {
+      return { ok: false, step: 'build', message: messageOf(error) };
+    }
   }
-  const storyFiles = storyFilesFor(project, built);
+  const storyFiles = [storyBuild];
 
   let story: StoryInfo;
   try {

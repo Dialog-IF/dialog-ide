@@ -25,7 +25,7 @@ describe('scaffoldProject', () => {
   });
 
   it('creates main/lib/debug/test directories', () => {
-    scaffoldProject(rootDir, { name: 'The Orb', targets: ['zblorb'] }, libraryDir);
+    scaffoldProject(rootDir, { name: 'The Orb' }, libraryDir);
 
     for (const dir of ['main', 'lib', 'debug', 'test']) {
       expect(fs.statSync(path.join(rootDir, dir)).isDirectory()).toBe(true);
@@ -33,18 +33,17 @@ describe('scaffoldProject', () => {
   });
 
   it('writes a starter main/meta.dg with story metadata and a fresh IFID', () => {
-    scaffoldProject(rootDir, { name: 'The Orb', targets: ['zblorb'] }, libraryDir);
+    scaffoldProject(rootDir, { name: 'The Orb' }, libraryDir);
 
     const metaDg = fs.readFileSync(path.join(rootDir, 'main', 'meta.dg'), 'utf8');
     expect(metaDg).toContain('(story title)');
     expect(metaDg).toContain('(story author)');
-    // zblorb (dialog.json's default target) requires (story ifid) to compile at all - confirmed
-    // against a real dialogc run.
+    // zblorb requires (story ifid) to compile at all - confirmed against a real dialogc run.
     expect(metaDg).toMatch(/\(story ifid\) [0-9A-F-]{36}/);
   });
 
   it('writes a starter main/story.dg with a room+player pair so dgdebug/skein get a real interactive loop', () => {
-    scaffoldProject(rootDir, { name: 'The Orb', targets: ['zblorb'] }, libraryDir);
+    scaffoldProject(rootDir, { name: 'The Orb' }, libraryDir);
 
     const storyDg = fs.readFileSync(path.join(rootDir, 'main', 'story.dg'), 'utf8');
     expect(storyDg).toContain('(room *)');
@@ -52,10 +51,10 @@ describe('scaffoldProject', () => {
   });
 
   it('generates a different IFID for each scaffolded project', () => {
-    scaffoldProject(rootDir, { name: 'The Orb', targets: ['zblorb'] }, libraryDir);
+    scaffoldProject(rootDir, { name: 'The Orb' }, libraryDir);
     const otherRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'dialog-ide-init-root2-'));
     try {
-      scaffoldProject(otherRoot, { name: 'The Orb', targets: ['zblorb'] }, libraryDir);
+      scaffoldProject(otherRoot, { name: 'The Orb' }, libraryDir);
       const first = fs.readFileSync(path.join(rootDir, 'main', 'meta.dg'), 'utf8');
       const second = fs.readFileSync(path.join(otherRoot, 'main', 'meta.dg'), 'utf8');
       expect(first).not.toBe(second);
@@ -65,12 +64,11 @@ describe('scaffoldProject', () => {
   });
 
   it('writes dialog.json wiring each library file into the category that needs it', () => {
-    scaffoldProject(rootDir, { name: 'The Orb', targets: ['zblorb', 'z8'] }, libraryDir);
+    scaffoldProject(rootDir, { name: 'The Orb' }, libraryDir);
 
     const dialogJson = JSON.parse(fs.readFileSync(path.join(rootDir, 'dialog.json'), 'utf8'));
     expect(dialogJson).toEqual({
       name: 'The Orb',
-      target: ['zblorb', 'z8'],
       sources: {
         main: ['main'],
         test: ['test', 'lib/unit.dg'],
@@ -81,7 +79,7 @@ describe('scaffoldProject', () => {
   });
 
   it('copies all three standard library files into lib/', () => {
-    scaffoldProject(rootDir, { name: 'The Orb', targets: ['zblorb'] }, libraryDir);
+    scaffoldProject(rootDir, { name: 'The Orb' }, libraryDir);
 
     expect(fs.readFileSync(path.join(rootDir, 'lib', 'stdlib.dg'), 'utf8')).toBe('; stdlib contents\n');
     expect(fs.readFileSync(path.join(rootDir, 'lib', 'stddebug.dg'), 'utf8')).toBe('; stddebug contents\n');
@@ -90,13 +88,13 @@ describe('scaffoldProject', () => {
 
   it('throws rather than overwriting an existing dialog.json', () => {
     fs.writeFileSync(path.join(rootDir, 'dialog.json'), '{}');
-    expect(() => scaffoldProject(rootDir, { name: 'The Orb', targets: ['zblorb'] }, libraryDir)).toThrow(
+    expect(() => scaffoldProject(rootDir, { name: 'The Orb' }, libraryDir)).toThrow(
       'already exists'
     );
   });
 
   it('throws a clear error when no bundled library directory is available', () => {
-    expect(() => scaffoldProject(rootDir, { name: 'The Orb', targets: ['zblorb'] }, undefined)).toThrow(
+    expect(() => scaffoldProject(rootDir, { name: 'The Orb' }, undefined)).toThrow(
       'fetch-dialog-binaries'
     );
   });
@@ -110,17 +108,17 @@ describe('scaffoldProject', () => {
     });
 
     it('copies coverImageSource to cover.png when given and it exists', () => {
-      scaffoldProject(rootDir, { name: 'The Orb', targets: ['zblorb'] }, libraryDir, coverSource);
+      scaffoldProject(rootDir, { name: 'The Orb' }, libraryDir, coverSource);
       expect(fs.readFileSync(path.join(rootDir, 'cover.png'), 'utf8')).toBe('not really a png');
     });
 
     it('writes no cover.png when coverImageSource is omitted', () => {
-      scaffoldProject(rootDir, { name: 'The Orb', targets: ['zblorb'] }, libraryDir);
+      scaffoldProject(rootDir, { name: 'The Orb' }, libraryDir);
       expect(fs.existsSync(path.join(rootDir, 'cover.png'))).toBe(false);
     });
 
     it('writes no cover.png when coverImageSource does not exist', () => {
-      scaffoldProject(rootDir, { name: 'The Orb', targets: ['zblorb'] }, libraryDir, path.join(rootDir, 'missing.png'));
+      scaffoldProject(rootDir, { name: 'The Orb' }, libraryDir, path.join(rootDir, 'missing.png'));
       expect(fs.existsSync(path.join(rootDir, 'cover.png'))).toBe(false);
     });
   });
@@ -135,20 +133,20 @@ describe('scaffoldProject', () => {
     });
 
     it('copies both PDFs to the project root when pdfAssetsDir is given', () => {
-      scaffoldProject(rootDir, { name: 'The Orb', targets: ['zblorb'] }, libraryDir, undefined, pdfAssetsDir);
+      scaffoldProject(rootDir, { name: 'The Orb' }, libraryDir, undefined, pdfAssetsDir);
       expect(fs.readFileSync(path.join(rootDir, 'introduction-to-if.pdf'), 'utf8')).toBe('intro pdf contents');
       expect(fs.readFileSync(path.join(rootDir, 'play-if-card.pdf'), 'utf8')).toBe('card pdf contents');
     });
 
     it('writes no PDFs when pdfAssetsDir is omitted', () => {
-      scaffoldProject(rootDir, { name: 'The Orb', targets: ['zblorb'] }, libraryDir);
+      scaffoldProject(rootDir, { name: 'The Orb' }, libraryDir);
       expect(fs.existsSync(path.join(rootDir, 'introduction-to-if.pdf'))).toBe(false);
       expect(fs.existsSync(path.join(rootDir, 'play-if-card.pdf'))).toBe(false);
     });
 
     it('copies whichever PDFs exist in pdfAssetsDir, skipping ones that do not', () => {
       fs.rmSync(path.join(pdfAssetsDir, 'play-if-card.pdf'));
-      scaffoldProject(rootDir, { name: 'The Orb', targets: ['zblorb'] }, libraryDir, undefined, pdfAssetsDir);
+      scaffoldProject(rootDir, { name: 'The Orb' }, libraryDir, undefined, pdfAssetsDir);
       expect(fs.existsSync(path.join(rootDir, 'introduction-to-if.pdf'))).toBe(true);
       expect(fs.existsSync(path.join(rootDir, 'play-if-card.pdf'))).toBe(false);
     });
@@ -171,7 +169,7 @@ describe('scaffoldProject', () => {
   const testIfDialogc = isDialogcAvailable() ? it : it.skip;
 
   testIfDialogc('the scaffolded project compiles cleanly with real dialogc for zblorb and z8', async () => {
-    scaffoldProject(rootDir, { name: 'The Orb', targets: ['zblorb', 'z8'] }, libraryDir);
+    scaffoldProject(rootDir, { name: 'The Orb' }, libraryDir);
     // Real stdlib.dg (the same fixture dgdebug-integration.spec.ts uses, checked into git), not
     // the dummy placeholder libraryDir content the other tests here use - dialogc needs the real
     // library to resolve (room *)/(current player *) etc.

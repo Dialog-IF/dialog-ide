@@ -33,19 +33,16 @@ export interface ExportConfig {
 
 export interface DialogProject {
   name: string;
-  target: string[];
   binDir?: string;
   sources: ProjectSources;
   exports: ExportConfig[];
   // Extra dialogc command-line arguments applied to every dialogc invocation that doesn't
   // specify its own (an ExportConfig's own dialogcOptions, if set, replaces this rather than
-  // appending to it - see dialog-export.ts's resolveDialogcOptions) - also applied to every
-  // target built by "Export Web Page...", which has no per-run configuration of its own.
+  // appending to it - see dialog-export.ts's resolveDialogcOptions) - also applied to the "aa"
+  // build "Export Web Page..." makes for the in-browser player.
   dialogcOptions?: string[];
   rootDir: string;
 }
-
-const DEFAULT_TARGET = ['zblorb'];
 
 /**
  * Reads and parses <rootDir>/dialog.json. Throws if the file is missing or isn't valid JSON -
@@ -59,7 +56,6 @@ export function readProject(rootDir: string): DialogProject {
 
   let parsed: {
     name?: string;
-    target?: string | string[];
     binDir?: string;
     sources?: Partial<ProjectSources>;
     exports?: unknown;
@@ -73,7 +69,6 @@ export function readProject(rootDir: string): DialogProject {
 
   return {
     name: parsed.name ?? '',
-    target: normalizeTarget(parsed.target),
     binDir: parsed.binDir,
     sources: { main: [], ...parsed.sources },
     exports: normalizeExports(parsed.exports),
@@ -123,13 +118,6 @@ function normalizeExports(exports: unknown): ExportConfig[] {
     }
   }
   return result;
-}
-
-function normalizeTarget(target: string | string[] | undefined): string[] {
-  if (target === undefined) {
-    return DEFAULT_TARGET;
-  }
-  return Array.isArray(target) ? target : [target];
 }
 
 export interface ExpandSourcesOptions {

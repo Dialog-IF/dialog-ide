@@ -2,39 +2,9 @@ import { execFileSync } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { DialogProject, SkeinTree } from './dialoged/skein';
+import { DialogProject, ExportConfig, SkeinTree } from './dialoged/skein';
 import { serializeTree } from './dialoged/skein/persistence';
-import {
-  BuiltTarget,
-  PDF_ASSETS,
-  bundleWebExport,
-  extractStoryInfo,
-  extractWalkthrough,
-  storyFilesFor
-} from './dialog-web-export';
-
-describe('storyFilesFor', () => {
-  const project = (target: string[]): DialogProject => ({
-    name: 'Test',
-    target,
-    sources: { main: ['main'] },
-    exports: [],
-    rootDir: '/tmp/unused'
-  });
-
-  const built: BuiltTarget[] = [
-    { target: 'zblorb', path: '/out/x.zblorb', name: 'x.zblorb', description: 'zblorb 1 KB' },
-    { target: 'aa', path: '/out/x.aastory', name: 'x.aastory', description: 'aa 1 KB' }
-  ];
-
-  it('drops the aa build when the project does not itself target aa', () => {
-    expect(storyFilesFor(project(['zblorb']), built)).toEqual([built[0]]);
-  });
-
-  it('keeps the aa build when the project explicitly targets aa', () => {
-    expect(storyFilesFor(project(['zblorb', 'aa']), built)).toEqual(built);
-  });
-});
+import { PDF_ASSETS, bundleWebExport, extractStoryInfo, extractWalkthrough } from './dialog-web-export';
 
 describe('extractWalkthrough', () => {
   const ROOT_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'dialog-web-export-walkthrough-'));
@@ -44,7 +14,7 @@ describe('extractWalkthrough', () => {
   });
 
   function project(): DialogProject {
-    return { name: 'Test', target: ['zblorb'], sources: { main: ['main'] }, exports: [], rootDir: ROOT_DIR };
+    return { name: 'Test', sources: { main: ['main'] }, exports: [], rootDir: ROOT_DIR };
   }
 
   it('returns null when default.skein does not exist', () => {
@@ -97,7 +67,6 @@ describeIfDgdebug('extractStoryInfo (real dgdebug)', () => {
   function project(): DialogProject {
     return {
       name: 'The Orb',
-      target: ['zblorb'],
       sources: { main: ['src'], library: ['lib/dialog'] },
       exports: [],
       rootDir: FIXTURE_ROOT
@@ -135,7 +104,6 @@ describeIfFullToolchain('bundleWebExport (real dialogc/dgdebug/aambundle)', () =
   function project(dialogcOptions?: string[]): DialogProject {
     return {
       name: 'The Orb',
-      target: ['zblorb'],
       sources: { main: ['main'], library: ['lib/dialog'] },
       exports: [],
       rootDir,
@@ -143,9 +111,14 @@ describeIfFullToolchain('bundleWebExport (real dialogc/dgdebug/aambundle)', () =
     };
   }
 
+  function zblorbConfig(dialogcOptions?: string[]): ExportConfig {
+    return { name: 'Release', format: 'zblorb', includeDebug: false, output: 'unused', dialogcOptions };
+  }
+
   it('produces a complete out/web/ directory and zip', async () => {
     const result = await bundleWebExport(
       project(),
+      zblorbConfig(),
       { dialogcPath: 'dialogc', aambundlePath: 'aambundle' },
       ASSETS_DIR
     );
@@ -163,6 +136,7 @@ describeIfFullToolchain('bundleWebExport (real dialogc/dgdebug/aambundle)', () =
       'cover.png',
       'cover-small.png',
       'play.html',
+      'The Orb.zblorb',
       path.join('resources', 'style.css')
     ]) {
       expect(fs.existsSync(path.join(result.outDir, expected))).toBe(true);
@@ -178,11 +152,48 @@ describeIfFullToolchain('bundleWebExport (real dialogc/dgdebug/aambundle)', () =
     expect(html).toContain('play-if-card.pdf');
   }, 60000);
 
+  it('builds only the picked export configuration\'s format as the downloadable story file, and "aa" separately for the player', async () => {
+    const result = await bundleWebExport(
+      project(),
+      zblorbConfig(),
+      { dialogcPath: 'dialogc', aambundlePath: 'aambundle' },
+      ASSETS_DIR
+    );
+    expect(result.ok).toBe(true);
+    if (result.ok !== true) {
+      return;
+    }
+
+    // Only the zblorb story file is offered for download - no separate .aastory download link,
+    // even though an "aa" build happened behind the scenes to drive the player.
+    const html = fs.readFileSync(path.join(result.outDir, 'index.html'), 'utf8');
+    expect(html).toContain('The Orb.zblorb');
+    expect(html).not.toContain('.aastory');
+  }, 60000);
+
+  it('reuses a single "aa" build for both the story file and the player when the picked configuration targets aa', async () => {
+    const result = await bundleWebExport(
+      project(),
+      { name: 'AA Release', format: 'aa', includeDebug: false, output: 'unused' },
+      { dialogcPath: 'dialogc', aambundlePath: 'aambundle' },
+      ASSETS_DIR
+    );
+    expect(result.ok).toBe(true);
+    if (result.ok !== true) {
+      return;
+    }
+
+    expect(fs.existsSync(path.join(result.outDir, 'play.html'))).toBe(true);
+    const html = fs.readFileSync(path.join(result.outDir, 'index.html'), 'utf8');
+    expect(html).toContain('The Orb.aastory');
+  }, 60000);
+
   it('omits a deleted PDF from the output directory and the generated page, keeping the other one', async () => {
     fs.rmSync(path.join(rootDir, 'introduction-to-if.pdf'));
 
     const result = await bundleWebExport(
       project(),
+      zblorbConfig(),
       { dialogcPath: 'dialogc', aambundlePath: 'aambundle' },
       ASSETS_DIR
     );
@@ -206,6 +217,7 @@ describeIfFullToolchain('bundleWebExport (real dialogc/dgdebug/aambundle)', () =
 
     const result = await bundleWebExport(
       project(),
+      zblorbConfig(),
       { dialogcPath: 'dialogc', aambundlePath: 'aambundle' },
       ASSETS_DIR
     );
@@ -221,6 +233,7 @@ describeIfFullToolchain('bundleWebExport (real dialogc/dgdebug/aambundle)', () =
   it('reports a failure step and message when dialogc is not actually usable', async () => {
     const result = await bundleWebExport(
       project(),
+      zblorbConfig(),
       { dialogcPath: '/nonexistent/dialogc', aambundlePath: 'aambundle' },
       ASSETS_DIR
     );
@@ -230,9 +243,10 @@ describeIfFullToolchain('bundleWebExport (real dialogc/dgdebug/aambundle)', () =
     }
   }, 20000);
 
-  it('passes project.dialogcOptions through to every target build (real dialogc)', async () => {
+  it('passes project.dialogcOptions through when the picked configuration has none of its own (real dialogc)', async () => {
     const succeeded = await bundleWebExport(
       project(['--heap', '2000']),
+      zblorbConfig(),
       { dialogcPath: 'dialogc', aambundlePath: 'aambundle' },
       ASSETS_DIR
     );
@@ -243,6 +257,7 @@ describeIfFullToolchain('bundleWebExport (real dialogc/dgdebug/aambundle)', () =
     // same project otherwise compiles fine (see the "produces a complete..." test above).
     const failed = await bundleWebExport(
       project(['--not-a-real-dialogc-flag']),
+      zblorbConfig(),
       { dialogcPath: 'dialogc', aambundlePath: 'aambundle' },
       ASSETS_DIR
     );
@@ -251,4 +266,19 @@ describeIfFullToolchain('bundleWebExport (real dialogc/dgdebug/aambundle)', () =
       expect(failed.step).toBe('build');
     }
   }, 60000);
+
+  it('uses the picked configuration\'s own dialogcOptions over the project default', async () => {
+    // The config's own (bogus) option should be what's used, not the project's (valid) default -
+    // if the project default won out instead, this build would succeed.
+    const result = await bundleWebExport(
+      project(['--heap', '2000']),
+      zblorbConfig(['--not-a-real-dialogc-flag']),
+      { dialogcPath: 'dialogc', aambundlePath: 'aambundle' },
+      ASSETS_DIR
+    );
+    expect(result.ok).toBe(false);
+    if (result.ok === false) {
+      expect(result.step).toBe('build');
+    }
+  }, 20000);
 });

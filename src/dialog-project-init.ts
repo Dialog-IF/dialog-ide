@@ -1,8 +1,8 @@
 /**
  * Scaffolding logic for "Initialize Dialog Project" - deliberately vscode-free (like
  * dialog-source-coverage.ts/session-runner.ts) so it's unit-testable without mocking the
- * extension host. extension.ts owns the prompts (project name, target formats) and calls
- * scaffoldProject with the results.
+ * extension host. extension.ts owns the prompts (just the project name) and calls
+ * scaffoldProject with the result.
  */
 
 import * as crypto from 'crypto';
@@ -14,7 +14,6 @@ const LIBRARY_FILES = ['stdlib.dg', 'stddebug.dg', 'unit.dg'];
 
 export interface ScaffoldOptions {
   name: string;
-  targets: string[];
 }
 
 // Mirrors dialog-tool's own new-project convention (verified against this repo's own
@@ -45,9 +44,10 @@ const STARTER_META_DG = `(story title)
 `;
 
 // (story ifid) is required by dialogc's zblorb format specifically (confirmed against a real
-// dialogc run: "Error: An IFID is mandatory for the blorb output format") - zblorb is
-// dialog.json's own default target, so a freshly scaffolded project needs one to be exportable
-// out of the box. $IFID$ above is substituted with a fresh crypto.randomUUID() per project.
+// dialogc run: "Error: An IFID is mandatory for the blorb output format"), and zblorb is the
+// most likely first export format a freshly scaffolded project will use, so it needs one to be
+// exportable out of the box. $IFID$ above is substituted with a fresh crypto.randomUUID() per
+// project.
 const STARTER_STORY_DG = `#void
 (room *)
 (name *) The Void
@@ -135,7 +135,6 @@ export function scaffoldProject(
 
   const dialogJson = {
     name: options.name,
-    target: options.targets,
     sources: {
       main: ['main'],
       test: ['test', 'lib/unit.dg'],

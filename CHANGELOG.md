@@ -2,6 +2,9 @@
 
 ## 0.1.1 - Unreleased
 
+- "Initialize Dialog Project" no longer asks for target format(s); removed `dialog.json`'s `target` field
+- "Export Web Page..." now asks which export configuration builds the downloadable story file, instead of building every target
+
 ## 0.1.0 - 15 Aug 2026
 
 - Bundle the Dialog toolchain (`dgdebug`/`dialogc`) and AAmachine (`aambundle`) with the extension on Windows, Apple Silicon Macs, and Linux (x64), so most users no longer need to install either separately; other platforms still resolve via `PATH` or `dialog.json`'s `binDir`, which always takes priority

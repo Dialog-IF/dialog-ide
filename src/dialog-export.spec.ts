@@ -118,7 +118,6 @@ describe('buildDialogcArgs', () => {
   function project(): DialogProject {
     return {
       name: 'The Orb',
-      target: ['zblorb'],
       sources: { main: ['src'], debug: ['lib/dialog/debug'], library: ['lib/dialog'] },
       exports: [],
       rootDir: FIXTURE_ROOT
@@ -161,7 +160,6 @@ describe('buildDialogcArgs', () => {
     function projectWithCover(): DialogProject {
       return {
         name: 'The Orb',
-        target: ['zblorb'],
         sources: { main: ['src'] },
         exports: [],
         rootDir: tmpDir
@@ -220,7 +218,7 @@ describe('parseDialogcOptionsInput', () => {
 
 describe('resolveDialogcOptions', () => {
   function project(dialogcOptions?: string[]): DialogProject {
-    return { name: 'Test', target: ['zblorb'], sources: { main: ['src'] }, exports: [], rootDir: '/tmp/unused', dialogcOptions };
+    return { name: 'Test', sources: { main: ['src'] }, exports: [], rootDir: '/tmp/unused', dialogcOptions };
   }
 
   it('uses the config\'s own dialogcOptions when set', () => {
@@ -241,7 +239,7 @@ describe('resolveDialogcOptions', () => {
 
 describe('buildDialogcArgs dialogcOptions', () => {
   function project(dialogcOptions?: string[]): DialogProject {
-    return { name: 'Test', target: ['zblorb'], sources: { main: ['src'] }, exports: [], rootDir: '/tmp/unused', dialogcOptions };
+    return { name: 'Test', sources: { main: ['src'] }, exports: [], rootDir: '/tmp/unused', dialogcOptions };
   }
 
   it('appends the config\'s own dialogcOptions', () => {
@@ -327,7 +325,6 @@ describeIfDialogc('runDialogcExport (real dialogc)', () => {
   function project(): DialogProject {
     return {
       name: 'Test',
-      target: ['z8'],
       sources: { main: ['main'] },
       exports: [],
       rootDir

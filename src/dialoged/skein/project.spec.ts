@@ -15,25 +15,12 @@ const DGSAMPLE_DIR = path.join(FIXTURES_DIR, 'dgsample');
 const TARGET_FILTER_DIR = path.join(FIXTURES_DIR, 'target-filter');
 
 describe('readProject', () => {
-  it('parses name, sources, and defaults target to ["zblorb"] when specified as a bare string', () => {
+  it('parses name and sources', () => {
     const project = readProject(DGSAMPLE_DIR);
     expect(project.name).toBe('The Orb');
-    expect(project.target).toEqual(['zblorb']);
     expect(project.sources.main).toEqual(['src']);
     expect(project.sources.debug).toEqual(['lib/dialog/debug']);
     expect(project.sources.library).toEqual(['lib/dialog']);
-  });
-
-  it('defaults target to ["zblorb"] when unspecified', () => {
-    const project = readProject(TARGET_FILTER_DIR);
-    expect(project.target).toEqual(['zblorb']);
-  });
-
-  it('normalizes an array target as-is', () => {
-    // Not one of the fixture files on disk - constructing directly to test normalizeTarget's
-    // array branch without needing a dedicated fixture directory.
-    const project = readProject(DGSAMPLE_DIR);
-    expect(Array.isArray(project.target)).toBe(true);
   });
 
   it('throws when dialog.json does not exist', () => {
@@ -205,7 +192,6 @@ describe('expandSources', () => {
     const warnSpy = jest.spyOn(console, 'warn');
     const project: DialogProject = {
       name: 'broken',
-      target: ['zblorb'],
       exports: [],
       sources: { main: ['does-not-exist'] },
       rootDir: DGSAMPLE_DIR
@@ -256,7 +242,6 @@ describe('isFileCoveredBySource', () => {
     // "test" directory purely to exercise the test-category branch without a dedicated fixture.
     const project: DialogProject = {
       name: 'stand-in',
-      target: ['zblorb'],
       exports: [],
       sources: { main: ['src'], test: ['lib/dialog/debug'] },
       rootDir: DGSAMPLE_DIR
@@ -269,7 +254,6 @@ describe('isFileCoveredBySource', () => {
   it('covers a file matched by an exact-file source entry', () => {
     const project: DialogProject = {
       name: 'stand-in',
-      target: ['zblorb'],
       exports: [],
       sources: { main: [path.join('src', 'meta.dg')] },
       rootDir: DGSAMPLE_DIR
@@ -285,7 +269,6 @@ describe('isFileCoveredBySource', () => {
   it('does not cover a file that is merely a sibling of an exact-file source entry', () => {
     const project: DialogProject = {
       name: 'stand-in',
-      target: ['zblorb'],
       exports: [],
       sources: { main: [path.join('src', 'meta.dg')] },
       rootDir: DGSAMPLE_DIR

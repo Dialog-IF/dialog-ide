@@ -10,7 +10,7 @@
  * recommending interpreters.
  */
 
-/** A single compiled game file, ready for download - built by dialog-web-export.ts's buildAllTargets. */
+/** A single compiled game file, ready for download - built by dialog-web-export.ts's buildStoryFile. */
 export interface BuiltTarget {
   target: string;
   path: string;

@@ -24,9 +24,13 @@ The codebase follows a clear separation of concerns:
 
 Do not commit with out confirming with the user.
 
+Keep commit messages concise - a short summary line (and a brief body only if it adds real context), not an exhaustive bullet list of every change.
+
 ## Changelog
 
 When committing, ensure the changelog is up to date with the committed changes.
+
+Keep changelog entries concise - a short phrase per change, not a detailed explanation of how or why it works.
 
 ### Running the IDE
 Open the project in VS Code and press F5 to launch an Extension Development Host (see `.vscode/launch.json`).
