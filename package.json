@@ -124,7 +124,21 @@
           "name": "Trace"
         }
       ]
-    }
+    },
+    "keybindings": [
+      {
+        "command": "workbench.action.showCommands",
+        "key": "ctrl+shift+a",
+        "mac": "cmd+shift+a",
+        "when": "activeWebviewPanelId == 'dialogIdeSkein'"
+      },
+      {
+        "command": "workbench.action.showCommands",
+        "key": "ctrl+shift+a",
+        "mac": "cmd+shift+a",
+        "when": "focusedView == 'dialogIdeTraceView'"
+      }
+    ]
   },
   "scripts": {
     "vscode:prepublish": "npm run build",

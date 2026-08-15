@@ -161,6 +161,8 @@ Insert Parent and Splice Out are available from a knot's action menu but have no
 
 Undo/redo is unlimited and covers structural edits (bless, delete, splice, running a new command); it doesn't re-run anything, so it's always instant.
 
+VS Code normally can't forward other keybindings through a webview at all (a platform limitation, not something extensions can fix generically), so Dialog IDE explicitly punches through ⌘⇧A / Ctrl+Shift+A to open the Command Palette while the Skein or Trace panel has focus - handy if you've remapped it there instead of the default ⌘⇧P / Ctrl+Shift+P.
+
 ## Known limitations
 
 - Only the `dgdebug` engine is runnable today - `frotz`/`frotz-release` are offered as engine choices when creating a skein, but selecting either just explains they're not implemented yet

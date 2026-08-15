@@ -1081,17 +1081,32 @@ function panelTitle(active: ActiveSessionDisplay | undefined): string {
  * navbar, service.ts's NO_ACTIVE_SESSION_FRAGMENT), so nothing is lost by not duplicating
  * either one out here.
  */
+/**
+ * The Skein panel's own webview shell - a thin wrapper whose only real content is an iframe
+ * pointed at SkeinService's local HTTP server (see the module-level doc comment on the
+ * iframe-into-a-local-HTTP-service architecture). VS Code's webview-to-workbench keybinding
+ * forwarding only instruments the *one* document it directly serves as `webview.html` - it has
+ * no visibility into further content an extension nests inside via a plain `<iframe src="...">`,
+ * so keydowns typed inside that nested iframe (where the real Skein UI - and its own keyboard
+ * accelerators, media/js/main.js - actually lives) never reach it. The inline script below is
+ * the workaround for the one case that matters enough to bother with (Cmd/Ctrl+Shift+A, the
+ * Command Palette - see main.js's own comment on the relay): it re-dispatches a synthetic
+ * keydown on *this* document when the nested iframe posts one up, which VS Code's bridge *can*
+ * see, matching the `contributes.keybindings` entry in package.json scoped to
+ * `activeWebviewPanelId == 'dialogIdeSkein'`.
+ */
 function getWebviewHtml(active: ActiveSessionDisplay | undefined): string {
   const serviceUrl = skeinService ? `http://localhost:${skeinService.getPort()}/` : undefined;
   const body = serviceUrl
     ? `<iframe src="${serviceUrl}"></iframe>`
     : `<p>Skein service is not running.</p>`;
+  const nonce = createNonce();
 
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; frame-src http://localhost:*; child-src http://localhost:*;" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}'; frame-src http://localhost:*; child-src http://localhost:*;" />
   <title>${panelTitle(active)}</title>
   <style>
     html, body { height: 100%; margin: 0; }
@@ -1102,6 +1117,13 @@ function getWebviewHtml(active: ActiveSessionDisplay | undefined): string {
 </head>
 <body>
   ${body}
+  <script nonce="${nonce}">
+    window.addEventListener('message', (event) => {
+      if (event.data?.type !== 'forward-keydown') return;
+      const { key, code, metaKey, ctrlKey, shiftKey, altKey } = event.data;
+      document.dispatchEvent(new KeyboardEvent('keydown', { key, code, metaKey, ctrlKey, shiftKey, altKey, bubbles: true, cancelable: true }));
+    });
+  </script>
 </body>
 </html>`;
 }
@@ -1185,11 +1207,13 @@ async function openSourceAtLine(file: string, line: number): Promise<void> {
  * Provider for the native "Trace" panel-area view (package.json's viewsContainers.panel/views -
  * a real tab beside Terminal/Output/Debug Console, per the approved trace-mode design). Same
  * iframe-into-the-local-HTTP-service approach as the main skein WebviewPanel (getWebviewHtml
- * above), pointed at /trace instead of / - except this one actually needs a postMessage bridge
- * back to the extension host (unlike that one, which runs no JS at all): the trace page's own
- * click handler can't call vscode.window.showTextDocument directly (webview content has no
- * vscode API), so it posts {type:'openSource', file, line} up to this wrapper's window, which
- * forwards it to the extension host via acquireVsCodeApi().postMessage.
+ * above), pointed at /trace instead of / - its wrapper script (getTraceWebviewHtml) handles two
+ * kinds of postMessage from the nested iframe: {type:'openSource', file, line} - the trace page's
+ * own click handler can't call vscode.window.showTextDocument directly (webview content has no
+ * vscode API), so it's forwarded to the extension host via acquireVsCodeApi().postMessage - and
+ * {type:'forward-keydown', ...} - the Command Palette relay, re-dispatched as a synthetic keydown
+ * instead (see getWebviewHtml's own doc comment for why this is needed at all, and
+ * package.json's `focusedView == 'dialogIdeTraceView'` keybinding this feeds).
  */
 class TraceViewProvider implements vscode.WebviewViewProvider {
   public resolveWebviewView(webviewView: vscode.WebviewView): void {
@@ -1230,6 +1254,11 @@ function getTraceWebviewHtml(): string {
   <script nonce="${nonce}">
     const vscodeApi = acquireVsCodeApi();
     window.addEventListener('message', (event) => {
+      if (event.data?.type === 'forward-keydown') {
+        const { key, code, metaKey, ctrlKey, shiftKey, altKey } = event.data;
+        document.dispatchEvent(new KeyboardEvent('keydown', { key, code, metaKey, ctrlKey, shiftKey, altKey, bubbles: true, cancelable: true }));
+        return;
+      }
       vscodeApi.postMessage(event.data);
     });
   </script>

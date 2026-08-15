@@ -910,6 +910,24 @@ document.addEventListener('keydown', (evt) => {
   const key = evt.key.toLowerCase();
   const code = evt.code;
 
+  // Command Palette - VS Code's webview-forwarding bridge only reaches the outer webview shell
+  // (getWebviewHtml in extension.ts), not this nested localhost iframe where keydowns actually
+  // land, so there's no when-clause that can catch this directly. Instead, relay it up via
+  // postMessage; the shell re-dispatches a synthetic keydown on itself, which the bridge *can*
+  // see and forward on to workbench.action.showCommands (bound in package.json's
+  // contributes.keybindings, scoped to activeWebviewPanelId == 'dialogIdeSkein'). Deliberately
+  // narrow (just this one combo) rather than relaying every unhandled key - the same modifier
+  // combos without Shift (Cmd/Ctrl+A/C/V/X/Z) have native text-editing meaning in whatever's
+  // focused, which relaying would break.
+  if (mod && evt.shiftKey && !opt && code === 'KeyA') {
+    evt.preventDefault();
+    window.parent.postMessage(
+      { type: 'forward-keydown', key: 'a', code, metaKey: evt.metaKey, ctrlKey: evt.ctrlKey, shiftKey: true, altKey: false },
+      '*'
+    );
+    return;
+  }
+
   // Tree-wide.
   if (mod && !opt && key === 's') {
     evt.preventDefault();

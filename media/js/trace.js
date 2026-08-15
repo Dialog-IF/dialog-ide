@@ -122,8 +122,26 @@ document.addEventListener('keydown', (evt) => {
 // first.
 document.addEventListener('keydown', (evt) => {
   const mod = evt.metaKey || evt.ctrlKey;
-  if (mod && evt.key.toLowerCase() === 'a' && evt.target.matches('input[type="search"]')) {
+  // !shiftKey: Cmd/Ctrl+Shift+A is a separate relay (below), not select-all.
+  if (mod && !evt.shiftKey && evt.key.toLowerCase() === 'a' && evt.target.matches('input[type="search"]')) {
     evt.preventDefault();
     evt.target.select();
+  }
+});
+
+// Command Palette - same relay as the Skein panel's main.js (see its own comment for why this is
+// needed): VS Code's webview-forwarding bridge only reaches the outer webview shell
+// (getTraceWebviewHtml in extension.ts), not this nested localhost iframe where keydowns
+// actually land. Posted up via postMessage; the shell re-dispatches a synthetic keydown that VS
+// Code's bridge can forward to workbench.action.showCommands (package.json's
+// contributes.keybindings, scoped to focusedView == 'dialogIdeTraceView').
+document.addEventListener('keydown', (evt) => {
+  const mod = evt.metaKey || evt.ctrlKey;
+  if (mod && evt.shiftKey && evt.code === 'KeyA') {
+    evt.preventDefault();
+    window.parent.postMessage(
+      { type: 'forward-keydown', key: 'a', code: 'KeyA', metaKey: evt.metaKey, ctrlKey: evt.ctrlKey, shiftKey: true, altKey: false },
+      '*'
+    );
   }
 });
