@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.1.0 - Unreleased
+## 0.1.0 - 15 Aug 2026
 
 - Bundle the Dialog toolchain (`dgdebug`/`dialogc`) and AAmachine (`aambundle`) with the extension on Windows, Apple Silicon Macs, and Linux (x64), so most users no longer need to install either separately; other platforms still resolve via `PATH` or `dialog.json`'s `binDir`, which always takes priority
 - "Initialize Dialog Project" command: scaffolds `dialog.json`, `main`/`lib`/`debug`/`test` directories, a starter `main/main.dg`, bundled copies of the standard libraries (`stdlib.dg`/`stddebug.dg`/`unit.dg`), a placeholder `cover.png`, and the two "how to play IF" PDFs used by "Export Web Page..." into an open, empty workspace folder
