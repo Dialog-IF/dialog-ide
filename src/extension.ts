@@ -42,6 +42,7 @@ import {
   EngineChoice,
   ENGINE_CHOICES,
   debugTerminalShellArgs,
+  testTerminalShellArgs,
   isAambundleAvailable,
   isDgdebugAvailable,
   isDialogcAvailable,
@@ -63,6 +64,12 @@ let statusBarItem: vscode.StatusBarItem;
 let activeSession: SkeinSession | undefined;
 let activeSessionId: string | undefined;
 let activeProjectRoot: string | undefined;
+
+// The terminal from the most recent "Run Tests" invocation, if it's still open - disposed of (see
+// runTestsInTerminal) before opening a new one, so re-running the command replaces its terminal
+// rather than piling up a fresh tab each time. Disposing an already-closed Terminal (the user
+// closed it themselves) is a safe no-op, so this is never explicitly cleared on close.
+let testTerminal: vscode.Terminal | undefined;
 
 // This extension's own bundled dgdebug/dialogc directory, if this particular installed package
 // was built for the current platform/arch (see scripts/fetch-dialog-binaries.js) - undefined for
@@ -206,6 +213,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand(
       'dialog-ide.debugInTerminal',
       withErrorHandling(() => debugInTerminal(resolveProjectRoot(getWorkspaceRoot())))
+    ),
+    vscode.commands.registerCommand(
+      'dialog-ide.runTests',
+      withErrorHandling(() => runTestsInTerminal(resolveProjectRoot(getWorkspaceRoot())))
     ),
     vscode.commands.registerCommand(
       'dialog-ide.addSourceToProject',
@@ -484,6 +495,39 @@ async function debugInTerminal(projectRoot: string): Promise<void> {
     shellArgs: debugTerminalShellArgs(sourceFiles)
   });
   terminal.show();
+}
+
+/**
+ * Opens a real, unmanaged dgdebug session in a VS Code terminal running the project's unit tests.
+ * Expands sources with both debug AND test categories active (unlike "Debug in Terminal", which
+ * only includes debug) - the `test` category's own lib/unit.dg (wired in by "Initialize Dialog
+ * Project"'s scaffolded dialog.json) overrides (program entry point) to run through the project's
+ * tests instead of starting the normal interactive game. See testTerminalShellArgs (session-
+ * runner.ts) for why this deliberately doesn't pass --unit-test (which bundles in --quit, closing
+ * the terminal before its pass/fail output can be read) - the terminal instead lands in dgdebug's
+ * own "suspended>" debug prompt once the tests finish, and the user exits it themselves.
+ *
+ * Disposes of the previous "Run Tests" terminal (if it's still open) before opening a new one -
+ * since the whole point of staying open is to let you read the last run's output, re-running the
+ * command would otherwise pile up a fresh terminal tab every time rather than replacing it.
+ */
+async function runTestsInTerminal(projectRoot: string): Promise<void> {
+  const project = readProject(projectRoot);
+  if (!(await isDgdebugAvailable(project.binDir, bundledBinDir))) {
+    throw new Error(
+      'dgdebug was not found on PATH, in binDir, or bundled with this extension. Install the Dialog toolchain or set "binDir" in dialog.json.'
+    );
+  }
+
+  testTerminal?.dispose();
+
+  const sourceFiles = expandSources(project, { debug: true, test: true, target: 'dgdebug' });
+  testTerminal = vscode.window.createTerminal({
+    name: 'Dialog Tests',
+    shellPath: resolveCommandPath(project.binDir, 'dgdebug', bundledBinDir),
+    shellArgs: testTerminalShellArgs(sourceFiles)
+  });
+  testTerminal.show();
 }
 
 /**

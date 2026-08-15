@@ -5,6 +5,7 @@ import {
   ENGINE_CHOICES,
   SessionRunnerError,
   debugTerminalShellArgs,
+  testTerminalShellArgs,
   isAambundleAvailable,
   isDgdebugAvailable,
   isValidSessionId,
@@ -117,6 +118,16 @@ describe('debugTerminalShellArgs', () => {
       '--quit',
       '/proj/src/meta.dg',
       '/proj/src/orb.dg'
+    ]);
+  });
+});
+
+describe('testTerminalShellArgs', () => {
+  it('is --no-header plus the source files - deliberately not --unit-test, which bundles in --quit', () => {
+    expect(testTerminalShellArgs(['/proj/src/meta.dg', '/proj/lib/unit.dg'])).toEqual([
+      '--no-header',
+      '/proj/src/meta.dg',
+      '/proj/lib/unit.dg'
     ]);
   });
 });

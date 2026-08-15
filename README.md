@@ -53,7 +53,7 @@ Dialog IDE reads a `dialog.json` file at the root of your project (opened as a V
 ```
 
 - Each entry under `sources` is a list of directories (all `.dg` files in the directory) or individual file paths
-- `main` is always included; `debug` is pulled in for Skein/debug sessions; `library` (including the Dialog standard library) is always included; `test` is recognized as a project source today but isn't loaded by a running Skein session yet - reserved for a planned Test Runner
+- `main` is always included; `debug` is pulled in for Skein/debug sessions; `library` (including the Dialog standard library) is always included; `test` is loaded by **Dialog IDE: Run Tests** (see [Getting Started](#getting-started)), but not by a running Skein session
 - Order is very important: main comes before test, which comes before debug, which comes before library.
 
 The order of sources in a single directory is not guaranteed; if order counts, you should list the files in the directory
@@ -88,12 +88,15 @@ Open your project folder in VS Code, then use the Command Palette (⌘⇧P / Ctr
 | **Dialog IDE: Save Skein** | Save the current session's tree back to its `.skein` file |
 | **Dialog IDE: Stop Skein** | Stop the running session |
 | **Dialog IDE: Debug in Terminal** | Open a plain, unmanaged `dgdebug` session in a VS Code terminal |
+| **Dialog IDE: Run Tests** | Run the project's unit tests (the `test` source category) in a VS Code terminal |
 | **Dialog IDE: Add File to dialog.json...** | Add the current (or a picked) `.dg` file to one of dialog.json's source categories |
 | **Dialog IDE: Configure Exports...** | Define named export configurations, and the project's default `dialogc` options (see [Building & Exporting](#building--exporting)) |
 | **Dialog IDE: Export Dialog Project...** | Compile one of those export configurations |
 | **Dialog IDE: Export Web Page...** | Build a downloadable web page for the project, with an in-browser player |
 
 A status bar item on the left also shows the current session (or lets you start the default one with a click).
+
+**Dialog IDE: Run Tests** compiles with the `main`, `debug`, and `test` categories all active and runs `dgdebug` in a terminal - `test`'s own `lib/unit.dg` (see [Project Setup](#project-setup)) overrides `(program entry point)` to run every object with the `(test *)` trait instead of starting the game. Once the tests finish, dgdebug drops into its own `suspended>` debug prompt rather than quitting automatically, so the pass/fail output stays on screen - exit it yourself (`@quit` or Ctrl+D) once you've read the results. See the "Testing and Debugging" chapter of the Dialog manual (bundled with the [Dialog toolchain](https://github.com/dialog-if/dialog)'s own docs) for how to write `(test *)`/`(assert ...)` objects.
 
 `.skein` files are plain text, designed to diff cleanly under version control - commit them alongside your source.
 

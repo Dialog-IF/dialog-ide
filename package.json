@@ -73,6 +73,10 @@
         "title": "Dialog IDE: Debug in Terminal"
       },
       {
+        "command": "dialog-ide.runTests",
+        "title": "Dialog IDE: Run Tests"
+      },
+      {
         "command": "dialog-ide.addSourceToProject",
         "title": "Dialog IDE: Add File to dialog.json..."
       },

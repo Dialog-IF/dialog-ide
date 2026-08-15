@@ -140,3 +140,22 @@ export async function isAambundleAvailable(binDir?: string, bundledBinDir?: stri
 export function debugTerminalShellArgs(sourceFiles: string[]): string[] {
   return ['--quit', ...sourceFiles];
 }
+
+/**
+ * Args for launching dgdebug in a terminal to run the project's unit tests - --no-header (skip
+ * the version banner) plus the expanded source files, this time with the `test` category included
+ * (unlike debugTerminalShellArgs above). Deliberately --no-header alone, NOT --unit-test:
+ * --unit-test is dgdebug's own shorthand for "--quit --height=-1 --no-header" (confirmed via
+ * `dgdebug --help`), and --quit is exactly the problem here - since this isn't a real shell (the
+ * terminal's shellPath is dgdebug itself), the PTY closes the instant dgdebug exits, so with
+ * --quit the pass/fail output flashes and disappears before it can be read, and VS Code reports a
+ * misleading "process failed to launch" for any nonzero exit (i.e. any failing test). Without
+ * --quit, dgdebug instead drops into its own "suspended>" debug prompt once the tests (run via
+ * the `test` category's own lib/unit.dg overriding (program entry point) - see
+ * dialog-project-init.ts's scaffolded dialog.json) finish - confirmed against a real run: the
+ * terminal stays open with the full "Attempting N tests.../Testing #foo: Passed!/..." output
+ * intact, and the user exits it themselves (@quit or Ctrl+D) once they've read the results.
+ */
+export function testTerminalShellArgs(sourceFiles: string[]): string[] {
+  return ['--no-header', ...sourceFiles];
+}
