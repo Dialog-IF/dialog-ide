@@ -47,6 +47,41 @@ export function removeExportConfig(dialogJsonPath: string, name: string): void {
   fs.writeFileSync(dialogJsonPath, applyEdits(text, edits), 'utf8');
 }
 
+/**
+ * Sets (or, given an empty array, removes) dialog.json's top-level `dialogcOptions` - the
+ * project-wide default extra dialogc arguments (see resolveDialogcOptions) applied to every
+ * export/build that doesn't specify its own. Edits via jsonc-parser like addExportConfig, so the
+ * file's existing formatting/comments survive.
+ */
+export function setProjectDialogcOptions(dialogJsonPath: string, options: string[]): void {
+  const text = fs.readFileSync(dialogJsonPath, 'utf8');
+  const edits = modify(text, ['dialogcOptions'], options.length > 0 ? options : undefined, {
+    formattingOptions: { insertSpaces: true, tabSize: 2 }
+  });
+  fs.writeFileSync(dialogJsonPath, applyEdits(text, edits), 'utf8');
+}
+
+/**
+ * Splits a raw "--heap 2000 --aux 1000"-style string typed into a showInputBox into dialogc argv
+ * tokens - a plain whitespace split with no quote handling, which covers every real dialogc flag
+ * (all take a single bare word/number, never an embedded space). Blank/whitespace-only input
+ * yields [], matching "no options entered".
+ */
+export function parseDialogcOptionsInput(raw: string): string[] {
+  const trimmed = raw.trim();
+  return trimmed === '' ? [] : trimmed.split(/\s+/);
+}
+
+/**
+ * The extra dialogc arguments to use for `config`: its own dialogcOptions if it has any, else the
+ * project's own default (project.dialogcOptions), else none - a config-level override *replaces*
+ * the project default rather than appending to it, matching dialog-tool's own :build
+ * :default/per-target :options merge semantics.
+ */
+export function resolveDialogcOptions(project: DialogProject, config: Pick<ExportConfig, 'dialogcOptions'>): string[] {
+  return config.dialogcOptions ?? project.dialogcOptions ?? [];
+}
+
 /** Turns "Release zblorb" + "zblorb" into "build/release-zblorb.zblorb". */
 export function defaultOutputPath(config: { name: string; format: string }): string {
   const slug =
@@ -76,7 +111,9 @@ export function resolveCoverImage(rootDir: string): string | null {
  * For a zblorb export, also bakes in the project's cover.png (if one exists) via dialogc's
  * --cover/--cover-alt flags - matching dialog-tool's dialog.edn template
  * (["--cover" "cover.png" "--cover-alt" "{{project-name}}"]). --cover is zblorb-specific (a Blorb
- * resource), so it's only added for that format.
+ * resource), so it's only added for that format. Also appends this config's own extra dialogc
+ * options, or the project's default ones (see resolveDialogcOptions) - e.g. --heap/--aux for a
+ * story that needs a bigger heap.
  */
 export function buildDialogcArgs(project: DialogProject, config: ExportConfig): string[] {
   const outputPath = path.isAbsolute(config.output) ? config.output : path.join(project.rootDir, config.output);
@@ -88,7 +125,8 @@ export function buildDialogcArgs(project: DialogProject, config: ExportConfig): 
       coverArgs.push('--cover', coverImage, '--cover-alt', project.name);
     }
   }
-  return ['-t', config.format, '-o', outputPath, ...coverArgs, ...sourceFiles];
+  const dialogcOptions = resolveDialogcOptions(project, config);
+  return ['-t', config.format, '-o', outputPath, ...coverArgs, ...dialogcOptions, ...sourceFiles];
 }
 
 export type ExportResult =

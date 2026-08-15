@@ -7,9 +7,12 @@ import {
   addExportConfig,
   buildDialogcArgs,
   defaultOutputPath,
+  parseDialogcOptionsInput,
   removeExportConfig,
   resolveCoverImage,
-  runDialogcExport
+  resolveDialogcOptions,
+  runDialogcExport,
+  setProjectDialogcOptions
 } from './dialog-export';
 
 describe('addExportConfig', () => {
@@ -197,6 +200,101 @@ describe('buildDialogcArgs', () => {
       fs.writeFileSync(path.join(tmpDir, 'cover.png'), 'not really a png');
       expect(resolveCoverImage(tmpDir)).toBe(path.join(tmpDir, 'cover.png'));
     });
+  });
+});
+
+describe('parseDialogcOptionsInput', () => {
+  it('splits on whitespace', () => {
+    expect(parseDialogcOptionsInput('--heap 2000 --aux 1000')).toEqual(['--heap', '2000', '--aux', '1000']);
+  });
+
+  it('collapses runs of whitespace', () => {
+    expect(parseDialogcOptionsInput('  --heap   2000  ')).toEqual(['--heap', '2000']);
+  });
+
+  it('returns [] for blank input', () => {
+    expect(parseDialogcOptionsInput('')).toEqual([]);
+    expect(parseDialogcOptionsInput('   ')).toEqual([]);
+  });
+});
+
+describe('resolveDialogcOptions', () => {
+  function project(dialogcOptions?: string[]): DialogProject {
+    return { name: 'Test', target: ['zblorb'], sources: { main: ['src'] }, exports: [], rootDir: '/tmp/unused', dialogcOptions };
+  }
+
+  it('uses the config\'s own dialogcOptions when set', () => {
+    expect(resolveDialogcOptions(project(['--heap', '1000']), { dialogcOptions: ['--heap', '5000'] })).toEqual([
+      '--heap',
+      '5000'
+    ]);
+  });
+
+  it('falls back to the project default when the config has none', () => {
+    expect(resolveDialogcOptions(project(['--heap', '1000']), {})).toEqual(['--heap', '1000']);
+  });
+
+  it('is [] when neither the config nor the project has any', () => {
+    expect(resolveDialogcOptions(project(), {})).toEqual([]);
+  });
+});
+
+describe('buildDialogcArgs dialogcOptions', () => {
+  function project(dialogcOptions?: string[]): DialogProject {
+    return { name: 'Test', target: ['zblorb'], sources: { main: ['src'] }, exports: [], rootDir: '/tmp/unused', dialogcOptions };
+  }
+
+  it('appends the config\'s own dialogcOptions', () => {
+    const config: ExportConfig = {
+      name: 'Release',
+      format: 'z8',
+      includeDebug: false,
+      output: 'build/r.z8',
+      dialogcOptions: ['--heap', '2000']
+    };
+    const args = buildDialogcArgs(project(), config);
+    expect(args).toEqual(expect.arrayContaining(['--heap', '2000']));
+  });
+
+  it('falls back to the project default when the config has none', () => {
+    const config: ExportConfig = { name: 'Release', format: 'z8', includeDebug: false, output: 'build/r.z8' };
+    const args = buildDialogcArgs(project(['--aux', '1000']), config);
+    expect(args).toEqual(expect.arrayContaining(['--aux', '1000']));
+  });
+});
+
+describe('setProjectDialogcOptions', () => {
+  let tmpDir: string;
+  let dialogJsonPath: string;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dialog-export-project-options-'));
+    dialogJsonPath = path.join(tmpDir, 'dialog.json');
+    fs.writeFileSync(dialogJsonPath, JSON.stringify({ name: 'Test', sources: { main: ['src'] } }, null, 2));
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('adds dialogcOptions when none existed', () => {
+    setProjectDialogcOptions(dialogJsonPath, ['--heap', '2000']);
+    const written = JSON.parse(fs.readFileSync(dialogJsonPath, 'utf8'));
+    expect(written.dialogcOptions).toEqual(['--heap', '2000']);
+  });
+
+  it('replaces an existing dialogcOptions value', () => {
+    setProjectDialogcOptions(dialogJsonPath, ['--heap', '2000']);
+    setProjectDialogcOptions(dialogJsonPath, ['--aux', '1000']);
+    const written = JSON.parse(fs.readFileSync(dialogJsonPath, 'utf8'));
+    expect(written.dialogcOptions).toEqual(['--aux', '1000']);
+  });
+
+  it('removes the field when given an empty array', () => {
+    setProjectDialogcOptions(dialogJsonPath, ['--heap', '2000']);
+    setProjectDialogcOptions(dialogJsonPath, []);
+    const written = JSON.parse(fs.readFileSync(dialogJsonPath, 'utf8'));
+    expect(written.dialogcOptions).toBeUndefined();
   });
 });
 

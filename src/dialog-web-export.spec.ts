@@ -127,13 +127,14 @@ describeIfFullToolchain('bundleWebExport (real dialogc/dgdebug/aambundle)', () =
     fs.rmSync(rootDir, { recursive: true, force: true });
   });
 
-  function project(): DialogProject {
+  function project(dialogcOptions?: string[]): DialogProject {
     return {
       name: 'The Orb',
       target: ['zblorb'],
       sources: { main: ['main'], library: ['lib/dialog'] },
       exports: [],
-      rootDir
+      rootDir,
+      dialogcOptions
     };
   }
 
@@ -181,4 +182,26 @@ describeIfFullToolchain('bundleWebExport (real dialogc/dgdebug/aambundle)', () =
       expect(result.step).toBe('build');
     }
   }, 20000);
+
+  it('passes project.dialogcOptions through to every target build (real dialogc)', async () => {
+    const succeeded = await bundleWebExport(
+      project(['--heap', '2000']),
+      { dialogcPath: 'dialogc', aambundlePath: 'aambundle' },
+      ASSETS_DIR
+    );
+    expect(succeeded.ok).toBe(true);
+
+    // An option dialogc doesn't recognize proves the array actually reaches the real dialogc
+    // invocation (rather than, say, silently being dropped) - it fails to build with that option,
+    // same project otherwise compiles fine (see the "produces a complete..." test above).
+    const failed = await bundleWebExport(
+      project(['--not-a-real-dialogc-flag']),
+      { dialogcPath: 'dialogc', aambundlePath: 'aambundle' },
+      ASSETS_DIR
+    );
+    expect(failed.ok).toBe(false);
+    if (failed.ok === false) {
+      expect(failed.step).toBe('build');
+    }
+  }, 60000);
 });

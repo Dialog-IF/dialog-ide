@@ -25,6 +25,10 @@ export interface ExportConfig {
   format: 'zblorb' | 'z8' | 'aa';
   includeDebug: boolean;
   output: string;
+  // Extra dialogc command-line arguments (e.g. ["--heap", "2000"]) specific to this export -
+  // when omitted, falls back to the project's own dialogcOptions (see DialogProject), if any.
+  // See dialog-export.ts's resolveDialogcOptions for the fallback logic.
+  dialogcOptions?: string[];
 }
 
 export interface DialogProject {
@@ -33,6 +37,11 @@ export interface DialogProject {
   binDir?: string;
   sources: ProjectSources;
   exports: ExportConfig[];
+  // Extra dialogc command-line arguments applied to every dialogc invocation that doesn't
+  // specify its own (an ExportConfig's own dialogcOptions, if set, replaces this rather than
+  // appending to it - see dialog-export.ts's resolveDialogcOptions) - also applied to every
+  // target built by "Export Web Page...", which has no per-run configuration of its own.
+  dialogcOptions?: string[];
   rootDir: string;
 }
 
@@ -54,6 +63,7 @@ export function readProject(rootDir: string): DialogProject {
     binDir?: string;
     sources?: Partial<ProjectSources>;
     exports?: unknown;
+    dialogcOptions?: unknown;
   };
   try {
     parsed = JSON.parse(fs.readFileSync(filePath, 'utf8'));
@@ -67,8 +77,18 @@ export function readProject(rootDir: string): DialogProject {
     binDir: parsed.binDir,
     sources: { main: [], ...parsed.sources },
     exports: normalizeExports(parsed.exports),
+    dialogcOptions: normalizeDialogcOptions(parsed.dialogcOptions),
     rootDir
   };
+}
+
+/** Parses a dialogcOptions value (project-level or per-export) defensively: a non-string-array
+ * value, or one with non-string entries, is treated as absent rather than failing the read. */
+function normalizeDialogcOptions(value: unknown): string[] | undefined {
+  if (!Array.isArray(value) || !value.every((entry) => typeof entry === 'string')) {
+    return undefined;
+  }
+  return value as string[];
 }
 
 /**
@@ -90,7 +110,14 @@ function normalizeExports(exports: unknown): ExportConfig[] {
       typeof (entry as ExportConfig).output === 'string'
     ) {
       const { name, format, output } = entry as ExportConfig;
-      result.push({ name, format, output, includeDebug: Boolean((entry as ExportConfig).includeDebug) });
+      const dialogcOptions = normalizeDialogcOptions((entry as ExportConfig).dialogcOptions);
+      result.push({
+        name,
+        format,
+        output,
+        includeDebug: Boolean((entry as ExportConfig).includeDebug),
+        ...(dialogcOptions ? { dialogcOptions } : {})
+      });
     } else {
       console.warn(`Skipping malformed dialog.json export entry: ${JSON.stringify(entry)}`);
     }

@@ -28,7 +28,14 @@ import { DialogWorkspaceSymbolProvider } from './dialog-workspace-symbol-provide
 import { DialogSourceDecorationProvider } from './dialog-source-decoration-provider';
 import { addSourceToDialogJson, toDialogJsonPath, SOURCE_CATEGORIES } from './dialog-source-coverage';
 import { scaffoldProject } from './dialog-project-init';
-import { addExportConfig, defaultOutputPath, removeExportConfig, runDialogcExport } from './dialog-export';
+import {
+  addExportConfig,
+  defaultOutputPath,
+  parseDialogcOptionsInput,
+  removeExportConfig,
+  runDialogcExport,
+  setProjectDialogcOptions
+} from './dialog-export';
 import { bundleWebExport, WebExportPaths } from './dialog-web-export';
 import {
   DEFAULT_SESSION_ID,
@@ -590,7 +597,7 @@ async function configureExports(projectRoot: string): Promise<void> {
 
   for (;;) {
     const project = readProject(projectRoot);
-    type Item = vscode.QuickPickItem & { action: 'add' | 'remove' | 'done'; name?: string };
+    type Item = vscode.QuickPickItem & { action: 'add' | 'remove' | 'options' | 'done'; name?: string };
     const items: Item[] = [
       { label: '$(add) Add new export configuration...', action: 'add' },
       ...project.exports.map(
@@ -601,6 +608,11 @@ async function configureExports(projectRoot: string): Promise<void> {
           name: config.name
         })
       ),
+      {
+        label: '$(gear) Set default dialogc options...',
+        description: project.dialogcOptions ? project.dialogcOptions.join(' ') : '(none)',
+        action: 'options'
+      },
       { label: '$(check) Done', action: 'done' }
     ];
 
@@ -613,10 +625,34 @@ async function configureExports(projectRoot: string): Promise<void> {
 
     if (picked.action === 'add') {
       await addExportConfigWizard(dialogJsonPath, project);
+    } else if (picked.action === 'options') {
+      await editProjectDialogcOptionsWizard(dialogJsonPath, project);
     } else if (picked.name) {
       await removeExportConfigWizard(dialogJsonPath, picked.name);
     }
   }
+}
+
+/**
+ * Prompts for, and sets, dialog.json's project-wide default extra dialogc options (e.g.
+ * "--heap 2000 --aux 1000") - see dialog-export.ts's resolveDialogcOptions for how this falls
+ * back when an individual export configuration doesn't specify its own, and how it's the only
+ * dialogc-options knob "Export Web Page..." has, since that command has no per-run configuration
+ * of its own.
+ */
+async function editProjectDialogcOptionsWizard(dialogJsonPath: string, project: DialogProject): Promise<void> {
+  const raw = await vscode.window.showInputBox({
+    prompt: 'Default dialogc options for this project (e.g. --heap 2000 --aux 1000) - leave blank to clear',
+    value: project.dialogcOptions ? project.dialogcOptions.join(' ') : ''
+  });
+  if (raw === undefined) {
+    return;
+  }
+
+  setProjectDialogcOptions(dialogJsonPath, parseDialogcOptionsInput(raw));
+  vscode.window.showInformationMessage(
+    raw.trim() === '' ? 'Cleared the project\'s default dialogc options.' : 'Updated the project\'s default dialogc options.'
+  );
 }
 
 async function addExportConfigWizard(dialogJsonPath: string, project: DialogProject): Promise<void> {
@@ -656,7 +692,20 @@ async function addExportConfigWizard(dialogJsonPath: string, project: DialogProj
     return;
   }
 
-  addExportConfig(dialogJsonPath, { ...draft, output });
+  const dialogcOptionsRaw = await vscode.window.showInputBox({
+    prompt:
+      'Extra dialogc options for this export (e.g. --heap 2000 --aux 1000) - leave blank to use the project\'s default, if any'
+  });
+  if (dialogcOptionsRaw === undefined) {
+    return;
+  }
+  const dialogcOptions = parseDialogcOptionsInput(dialogcOptionsRaw);
+
+  addExportConfig(dialogJsonPath, {
+    ...draft,
+    output,
+    ...(dialogcOptions.length > 0 ? { dialogcOptions } : {})
+  });
   vscode.window.showInformationMessage(`Added export configuration "${draft.name}".`);
 }
 

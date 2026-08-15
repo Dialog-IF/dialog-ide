@@ -93,6 +93,70 @@ describe('readProject', () => {
       writeDialogJson('not-an-array');
       expect(readProject(tmpDir).exports).toEqual([]);
     });
+
+    it('parses a per-export dialogcOptions array', () => {
+      writeDialogJson([
+        { name: 'Release', format: 'zblorb', output: 'build/release.zblorb', dialogcOptions: ['--heap', '2000'] }
+      ]);
+      expect(readProject(tmpDir).exports).toEqual([
+        {
+          name: 'Release',
+          format: 'zblorb',
+          includeDebug: false,
+          output: 'build/release.zblorb',
+          dialogcOptions: ['--heap', '2000']
+        }
+      ]);
+    });
+
+    it('omits dialogcOptions from a parsed export when malformed (not a string array)', () => {
+      writeDialogJson([
+        { name: 'Release', format: 'zblorb', output: 'build/release.zblorb', dialogcOptions: ['--heap', 2000] }
+      ]);
+      expect(readProject(tmpDir).exports).toEqual([
+        { name: 'Release', format: 'zblorb', includeDebug: false, output: 'build/release.zblorb' }
+      ]);
+    });
+  });
+
+  describe('project-level dialogcOptions', () => {
+    let tmpDir: string;
+
+    beforeEach(() => {
+      tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dialog-ide-project-dialogc-options-'));
+    });
+
+    afterEach(() => {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    });
+
+    it('is undefined when absent', () => {
+      fs.writeFileSync(
+        path.join(tmpDir, 'dialog.json'),
+        JSON.stringify({ name: 'Test', sources: { main: ['src'] } }, null, 2)
+      );
+      expect(readProject(tmpDir).dialogcOptions).toBeUndefined();
+    });
+
+    it('parses a string array', () => {
+      fs.writeFileSync(
+        path.join(tmpDir, 'dialog.json'),
+        JSON.stringify(
+          { name: 'Test', sources: { main: ['src'] }, dialogcOptions: ['--heap', '2000', '--aux', '1000'] },
+          null,
+          2
+        )
+      );
+      expect(readProject(tmpDir).dialogcOptions).toEqual(['--heap', '2000', '--aux', '1000']);
+    });
+
+    it('is undefined when malformed (not a string array)', () => {
+      fs.writeFileSync(
+        path.join(tmpDir, 'dialog.json'),
+        JSON.stringify({ name: 'Test', sources: { main: ['src'] }, dialogcOptions: 'not-an-array' }, null, 2)
+      );
+      expect(readProject(tmpDir).dialogcOptions).toBeUndefined();
+    });
   });
 });
 

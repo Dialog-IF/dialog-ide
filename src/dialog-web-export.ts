@@ -21,7 +21,7 @@ import { DialogProject, SkeinProcess, deserializeTree, expandSources } from './d
 import { stripAnsi } from './dialoged/skein/ui/ansi';
 import { BuiltTarget, StoryInfo, renderWebExportPage } from './dialoged/skein/ui/webExportPage';
 import { resizeCoverPng } from './dialog-cover-resize';
-import { resolveCoverImage } from './dialog-export';
+import { resolveCoverImage, resolveDialogcOptions } from './dialog-export';
 
 export { BuiltTarget, StoryInfo };
 
@@ -66,7 +66,10 @@ function extFor(target: string): string {
  * Compiles a single target via dialogc into outputDir/<project.name>.<ext> - --strip (a release
  * build) plus, for zblorb specifically, --cover/--cover-alt if the project has a cover.png (see
  * dialog-export.ts's resolveCoverImage/buildDialogcArgs, which bakes the same cover into the
- * regular "Export Dialog Project..." zblorb export).
+ * regular "Export Dialog Project..." zblorb export). Also appends the project's default extra
+ * dialogc options (project.dialogcOptions - see resolveDialogcOptions), if any - there's no
+ * per-target override here, unlike a named ExportConfig, since "Export Web Page..." has no
+ * per-run configuration of its own.
  */
 async function buildTarget(
   project: DialogProject,
@@ -84,8 +87,18 @@ async function buildTarget(
       coverArgs.push('--cover', coverImage, '--cover-alt', project.name);
     }
   }
+  const dialogcOptions = resolveDialogcOptions(project, {});
 
-  await execFileAsync(dialogcPath, ['-t', target, '-o', outputPath, '--strip', ...coverArgs, ...sourceFiles]);
+  await execFileAsync(dialogcPath, [
+    '-t',
+    target,
+    '-o',
+    outputPath,
+    '--strip',
+    ...coverArgs,
+    ...dialogcOptions,
+    ...sourceFiles
+  ]);
   const stat = await fsp.stat(outputPath);
   return {
     target,
