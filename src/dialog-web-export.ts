@@ -7,8 +7,9 @@
  * Mirrors dialog-tool's dgt bundle (src/dialog_tool/bundle.clj): compile every one of the
  * project's own targets plus :aa (for the in-browser player), query title/author/ifid/noun/
  * blurb/release live from dgdebug, run aambundle to produce the AAmachine web player, assemble
- * everything (vendored CSS/PDFs, story files, cover thumbnail, optional walkthrough, index.html)
- * into out/web/, then zip it into out/<name>-<release>.zip.
+ * everything (vendored CSS, story files, cover thumbnail, whichever "how to play IF" PDFs are
+ * still present in the project - see PDF_ASSETS/resolvePdfLinks, optional walkthrough,
+ * index.html) into out/web/, then zip it into out/<name>-<release>.zip.
  */
 
 import { execFile } from 'child_process';
@@ -19,7 +20,7 @@ import { promisify } from 'util';
 import { ZipFile } from 'yazl';
 import { DialogProject, SkeinProcess, deserializeTree, expandSources } from './dialoged/skein';
 import { stripAnsi } from './dialoged/skein/ui/ansi';
-import { BuiltTarget, StoryInfo, renderWebExportPage } from './dialoged/skein/ui/webExportPage';
+import { BuiltTarget, PdfLink, StoryInfo, renderWebExportPage } from './dialoged/skein/ui/webExportPage';
 import { resizeCoverPng } from './dialog-cover-resize';
 import { resolveCoverImage, resolveDialogcOptions } from './dialog-export';
 
@@ -60,6 +61,37 @@ function formatSize(bytes: number): string {
 
 function extFor(target: string): string {
   return target === 'aa' ? 'aastory' : target;
+}
+
+/**
+ * The two "how to play IF" PDFs "Initialize Dialog Project" seeds at the project root (see
+ * dialog-project-init.ts's scaffoldProject) - each is independently optional at export time: a
+ * user who deletes one from their project simply gets a page/out-web-dir without that link,
+ * rather than an error (see resolvePdfLinks).
+ */
+export const PDF_ASSETS: Array<{ filename: string; label: string }> = [
+  { filename: 'introduction-to-if.pdf', label: 'Introduction to IF' },
+  { filename: 'play-if-card.pdf', label: 'IF in One Page' }
+];
+
+/**
+ * Copies whichever of PDF_ASSETS still exist at the project root into outDir, returning a
+ * PdfLink per one actually copied (in PDF_ASSETS order) - the page (renderWebExportPage) only
+ * ever links to PDFs that made it into this list, so deleting one from the project root adapts
+ * the generated page automatically.
+ */
+async function resolvePdfLinks(project: DialogProject, outDir: string): Promise<PdfLink[]> {
+  const links: PdfLink[] = [];
+  for (const asset of PDF_ASSETS) {
+    const sourcePath = path.join(project.rootDir, asset.filename);
+    if (!fs.existsSync(sourcePath)) {
+      continue;
+    }
+    await fsp.copyFile(sourcePath, path.join(outDir, asset.filename));
+    const stat = await fsp.stat(sourcePath);
+    links.push({ name: asset.filename, label: asset.label, description: formatSize(stat.size) });
+  }
+  return links;
 }
 
 /**
@@ -248,7 +280,8 @@ async function zipDirectory(sourceDir: string, zipPath: string): Promise<void> {
  * Orchestrates the whole "Export Web Page..." pipeline into <rootDir>/out/web/ plus a zip at
  * <rootDir>/out/<name>-<release>.zip - see bundle.clj's bundle-project for the dialog-tool
  * original this mirrors. assetsDir is this extension's own vendored resources/bundle/ directory
- * (style.css, play.css, the two PDFs).
+ * (style.css, play.css) - the "how to play IF" PDFs, by contrast, come from the project itself
+ * (see resolvePdfLinks), since those are meant to be deletable per-project.
  */
 export async function bundleWebExport(
   project: DialogProject,
@@ -287,14 +320,7 @@ export async function bundleWebExport(
     await fsp.copyFile(path.join(assetsDir, 'play.css'), path.join(outDir, 'resources', 'style.css'));
     await fsp.copyFile(path.join(assetsDir, 'style.css'), path.join(outDir, 'style.css'));
 
-    const introductionPdfPath = path.join(assetsDir, 'introduction-to-if.pdf');
-    const playCardPdfPath = path.join(assetsDir, 'play-if-card.pdf');
-    await fsp.copyFile(introductionPdfPath, path.join(outDir, 'introduction-to-if.pdf'));
-    await fsp.copyFile(playCardPdfPath, path.join(outDir, 'play-if-card.pdf'));
-    const [introductionStat, playCardStat] = await Promise.all([
-      fsp.stat(introductionPdfPath),
-      fsp.stat(playCardPdfPath)
-    ]);
+    const pdfLinks = await resolvePdfLinks(project, outDir);
 
     for (const file of storyFiles) {
       await fsp.copyFile(file.path, path.join(outDir, file.name));
@@ -319,8 +345,7 @@ export async function bundleWebExport(
       story,
       storyFiles,
       hasCover,
-      introductionPdfDescription: formatSize(introductionStat.size),
-      playCardPdfDescription: formatSize(playCardStat.size),
+      pdfLinks,
       walkthroughDescription
     });
     await fsp.writeFile(path.join(outDir, 'index.html'), html);

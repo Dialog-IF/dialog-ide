@@ -125,6 +125,35 @@ describe('scaffoldProject', () => {
     });
   });
 
+  describe('PDF asset seeding', () => {
+    let pdfAssetsDir: string;
+
+    beforeEach(() => {
+      pdfAssetsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dialog-ide-init-pdfs-'));
+      fs.writeFileSync(path.join(pdfAssetsDir, 'introduction-to-if.pdf'), 'intro pdf contents');
+      fs.writeFileSync(path.join(pdfAssetsDir, 'play-if-card.pdf'), 'card pdf contents');
+    });
+
+    it('copies both PDFs to the project root when pdfAssetsDir is given', () => {
+      scaffoldProject(rootDir, { name: 'The Orb', targets: ['zblorb'] }, libraryDir, undefined, pdfAssetsDir);
+      expect(fs.readFileSync(path.join(rootDir, 'introduction-to-if.pdf'), 'utf8')).toBe('intro pdf contents');
+      expect(fs.readFileSync(path.join(rootDir, 'play-if-card.pdf'), 'utf8')).toBe('card pdf contents');
+    });
+
+    it('writes no PDFs when pdfAssetsDir is omitted', () => {
+      scaffoldProject(rootDir, { name: 'The Orb', targets: ['zblorb'] }, libraryDir);
+      expect(fs.existsSync(path.join(rootDir, 'introduction-to-if.pdf'))).toBe(false);
+      expect(fs.existsSync(path.join(rootDir, 'play-if-card.pdf'))).toBe(false);
+    });
+
+    it('copies whichever PDFs exist in pdfAssetsDir, skipping ones that do not', () => {
+      fs.rmSync(path.join(pdfAssetsDir, 'play-if-card.pdf'));
+      scaffoldProject(rootDir, { name: 'The Orb', targets: ['zblorb'] }, libraryDir, undefined, pdfAssetsDir);
+      expect(fs.existsSync(path.join(rootDir, 'introduction-to-if.pdf'))).toBe(true);
+      expect(fs.existsSync(path.join(rootDir, 'play-if-card.pdf'))).toBe(false);
+    });
+  });
+
   function isDialogcAvailable(): boolean {
     try {
       execFileSync('dialogc', ['--version'], { stdio: 'ignore' });

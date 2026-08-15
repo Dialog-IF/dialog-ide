@@ -4,9 +4,10 @@
  * than porting dialog-tool's Selmer-rendered resources/bundle/index.html verbatim. Field-for-field
  * parity with that page: title/author in <title>/meta tags, an optional cover thumbnail linking
  * to the full-size image, title/author/release headers, one list item per compiled story file,
- * the two vendored "how to play IF" PDF links, a "Play In-Browser" link to play.html (produced by
- * aambundle itself, not by this function), an optional walkthrough link, the story's blurb, and a
- * closing paragraph naming the IFID and recommending interpreters.
+ * a "how to play IF" PDF link for each one still present in the project (see PdfLink), a
+ * "Play In-Browser" link to play.html (produced by aambundle itself, not by this function), an
+ * optional walkthrough link, the story's blurb, and a closing paragraph naming the IFID and
+ * recommending interpreters.
  */
 
 /** A single compiled game file, ready for download - built by dialog-web-export.ts's buildAllTargets. */
@@ -27,6 +28,18 @@ export interface StoryInfo {
   release: string;
 }
 
+/**
+ * A "how to play IF" PDF link actually present in this export's out/web/ - dialog-web-export.ts's
+ * PDF_ASSETS lists the two possible ones (seeded into a project by "Initialize Dialog Project");
+ * either can be deleted from the project to opt it out of the page entirely, so this list only
+ * ever contains the ones that still exist.
+ */
+export interface PdfLink {
+  name: string;
+  label: string;
+  description: string;
+}
+
 function escapeHtml(text: string): string {
   return text
     .replace(/&/g, '&amp;')
@@ -40,14 +53,12 @@ export interface WebExportPageContext {
   story: StoryInfo;
   storyFiles: BuiltTarget[];
   hasCover: boolean;
-  introductionPdfDescription: string;
-  playCardPdfDescription: string;
+  pdfLinks: PdfLink[];
   walkthroughDescription: string | null;
 }
 
 export function renderWebExportPage(context: WebExportPageContext): string {
-  const { story, storyFiles, hasCover, introductionPdfDescription, playCardPdfDescription, walkthroughDescription } =
-    context;
+  const { story, storyFiles, hasCover, pdfLinks, walkthroughDescription } = context;
   const title = escapeHtml(story.title);
   const author = escapeHtml(story.author);
 
@@ -59,6 +70,13 @@ export function renderWebExportPage(context: WebExportPageContext): string {
     .map(
       (file) =>
         `\t\t<li><div class="download"><a href="${escapeHtml(file.name)}">Story File</a> <span class="filetype">(${escapeHtml(file.description)})</span></div></li>`
+    )
+    .join('\n');
+
+  const pdfLinksHtml = pdfLinks
+    .map(
+      (pdf) =>
+        `\t\t<li><a href="${escapeHtml(pdf.name)}">${escapeHtml(pdf.label)}</a> <span class="filetype">(pdf, ${escapeHtml(pdf.description)})</span></li>`
     )
     .join('\n');
 
@@ -86,8 +104,7 @@ ${coverHtml}
 \t<ul>
 ${storyFilesHtml}
 \t<div class="auxiliary">
-\t\t<li><a href="introduction-to-if.pdf">Introduction to IF</a> <span class="filetype">(pdf, ${escapeHtml(introductionPdfDescription)})</span></li>
-\t\t<li><a href="play-if-card.pdf">IF in One Page</a> <span class="filetype">(pdf, ${escapeHtml(playCardPdfDescription)})</span></li>
+${pdfLinksHtml}
 \t\t<li><a href="play.html">Play In-Browser</a> <span class="filetype">(link)</span></li></div>
 ${walkthroughHtml}
 \t</ul>

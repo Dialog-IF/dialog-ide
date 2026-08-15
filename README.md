@@ -19,9 +19,9 @@ Each command/response pair is called a **knot**. Knots form a tree - the same co
 
 ## Requirements
 
-- On Windows, Apple Silicon Macs, and Linux (x64): nothing extra - the Dialog toolchain (`dgdebug`) is bundled with the extension and just works.
-- On other platforms (Intel Macs, Linux ARM, etc.): install the [Dialog toolchain](https://github.com/dialog-if/dialog) yourself, with `dgdebug` on your `PATH`, or point `dialog.json`'s `binDir` at it (see [Project Setup](#project-setup))
-- A project folder containing a `dialog.json` file (see [Project Setup](#project-setup))
+- On Windows, Apple Silicon Macs, and Linux (x64): nothing extra - the Dialog toolchain (`dgdebug`, `dialogc`) and [AAmachine](https://github.com/dialog-if/aamachine) (`aambundle`) are bundled with the extension and just work.
+- On other platforms (Intel Macs, Linux ARM, etc.): install the [Dialog toolchain](https://github.com/dialog-if/dialog) yourself, with `dgdebug`/`dialogc` on your `PATH`, or point `dialog.json`'s `binDir` at it (see [Project Setup](#project-setup)). **Export Web Page...** additionally needs `aambundle` from [AAmachine](https://github.com/dialog-if/aamachine) on your `PATH`/`binDir` - the other commands don't need it.
+- A project folder containing a `dialog.json` file (see [Project Setup](#project-setup)) - or use **Dialog IDE: Initialize Dialog Project** to create one from scratch
 
 `.dg` syntax highlighting, folding, and bracket/indentation support are built in, along with an Outline view (and breadcrumbs, ⌘⇧O / Ctrl+Shift+O) and workspace-wide "Go to Symbol" (⌘T / Ctrl+T) across every `.dg` file in the project. Dialog IDE itself doesn't otherwise touch source editing; it's all about running the project through the Skein.
 
@@ -80,6 +80,7 @@ Open your project folder in VS Code, then use the Command Palette (⌘⇧P / Ctr
 
 | Command | Effect |
 |---|---|
+| **Dialog IDE: Initialize Dialog Project** | Scaffold a new project into an empty folder: `dialog.json`, `main`/`lib`/`debug`/`test` directories, starter source, a placeholder `cover.png`, and the two "how to play IF" PDFs used by **Export Web Page...** |
 | **Dialog IDE: New Skein...** | Create a new `.skein` file (prompts for a random seed and file name) |
 | **Dialog IDE: Run Default Skein** | Run `default.skein` if one already exists |
 | **Dialog IDE: Run Skein...** | Pick from any existing `.skein` file in the project |
@@ -88,10 +89,25 @@ Open your project folder in VS Code, then use the Command Palette (⌘⇧P / Ctr
 | **Dialog IDE: Stop Skein** | Stop the running session |
 | **Dialog IDE: Debug in Terminal** | Open a plain, unmanaged `dgdebug` session in a VS Code terminal |
 | **Dialog IDE: Add File to dialog.json...** | Add the current (or a picked) `.dg` file to one of dialog.json's source categories |
+| **Dialog IDE: Configure Exports...** | Define named export configurations, and the project's default `dialogc` options (see [Building & Exporting](#building--exporting)) |
+| **Dialog IDE: Export Dialog Project...** | Compile one of those export configurations |
+| **Dialog IDE: Export Web Page...** | Build a downloadable web page for the project, with an in-browser player |
 
 A status bar item on the left also shows the current session (or lets you start the default one with a click).
 
 `.skein` files are plain text, designed to diff cleanly under version control - commit them alongside your source.
+
+## Building & Exporting
+
+**Dialog IDE: Configure Exports...** defines named export configurations, stored in `dialog.json`'s `exports` array: an output format (`zblorb`, `z8`, or `aa`), whether to include debug sources, an output path, and (optionally) extra `dialogc` options for that export specifically (e.g. `--heap 2000 --aux 1000`, for a project that needs a bigger heap). The same menu also sets a project-wide *default* set of `dialogc` options, used by any export configuration that doesn't specify its own, and by **Export Web Page...** (below).
+
+**Dialog IDE: Export Dialog Project...** picks one of those configurations and compiles it with `dialogc`.
+
+**Cover image.** If a `cover.png` exists at your project root (seeded automatically by **Initialize Dialog Project**, or add your own), a `zblorb` export bakes it in automatically via `dialogc`'s `--cover`/`--cover-alt` flags - no configuration needed.
+
+**Dialog IDE: Export Web Page...** builds a complete, downloadable web page for your project into `out/web/` (plus a zip at `out/<name>-<release>.zip`): every one of the project's own target formats, compiled fresh; an in-browser player powered by [AAmachine](https://github.com/dialog-if/aamachine); the cover image, resized to a thumbnail; two short "how to play interactive fiction" PDFs for newcomers (`introduction-to-if.pdf`, `play-if-card.pdf`); and, if `default.skein` has a knot labeled `WALKTHROUGH`, a walkthrough transcript (everything from the root to that knot, skipping any command starting with `*`). Story title/author/blurb/release/IFID on the page come from the project's own `(story ...)` directives, queried live via `dgdebug`. This command always builds every target plus `aa` - it isn't one of `dialog.json`'s named export configurations, and doesn't have per-run settings of its own beyond the project-wide default `dialogc` options above.
+
+**Opting out of a PDF.** Both PDFs are seeded into your project root by **Initialize Dialog Project**, same as `cover.png`. Delete either one (or both) and the next **Export Web Page...** simply omits it - no link, no copy in `out/web/` - rather than erroring or regenerating it.
 
 ## Using the Skein
 
@@ -147,13 +163,13 @@ Undo/redo is unlimited and covers structural edits (bless, delete, splice, runni
 - Only the `dgdebug` engine is runnable today - `frotz`/`frotz-release` are offered as engine choices when creating a skein, but selecting either just explains they're not implemented yet
 - No "Reload from disk" action yet for picking up external changes to a `.skein` file
 - Dynamic state and tracing require `dgdebug`, and are unavailable for a command that ends on a single-keystroke prompt (the debugger can't be interrupted mid-keystroke to ask for either)
+- **Export Web Page...** needs `aambundle` (from [AAmachine](https://github.com/dialog-if/aamachine)) in addition to `dgdebug`/`dialogc` - see [Requirements](#requirements)
+- An existing export configuration can't be edited in place yet - remove it and add it again with the new settings
 
 ## Future Improvements
 
 This is an early alpha release of the extension; we have many more features planned, including:
 
-- A new project wizard
-- An export wizard to build a playable .zblorb file, or package the game for distribution
 - A Test Runner for the `test` source category
 
 Get involved at [Interactive Fiction Community Forum](https://intfiction.org/t/dialog-ide-0-0-1/81465/7) to provide feedback and ideas!

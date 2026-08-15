@@ -6,6 +6,7 @@ import { DialogProject, SkeinTree } from './dialoged/skein';
 import { serializeTree } from './dialoged/skein/persistence';
 import {
   BuiltTarget,
+  PDF_ASSETS,
   bundleWebExport,
   extractStoryInfo,
   extractWalkthrough,
@@ -121,6 +122,10 @@ describeIfFullToolchain('bundleWebExport (real dialogc/dgdebug/aambundle)', () =
     fs.cpSync(path.join(FIXTURE_ROOT, 'src'), path.join(rootDir, 'main'), { recursive: true });
     fs.cpSync(path.join(FIXTURE_ROOT, 'lib'), path.join(rootDir, 'lib'), { recursive: true });
     fs.copyFileSync(path.join(ASSETS_DIR, 'default-cover.png'), path.join(rootDir, 'cover.png'));
+    // Mirrors what "Initialize Dialog Project" seeds at the project root (dialog-project-init.ts).
+    for (const asset of PDF_ASSETS) {
+      fs.copyFileSync(path.join(ASSETS_DIR, asset.filename), path.join(rootDir, asset.filename));
+    }
   });
 
   afterEach(() => {
@@ -169,6 +174,48 @@ describeIfFullToolchain('bundleWebExport (real dialogc/dgdebug/aambundle)', () =
     expect(html).toContain('The Featureless Space');
     expect(html).toContain('The Intrepid Author');
     expect(html).toContain('cover-small.png');
+    expect(html).toContain('introduction-to-if.pdf');
+    expect(html).toContain('play-if-card.pdf');
+  }, 60000);
+
+  it('omits a deleted PDF from the output directory and the generated page, keeping the other one', async () => {
+    fs.rmSync(path.join(rootDir, 'introduction-to-if.pdf'));
+
+    const result = await bundleWebExport(
+      project(),
+      { dialogcPath: 'dialogc', aambundlePath: 'aambundle' },
+      ASSETS_DIR
+    );
+    expect(result.ok).toBe(true);
+    if (result.ok !== true) {
+      return;
+    }
+
+    expect(fs.existsSync(path.join(result.outDir, 'introduction-to-if.pdf'))).toBe(false);
+    expect(fs.existsSync(path.join(result.outDir, 'play-if-card.pdf'))).toBe(true);
+
+    const html = fs.readFileSync(path.join(result.outDir, 'index.html'), 'utf8');
+    expect(html).not.toContain('introduction-to-if.pdf');
+    expect(html).toContain('play-if-card.pdf');
+  }, 60000);
+
+  it('omits both PDFs when neither exists at the project root', async () => {
+    for (const asset of PDF_ASSETS) {
+      fs.rmSync(path.join(rootDir, asset.filename));
+    }
+
+    const result = await bundleWebExport(
+      project(),
+      { dialogcPath: 'dialogc', aambundlePath: 'aambundle' },
+      ASSETS_DIR
+    );
+    expect(result.ok).toBe(true);
+    if (result.ok !== true) {
+      return;
+    }
+
+    const html = fs.readFileSync(path.join(result.outDir, 'index.html'), 'utf8');
+    expect(html).not.toContain('.pdf');
   }, 60000);
 
   it('reports a failure step and message when dialogc is not actually usable', async () => {

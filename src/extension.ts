@@ -219,7 +219,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         initDialogProject(
           resolveProjectRoot(getWorkspaceRoot()),
           bundledLibraryDir,
-          path.join(context.extensionPath, 'resources', 'bundle', 'default-cover.png')
+          path.join(context.extensionPath, 'resources', 'bundle', 'default-cover.png'),
+          path.join(context.extensionPath, 'resources', 'bundle')
         )
       )
     ),
@@ -556,7 +557,8 @@ async function addSourceToProject(projectRoot: string, filePath: string | undefi
 async function initDialogProject(
   projectRoot: string,
   libraryDir: string | undefined,
-  coverImageSource: string
+  coverImageSource: string,
+  pdfAssetsDir: string
 ): Promise<void> {
   const name = await vscode.window.showInputBox({
     prompt: 'Dialog project name',
@@ -579,7 +581,8 @@ async function initDialogProject(
     projectRoot,
     { name: name.trim(), targets: targetPicks.map((pick) => pick.label) },
     libraryDir,
-    coverImageSource
+    coverImageSource,
+    pdfAssetsDir
   );
 
   const storyDgPath = path.join(projectRoot, 'main', 'story.dg');

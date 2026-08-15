@@ -8,6 +8,7 @@
 import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
+import { PDF_ASSETS } from './dialog-web-export';
 
 const LIBRARY_FILES = ['stdlib.dg', 'stddebug.dg', 'unit.dg'];
 
@@ -80,6 +81,12 @@ const STARTER_STORY_DG = `#void
  * skipped (no cover.png written) if coverImageSource is undefined or missing, rather than
  * failing the whole scaffold over a cosmetic asset.
  *
+ * Similarly seeds the two "how to play IF" PDFs (PDF_ASSETS) at the project root, from
+ * pdfAssetsDir, if given - "Export Web Page..." links to whichever of these still exist at
+ * export time (see dialog-web-export.ts's resolvePdfLinks), so deleting one from the project
+ * root is how an author opts it out of the exported page. Each PDF is skipped independently if
+ * missing from pdfAssetsDir, same tolerant handling as the cover image.
+ *
  * Throws if dialog.json already exists at rootDir (no silent overwrite of an existing project),
  * or if libraryDir is undefined (local dev before `npm run fetch-dialog-binaries` has ever been
  * run - every packaged/published build always has it bundled).
@@ -88,7 +95,8 @@ export function scaffoldProject(
   rootDir: string,
   options: ScaffoldOptions,
   libraryDir: string | undefined,
-  coverImageSource?: string
+  coverImageSource?: string,
+  pdfAssetsDir?: string
 ): void {
   const dialogJsonPath = path.join(rootDir, 'dialog.json');
   if (fs.existsSync(dialogJsonPath)) {
@@ -114,6 +122,15 @@ export function scaffoldProject(
 
   if (coverImageSource && fs.existsSync(coverImageSource)) {
     fs.copyFileSync(coverImageSource, path.join(rootDir, 'cover.png'));
+  }
+
+  if (pdfAssetsDir) {
+    for (const asset of PDF_ASSETS) {
+      const source = path.join(pdfAssetsDir, asset.filename);
+      if (fs.existsSync(source)) {
+        fs.copyFileSync(source, path.join(rootDir, asset.filename));
+      }
+    }
   }
 
   const dialogJson = {
