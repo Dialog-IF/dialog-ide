@@ -753,6 +753,10 @@ async function removeExportConfigWizard(dialogJsonPath: string, name: string): P
   vscode.window.showInformationMessage(`Removed export configuration "${name}".`);
 }
 
+function revealFileLabel(): string {
+  return process.platform === 'darwin' ? 'Reveal in Finder' : 'Reveal in Explorer';
+}
+
 /**
  * "Export Dialog Project..." - picks one of dialog.json's named export configurations and runs
  * dialogc against it (see dialog-export.ts's runDialogcExport). Directs to "Configure Exports..."
@@ -795,9 +799,9 @@ async function exportDialogProject(projectRoot: string): Promise<void> {
   if (result.ok === true) {
     const choice = await vscode.window.showInformationMessage(
       `Exported "${picked.config.name}" to ${result.outputPath}.`,
-      'Reveal in Explorer'
+      revealFileLabel()
     );
-    if (choice === 'Reveal in Explorer') {
+    if (choice === revealFileLabel()) {
       vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(result.outputPath));
     }
   } else {
@@ -871,9 +875,9 @@ async function exportWebPage(projectRoot: string, assetsDir: string): Promise<vo
   if (result.ok === true) {
     const choice = await vscode.window.showInformationMessage(
       `Exported "${project.name}" to ${result.zipPath}.`,
-      'Reveal in Explorer'
+      revealFileLabel()
     );
-    if (choice === 'Reveal in Explorer') {
+    if (choice === revealFileLabel()) {
       vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(result.zipPath));
     }
   } else {

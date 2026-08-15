@@ -6,6 +6,7 @@
 - "Export Web Page..." now asks which export configuration builds the downloadable story file, instead of building every target
 - ⌘⇧A / Ctrl+Shift+A now opens the Command Palette while the Skein or Trace panel has focus
 - A labeled knot is now treated as locked (can't be deleted) even if never explicitly locked
+- Export commands' post-export notification now says "Reveal in Finder" on macOS instead of "Reveal in Explorer"
 
 ## 0.1.0 - 15 Aug 2026
 
