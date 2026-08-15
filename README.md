@@ -38,16 +38,16 @@ code --install-extension hlship.dialog-ide
 
 ## Project Setup
 
-Dialog IDE reads a `dialog.json` file at the root of your project (opened as a VS Code workspace folder):
+Dialog IDE reads a `dialog.json` file at the root of your project (opened as a VS Code workspace folder). This is what **Dialog IDE: Initialize Dialog Project** scaffolds:
 
 ```json
 {
   "name": "my-project",
   "sources": {
-    "main": ["src"],
-    "test": ["test"],
-    "debug": ["lib/dialog/debug"],
-    "library": ["lib/dialog"]
+    "main": ["main"],
+    "test": ["test", "lib/unit.dg"],
+    "debug": ["debug", "lib/stddebug.dg"],
+    "library": ["lib/stdlib.dg"]
   }
 }
 ```

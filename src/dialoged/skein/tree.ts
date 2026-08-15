@@ -21,16 +21,31 @@ export class LabelConflictError extends Error {
 }
 
 /**
- * Thrown by deleteKnot when the knot being deleted, or any of its descendants, is locked -
- * mirrors dialog-tool's tree.clj/allow-deletion?. Deleting removes the whole subtree at once, so
- * a lock anywhere inside it (not just on the knot itself) has to block the whole operation, not
- * just that one locked knot.
+ * Thrown by deleteKnot when the knot being deleted, or any of its descendants, is locked (or
+ * labeled - see isEffectivelyLocked) - mirrors dialog-tool's tree.clj/allow-deletion?. Deleting
+ * removes the whole subtree at once, so a lock anywhere inside it (not just on the knot itself)
+ * has to block the whole operation, not just that one locked knot.
  */
 export class KnotLockedError extends Error {
   constructor() {
-    super('Cannot delete: this knot or one of its descendants is locked.');
+    super('Cannot delete: this knot or one of its descendants is locked or labeled.');
     this.name = 'KnotLockedError';
   }
+}
+
+/**
+ * A labeled knot is treated as locked, on top of its own explicit locked flag - a label usually
+ * marks a knot as a meaningful reference point (e.g. a WALKTHROUGH anchor - see
+ * dialog-web-export.ts), so accidentally deleting it out from under that reference would be worse
+ * than a knot losing its unblessed response. The underlying `locked` field still toggles
+ * independently (Toggle Lock doesn't touch label, and vice versa); this only affects what counts
+ * as "locked" for deletion, not the lock icon (tree-pane.ts/render.ts show that for the explicit
+ * `locked` flag only - a label already gets its own visible chip, so a redundant lock icon isn't
+ * needed to tell the user it's protected). Structurally typed so it works for both WireKnot and
+ * DerivedKnot without needing two copies.
+ */
+export function isEffectivelyLocked(knot: { locked: boolean; label: string | null }): boolean {
+  return knot.locked || knot.label !== null;
 }
 
 /**
@@ -343,9 +358,9 @@ export class SkeinTree {
   /**
    * Delete a knot and all its descendants recursively - returns a new SkeinTree instance.
    * Also removes the knot from its (former) parent's children/selectedChild. Throws
-   * KnotLockedError, without modifying anything, if the knot itself or any descendant is locked
-   * - deletion removes the whole subtree in one go, so a lock anywhere inside it must block the
-   * whole operation.
+   * KnotLockedError, without modifying anything, if the knot itself or any descendant is
+   * effectively locked (locked or labeled - see isEffectivelyLocked) - deletion removes the
+   * whole subtree in one go, so a lock anywhere inside it must block the whole operation.
    */
   public deleteKnot(id: number): SkeinTree {
     const knot = this.knots.get(id);
@@ -354,7 +369,7 @@ export class SkeinTree {
     }
 
     const subtreeIds = this.collectSubtreeIds(id);
-    if (subtreeIds.some((subtreeId) => this.knots.get(subtreeId)!.locked)) {
+    if (subtreeIds.some((subtreeId) => isEffectivelyLocked(this.knots.get(subtreeId)!))) {
       throw new KnotLockedError();
     }
 

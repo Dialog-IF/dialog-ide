@@ -194,6 +194,15 @@ describe('renderTreePane', () => {
     expect(knot1).toContain('checkpoint');
   });
 
+  it('does not show a lock icon for a labeled knot that is not explicitly locked (deletion protection is implicit, but the icon reflects only the explicit locked flag)', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1)
+      .addChild(0, 'look', { text: 'a', inputType: 'line' })
+      .setLabel(1, 'checkpoint');
+    const html = renderTreePane(tree);
+    const knot1 = nodeHtml(html, 1);
+    expect(knot1).not.toContain('icon-lock');
+  });
+
   it('renders siblings side by side and a lone child directly beneath its parent', () => {
     const tree = SkeinTree.newTree('dgdebug', 1)
       .addChild(0, 'look', { text: 'a', inputType: 'line' })

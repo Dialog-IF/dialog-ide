@@ -474,6 +474,16 @@ describe('renderKnotList', () => {
     expect(html).toContain('checkpoint');
   });
 
+  it('does not show a lock icon for a labeled knot that is not explicitly locked (deletion protection is implicit, but the icon reflects only the explicit locked flag)', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1)
+      .addChild(0, 'look', { text: 'a', inputType: 'line' })
+      .setLabel(1, 'checkpoint')
+      .setActiveKnotId(1);
+    const html = renderKnotList(tree);
+    const knot1Section = html.split('id="knot-1"')[1];
+    expect(knot1Section).not.toContain('icon-lock');
+  });
+
   it('has no stray leading whitespace before the response text on a labeled root knot (regression - the response container is whitespace-pre-wrap, so template-literal indentation around an empty keystroke chip used to render as a visible leading blank line/indent)', () => {
     // Root already has label 'START' (from newTree) - the floated cluster (label badge + menu
     // trigger) and the response text must be immediately adjacent, with no

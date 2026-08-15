@@ -829,7 +829,7 @@ describe('SkeinService', () => {
         expect(res.status).toBe(409);
         await waitFor(() => chunks.join('').includes('sk.showFlash'));
         expect(chunks.join('')).toContain(
-          `sk.showFlash(${JSON.stringify('Cannot delete: this knot or one of its descendants is locked.')}, ${JSON.stringify('error')})`
+          `sk.showFlash(${JSON.stringify('Cannot delete: this knot or one of its descendants is locked or labeled.')}, ${JSON.stringify('error')})`
         );
       } finally {
         req.destroy();

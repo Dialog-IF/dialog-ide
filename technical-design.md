@@ -984,8 +984,8 @@ It is common for users to perform a full replay - this finds every leaf knot in 
 
 ### Active Knot Modifications
 The active knot can be subject to various user-driven changes:
-- Setting or clearing a label
-- Locking or unlocking (locked knots cannot be deleted)
+- Setting or clearing a label (a labeled knot is also treated as locked - see below - even if never explicitly locked)
+- Locking or unlocking (locked or labeled knots cannot be deleted)
 - Splicing out a knot 
 - Inserting a new parent for the knot
 - Editing the command for the knot

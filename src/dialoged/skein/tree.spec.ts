@@ -1,7 +1,25 @@
 import { DynamicState } from './dynamic';
-import { CommandConflictError, KnotLockedError, LabelConflictError, SkeinTree, WireKnot } from './tree';
+import { CommandConflictError, KnotLockedError, LabelConflictError, SkeinTree, WireKnot, isEffectivelyLocked } from './tree';
 
 const EMPTY_DYNAMIC_STATE: DynamicState = { flags: new Set(), vars: {} };
+
+describe('isEffectivelyLocked', () => {
+  it('is false for an unlocked, unlabeled knot', () => {
+    expect(isEffectivelyLocked({ locked: false, label: null })).toBe(false);
+  });
+
+  it('is true for a locked knot', () => {
+    expect(isEffectivelyLocked({ locked: true, label: null })).toBe(true);
+  });
+
+  it('is true for an unlocked but labeled knot', () => {
+    expect(isEffectivelyLocked({ locked: false, label: 'CHECKPOINT' })).toBe(true);
+  });
+
+  it('is true for a locked and labeled knot', () => {
+    expect(isEffectivelyLocked({ locked: true, label: 'CHECKPOINT' })).toBe(true);
+  });
+});
 
 describe('SkeinTree.newTree', () => {
   it('creates a root knot at id 0, labeled START, with no parent', () => {
@@ -258,6 +276,34 @@ describe('SkeinTree.deleteKnot', () => {
       .addChild(0, 'look', { text: 'a', inputType: 'line' })      // id 1
       .addChild(0, 'inventory', { text: 'b', inputType: 'line' }) // id 2, locked
       .setLockStatus(2, true)
+      .deleteKnot(1);
+    expect(tree.getKnot(1)).toBeNull();
+    expect(tree.getKnot(2)).not.toBeNull();
+  });
+
+  it('throws KnotLockedError, without deleting anything, when the knot itself is only labeled (not locked)', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1)
+      .addChild(0, 'look', { text: 'a', inputType: 'line' }) // id 1
+      .setLabel(1, 'CHECKPOINT');
+    expect(() => tree.deleteKnot(1)).toThrow(KnotLockedError);
+    expect(tree.getKnot(1)).not.toBeNull();
+  });
+
+  it('throws KnotLockedError, without deleting anything, when a descendant (not the knot itself) is only labeled', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1)
+      .addChild(0, 'look', { text: 'a', inputType: 'line' }) // id 1
+      .addChild(1, 'take orb', { text: 'b', inputType: 'line' }) // id 2, grandchild of root
+      .setLabel(2, 'CHECKPOINT');
+    expect(() => tree.deleteKnot(1)).toThrow(KnotLockedError);
+    expect(tree.getKnot(1)).not.toBeNull();
+    expect(tree.getKnot(2)).not.toBeNull();
+  });
+
+  it('allows deleting a knot whose sibling (not descendant) is only labeled', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1)
+      .addChild(0, 'look', { text: 'a', inputType: 'line' })      // id 1
+      .addChild(0, 'inventory', { text: 'b', inputType: 'line' }) // id 2, labeled
+      .setLabel(2, 'CHECKPOINT')
       .deleteKnot(1);
     expect(tree.getKnot(1)).toBeNull();
     expect(tree.getKnot(2)).not.toBeNull();
