@@ -77,6 +77,16 @@ describe('sessionConfigFromTree', () => {
       bundledBinDir: '/ext/bin/darwin-arm64'
     });
   });
+
+  it('carries patchSourcePath through when given', () => {
+    const tree = SkeinTree.newTree('frotz', 42);
+    expect(sessionConfigFromTree(tree, '/tmp/proj', undefined, '/ext/resources/dfrotz-skein-patch.dg')).toEqual({
+      engine: 'frotz',
+      seed: 42,
+      projectRoot: '/tmp/proj',
+      patchSourcePath: '/ext/resources/dfrotz-skein-patch.dg'
+    });
+  });
 });
 
 describe('randomSeed', () => {
@@ -107,8 +117,8 @@ describe('parseSeed', () => {
 describe('ENGINE_CHOICES', () => {
   it('marks only dgdebug as supported', () => {
     expect(ENGINE_CHOICES.find((c) => c.engine === 'dgdebug')?.supported).toBe(true);
-    expect(ENGINE_CHOICES.find((c) => c.engine === 'frotz')?.supported).toBe(false);
-    expect(ENGINE_CHOICES.find((c) => c.engine === 'frotz-release')?.supported).toBe(false);
+    expect(ENGINE_CHOICES.find((c) => c.engine === 'frotz')?.supported).toBe(true);
+    expect(ENGINE_CHOICES.find((c) => c.engine === 'frotz-release')?.supported).toBe(true);
   });
 });
 

@@ -30,6 +30,24 @@ describe('renderTreePane', () => {
     expect(html).toContain('data-tree-node-id="2"');
   });
 
+  // Regression: #tree-pane isn't itself a flex container, so its sole child (the root's own
+  // renderSubtree wrapper) is a plain block box - without an explicit width, that stretches to
+  // fill the whole pane whenever the tree is narrower than it, and items-center then re-centers
+  // the tree within that pane-width box instead of around its own content. That made the tree's
+  // on-screen position (and therefore the expand/collapse icon vs. its SVG connector line, drawn
+  // separately by main.js) depend on the pane's current width - invisible once a tree is wide
+  // enough to overflow the pane (min-w-max alone already pins it there), but visible for a small
+  // one. w-max pins the root wrapper to its own content width unconditionally; only the root
+  // wrapper needs it - a nested wrapper is a flex item of a sibling row instead, where min-w-max's
+  // job is resisting flex-shrink, not fill-vs-content sizing.
+  it('sizes the root wrapper to its own content width (w-max), not the pane\'s, so tree position never depends on pane width', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1).addChild(0, 'look', { text: 'a', inputType: 'line' });
+    const html = renderTreePane(tree);
+    expect(html).toContain('<div class="flex flex-col items-center gap-10 min-w-max w-max">');
+    // Only the root wrapper - the recursive per-child call still gets the plain, un-widened class.
+    expect(html).toContain('<div class="flex flex-col items-center gap-10 min-w-max">');
+  });
+
   // Regression: spineIds used to walk up from activeKnotId (via parentId) rather than from the
   // selected spine's actual leaf (getSelectedLeafId), so navigating back to an ancestor left every
   // already-explored knot between it and the leaf marked off-spine (dim/neutral) even though the

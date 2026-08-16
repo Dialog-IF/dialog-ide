@@ -24,13 +24,10 @@ export interface EngineChoice {
   supported: boolean;
 }
 
-// frotz/frotz-release aren't offered as working choices yet - no dialogc pre-flight compile
-// step exists (see session.ts), and dialog-tool's own CLI docs say frotz "has output
-// formatting issues and is not yet ready for use" regardless.
 export const ENGINE_CHOICES: readonly EngineChoice[] = [
   { engine: 'dgdebug', label: 'dgdebug', supported: true },
-  { engine: 'frotz', label: 'frotz', supported: false },
-  { engine: 'frotz-release', label: 'frotz-release', supported: false }
+  { engine: 'frotz', label: 'frotz', supported: true },
+  { engine: 'frotz-release', label: 'frotz-release', supported: true }
 ];
 
 /**
@@ -67,9 +64,10 @@ export function isValidSessionId(id: string): boolean {
 export function sessionConfigFromTree(
   tree: SkeinTree,
   projectRoot: string,
-  bundledBinDir?: string
+  bundledBinDir?: string,
+  patchSourcePath?: string
 ): SessionConfig {
-  return { engine: tree.getEngine(), seed: tree.getSeed(), projectRoot, bundledBinDir };
+  return { engine: tree.getEngine(), seed: tree.getSeed(), projectRoot, bundledBinDir, patchSourcePath };
 }
 
 export async function listSkeinFiles(projectRoot: string): Promise<string[]> {

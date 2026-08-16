@@ -84,6 +84,12 @@ let bundledBinDir: string | undefined;
 // a new project's lib/ folder.
 let bundledLibraryDir: string | undefined;
 
+// resources/dfrotz-skein-patch.dg's absolute path - always present (a static asset shipped with
+// every build, unlike bundledBinDir/bundledLibraryDir), needed by frotz/frotz-release sessions
+// (see frotz-build.ts's buildFrotzGame). Fixed for the lifetime of the extension host, like the
+// two above.
+let patchSourcePath: string;
+
 // Set once deactivate() starts. By the time it runs, VS Code has already begun tearing down this
 // extension's UI contributions (statusBarItem included, despite it being disposed via
 // context.subscriptions rather than here) - touching them past that point throws "Trying to add a
@@ -103,9 +109,28 @@ function clearCompileErrorDiagnostics(): void {
   compileErrorDiagnostics?.clear();
 }
 
+/**
+ * Preflight for starting a session with `engine`: dgdebug interprets source directly, so a
+ * missing dgdebug binary is the thing to check; frotz/frotz-release instead need dialogc (the
+ * pre-flight compile-to-zblorb step - see frotz-build.ts) - dfrotz itself isn't preflighted here,
+ * same as dgdebug isn't preflighted separately from dialogc for an Export. A missing binary
+ * otherwise only surfaces as SkeinProcess's generic "Process closed before a response was
+ * received", which this turns into an actionable message instead - matching isDgdebugAvailable's
+ * own doc comment.
+ */
+async function isEngineAvailable(engine: EngineType, binDir: string | undefined): Promise<boolean> {
+  return engine === 'dgdebug' ? isDgdebugAvailable(binDir, bundledBinDir) : isDialogcAvailable(binDir, bundledBinDir);
+}
+
+function engineUnavailableMessage(engine: EngineType): string {
+  const command = engine === 'dgdebug' ? 'dgdebug' : 'dialogc';
+  return `${command} was not found on PATH, in binDir, or bundled with this extension. Install the Dialog toolchain or set "binDir" in dialog.json.`;
+}
+
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   bundledBinDir = resolveBundledBinDir(context.extensionPath);
   bundledLibraryDir = resolveBundledLibraryDir(context.extensionPath);
+  patchSourcePath = path.join(context.extensionPath, 'resources', 'dfrotz-skein-patch.dg');
 
   compileErrorDiagnostics = vscode.languages.createDiagnosticCollection('dialog-compile-error');
   context.subscriptions.push(compileErrorDiagnostics);
@@ -318,17 +343,15 @@ async function runLoadedSession(projectRoot: string, sessionId: string): Promise
   }
 
   const project = readProject(projectRoot);
-  if (!(await isDgdebugAvailable(project.binDir, bundledBinDir))) {
-    throw new Error(
-      'dgdebug was not found on PATH, in binDir, or bundled with this extension. Install the Dialog toolchain or set "binDir" in dialog.json.'
-    );
-  }
-
   const manager = new PersistenceManager(projectRoot);
   const tree = await manager.loadSession(sessionId);
+  if (!(await isEngineAvailable(tree.getEngine(), project.binDir))) {
+    throw new Error(engineUnavailableMessage(tree.getEngine()));
+  }
+
   const session = SkeinSession.createLoaded(
     tree,
-    sessionConfigFromTree(tree, projectRoot, bundledBinDir),
+    sessionConfigFromTree(tree, projectRoot, bundledBinDir, patchSourcePath),
     skeinService
   );
   if (!(await runSessionStep(() => session.start()))) {
@@ -408,14 +431,12 @@ async function newSkeinSession(projectRoot: string): Promise<void> {
   }
 
   const project = readProject(projectRoot);
-  if (!(await isDgdebugAvailable(project.binDir, bundledBinDir))) {
-    throw new Error(
-      'dgdebug was not found on PATH, in binDir, or bundled with this extension. Install the Dialog toolchain or set "binDir" in dialog.json.'
-    );
+  if (!(await isEngineAvailable(engineChoice.engine, project.binDir))) {
+    throw new Error(engineUnavailableMessage(engineChoice.engine));
   }
 
   const session = SkeinSession.createNew(
-    { engine: engineChoice.engine, seed, projectRoot, bundledBinDir },
+    { engine: engineChoice.engine, seed, projectRoot, bundledBinDir, patchSourcePath },
     skeinService
   );
   if (!(await runSessionStep(() => session.start()))) {

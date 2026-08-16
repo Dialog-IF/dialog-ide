@@ -21,6 +21,7 @@ Each command/response pair is called a **knot**. Knots form a tree - the same co
 
 - On Windows, Apple Silicon Macs, and Linux (x64): nothing extra - the Dialog toolchain (`dgdebug`, `dialogc`) and [AAmachine](https://github.com/dialog-if/aamachine) (`aambundle`) are bundled with the extension and just work.
 - On other platforms (Intel Macs, Linux ARM, etc.): install the [Dialog toolchain](https://github.com/dialog-if/dialog) yourself, with `dgdebug`/`dialogc` on your `PATH`, or point `dialog.json`'s `binDir` at it (see [Project Setup](#project-setup)). **Export Web Page...** additionally needs `aambundle` from [AAmachine](https://github.com/dialog-if/aamachine) on your `PATH`/`binDir` - the other commands don't need it.
+- Running a skein with the `frotz`/`frotz-release` engine additionally needs `dfrotz` (from [frotz](https://gitlab.com/DavidGriffith/frotz)) on your `PATH`/`binDir`, on every platform - it isn't bundled yet.
 - A project folder containing a `dialog.json` file (see [Project Setup](#project-setup)) - or use **Dialog IDE: Initialize Dialog Project** to create one from scratch
 
 `.dg` syntax highlighting, folding, and bracket/indentation support are built in, along with an Outline view (and breadcrumbs, ⌘⇧O / Ctrl+Shift+O) and workspace-wide "Go to Symbol" (⌘T / Ctrl+T) across every `.dg` file in the project. Dialog IDE itself doesn't otherwise touch source editing; it's all about running the project through the Skein.
@@ -165,7 +166,7 @@ VS Code normally can't forward other keybindings through a webview at all (a pla
 
 ## Known limitations
 
-- Only the `dgdebug` engine is runnable today - `frotz`/`frotz-release` are offered as engine choices when creating a skein, but selecting either just explains they're not implemented yet
+- `frotz`/`frotz-release` need `dfrotz` on `PATH` (or set as `binDir` in `dialog.json`) - unlike `dgdebug`/`dialogc`, it isn't bundled with the extension yet
 - No "Reload from disk" action yet for picking up external changes to a `.skein` file
 - Dynamic state and tracing require `dgdebug`, and are unavailable for a command that ends on a single-keystroke prompt (the debugger can't be interrupted mid-keystroke to ask for either)
 - **Export Web Page...** needs `aambundle` (from [AAmachine](https://github.com/dialog-if/aamachine)) in addition to `dgdebug`/`dialogc` - see [Requirements](#requirements)
@@ -175,7 +176,7 @@ VS Code normally can't forward other keybindings through a webview at all (a pla
 
 This is an early release of the extension; we have many more features planned, including:
 
-- Run the Skein using dfrotz as the engine
+- Bundle `dfrotz` per platform, like `dgdebug`/`dialogc` already are
 - Upload projects to the Interactive Fiction Archive
 - Provide binaries for OS X on Intel hardware
 

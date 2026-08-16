@@ -453,7 +453,7 @@ interface EditorState {
 ### 4. Process Management
 Manages the interpreter subprocess (`dgdebug` or `dfrotz`) that backs a session.
 
-**Current status: `dgdebug` is the only engine actually runnable at the session layer.** `SkeinSession.buildProcessConfig` throws for `frotz`/`frotz-release` (`"<engine> is not yet supported - compiling a game file isn't implemented"`) even though `process.ts` below already knows how to build a `dfrotz` command line - frotz support needs its own `dialogc`-driven compile-to-zblorb pre-flight step (and the status-line-suppressing patch source mentioned under dfrotz below) before it's worth wiring up end-to-end. Every dgdebug-only capability elsewhere in this document (`@dynamic`, tracing, queries) is unaffected by this, since none of them apply to frotz anyway.
+**Current status: all three engines are runnable at the session layer.** `SkeinSession.buildProcessConfig` builds source files directly for `dgdebug`; for `frotz`/`frotz-release` it calls `frotz-build.ts`'s `buildFrotzGame`, a `dialogc`-driven compile-to-zblorb pre-flight step (with the status-line-suppressing patch source mentioned under dfrotz below), run fresh on every session start. Every dgdebug-only capability elsewhere in this document (`@dynamic`, tracing, queries) stays gated off for frotz, since none of them apply to it. `dfrotz` itself isn't bundled per-platform the way `dgdebug`/`dialogc` are (its upstream has no prebuilt-binary releases to fetch) - frotz/frotz-release sessions rely on `dfrotz` being on `PATH` or a project's configured `binDir`.
 
 #### Engine Types and Launch Arguments
 
@@ -471,7 +471,7 @@ The dfrotz command line is identical for `frotz` and `frotz-release` — the dis
 - **`frotz`**: the game is compiled including `debug`-category sources (per the project's `dialog.json`), matching a normal debug build
 - **`frotz-release`**: the game is compiled excluding `debug`-category sources — the same "include debug sources or not" toggle used for Export (see [Export Functionality](#export-functionality))
 
-So starting a `frotz` vs. `frotz-release` session requires building (or selecting an already-built) game file with the appropriate source set *before* invoking dfrotz — `gamePath` for the two engine types will typically point at two different compiled outputs. This build isn't a plain export build, either: frotz normally prints a status line that would otherwise land inline in the transcript and break the tag-line parsing below, so the skein-specific build needs to suppress it (dialog-tool's reference implementation does this by compiling in a small patch source ahead of the project's own sources — the current codebase doesn't do this yet).
+So starting a `frotz` vs. `frotz-release` session requires building the game file with the appropriate source set *before* invoking dfrotz — `gamePath` for the two engine types points at two different compiled outputs (`frotz-build.ts` computes a stable per-project-per-engine path under the OS temp dir, rebuilt fresh on every session start). This build isn't a plain export build, either: frotz normally prints a status line that would otherwise land inline in the transcript and break the tag-line parsing below, so the skein-specific build suppresses it by compiling in a small patch source ahead of the project's own sources (`resources/dfrotz-skein-patch.dg`, matching dialog-tool's reference implementation) — see `buildFrotzGame` in `frotz-build.ts`.
 
 #### Input/Output Processing
 Both `--tag-lines` (dgdebug) and `-r lt` (dfrotz) put the interpreter into a mode where **every line of output is prefixed with a short tag** identifying what kind of line it is. Parsing has to work at the tag level, not by matching a suffix against the whole response blob.
@@ -817,9 +817,23 @@ Native integration with debugging sessions:
 Support for alternative debugging approaches:
 
 #### Capabilities
-- Pseudo-tty usage for ANSI output generation (required for proper terminal output)
-- Font and color handling for terminal output
-- Integration with the skein's ANSI formatting support
+- Runs over plain stdio pipes, like dgdebug - no pseudo-tty involved. dfrotz's `-r lt` flag puts it
+  into the same tag-line batch mode `--tag-lines` gives dgdebug (see [Process
+  Management](#4-process-management)), which is what makes plain pipes sufficient in the first
+  place - a real terminal/pty is neither used nor needed for the managed Skein session path.
+- Font and color handling for terminal output - deliberately **not** wired to real ANSI codes.
+  `-f normal` (not `-f ansi`) is used unconditionally, so frotz sessions show plain text; this is
+  flag-driven, not a pty limitation - frotz's dumb frontend has no `isatty()` check anywhere
+  (verified against its own source, `dumb/doutput.c`). `-f ansi` was ruled out because it isn't
+  just "the same output plus color codes": `show_cell_ansi()` special-cases every `'\n'` to print
+  `"\x1b[0K\n"` (an Erase-in-Line sequence spliced between every line's content and its newline),
+  and `will_print_blank()` returns `false` unconditionally in that mode, disabling frotz's own
+  trailing-space trimming so every line pads out to the full screen width. Both would need
+  stripping/tolerating in `IoDetector`'s tag-boundary detection before `-f ansi` could be used
+  safely - not attempted, since it's a real parser risk for a purely cosmetic gain. Use `dgdebug`
+  (`--formatting ansi`) to check bold/italic/color formatting; frotz sessions are for validating
+  compiled zcode behavior, not formatting.
+- Integration with the skein's ANSI formatting support (dgdebug only, per above)
 
 ### 4. aambundle Command Integration
 Web interpreter packaging workflow:

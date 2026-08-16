@@ -212,10 +212,13 @@ function filterByTarget(paths: string[], target: string | undefined): string[] {
 }
 
 /**
- * Resolves the command to launch a Dialog toolchain binary (dgdebug, dfrotz, dialogc) - from
+ * Resolves the command to launch a Dialog toolchain binary (dgdebug, dialogc, aambundle) - from
  * the project's binDir if given, then bundledBinDir (this extension's own bundled copy, if one
  * was packaged for the current platform/arch - see resolveBundledBinDir), otherwise the bare
- * command name, relying on PATH.
+ * command name, relying on PATH. Callers for a binary this extension doesn't bundle (dfrotz -
+ * see process.ts's buildCommand) must omit bundledBinDir, since that directory never contains it
+ * and passing it anyway would resolve to a path that's always ENOENT instead of falling through
+ * to PATH.
  */
 export function resolveCommandPath(
   binDir: string | undefined,

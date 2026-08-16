@@ -89,6 +89,8 @@
  * relying on some ancestor never being mono) keeps the menu's own font independent of whatever
  * happens to contain it.
  */
+import { EngineType } from '../process';
+
 function escapeHtml(text: string): string {
   return text
     .replace(/&/g, '&amp;')
@@ -149,16 +151,23 @@ export function renderKnotMenu(
   // text, and the process would be mid-keystroke-read right after replaying to this knot's
   // parent, so neither is safe to send there (session.ts's traceKnot/insertParent both refuse the
   // same way; this just surfaces that up front instead of a silent 400/409 on click).
-  keystrokeReached: boolean = false
+  keystrokeReached: boolean = false,
+  // Tracing is a dgdebug-only debug-console concept (session.ts's traceKnot/traceStartup both
+  // return null for any other engine) - matches render.ts's own dgdebug-only gate on the Dynamic
+  // State toggle.
+  engine: EngineType = 'dgdebug'
 ): string {
   const isRoot = id === 0;
   const { pane, directionClass } = PANE_CONFIG[openRoute];
   const anchorName = `--knot-menu-${pane}-${id}`;
   const popoverId = `knot-menu-${pane}-${id}`;
   const hint = (label: string, key: string): string => (isActive ? ` title="${label} (${key})"` : '');
+  const traceDisabled = keystrokeReached || engine !== 'dgdebug';
   const traceHint = keystrokeReached
     ? ' title="Tracing isn\'t available for a knot reached via a keystroke prompt"'
-    : hint('Trace', '⌥T');
+    : engine !== 'dgdebug'
+      ? ' title="Tracing requires the dgdebug engine"'
+      : hint('Trace', '⌥T');
   // No keyboard accelerator - Insert Parent (like Splice Out below) is rare enough that a menu
   // item is enough; unlike Trace/every other hint() above, there's no "(⌥X)" to show even when
   // isActive, so this only ever has a title when disabled.
@@ -180,7 +189,7 @@ export function renderKnotMenu(
     <li${menuItemClass(!hasUnblessed)}><button type="button" role="menuitem"${hint('Bless Knot', '⌥B')}${menuItemAttrs(!hasUnblessed)} data-on:click="$knotId = ${id}; @post('/actions/bless-knot')">Bless Knot</button></li>
     <li><button type="button" role="menuitem"${hint('New Child', '⌥A')} data-on:click="$knotId = ${id}; @post('/actions/new-child')">New Child</button></li>
     <li><button type="button" role="menuitem"${hint('Replay to Here', '⌥R')} data-on:click="$knotId = ${id}; @post('/actions/replay-to')">Replay to Here</button></li>
-    <li${menuItemClass(keystrokeReached)}><button type="button" role="menuitem"${traceHint}${menuItemAttrs(keystrokeReached)} data-on:click="${isRoot ? `@post('/actions/trace-startup')` : `$knotId = ${id}; @post('/actions/trace-knot')`}">Trace</button></li>
+    <li${menuItemClass(traceDisabled)}><button type="button" role="menuitem"${traceHint}${menuItemAttrs(traceDisabled)} data-on:click="${isRoot ? `@post('/actions/trace-startup')` : `$knotId = ${id}; @post('/actions/trace-knot')`}">Trace</button></li>
     <li${menuItemClass(isRoot)}><button type="button" role="menuitem"${hint('Edit Label', '⌥L')}${menuItemAttrs(isRoot)}
       data-current-label="${escapeHtml(currentLabel ?? '')}"
       data-on:click="sk.showLabelModal(${id}, el.dataset.currentLabel)">Edit Label&hellip;</button></li>

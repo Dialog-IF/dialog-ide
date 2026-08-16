@@ -71,7 +71,8 @@ Core engine (`src/dialoged/skein/`):
 - `syntax.ts` - reuses the real TextMate grammar vendored under this repo's own `syntaxes/` (via `vscode-textmate`/`vscode-oniguruma`), originally from the `sideburns3000.dialog-language-support` extension (MIT-licensed - see `THIRD_PARTY_LICENSES.md`), to highlight source snippets in the Trace panel - not a from-scratch tokenizer. This same vendored grammar (plus `language-configuration.json`) also drives general `.dg` editor syntax highlighting/folding/bracket-matching/indentation, contributed by this extension's own `package.json` (`contributes.languages`/`grammars`) - no longer a separate `extensionDependencies` entry
 - `persistence.ts` - `.skein` flat-file I/O (VCS-diff-friendly, not JSON)
 - `project.ts` - reads this IDE's `dialog.json` project descriptor, expands declared sources
-- `compile-error.ts` - `DialogCompileError`, thrown when a freshly spawned `dgdebug` dies before its startup banner (a source compile error)
+- `compile-error.ts` - `DialogCompileError`, thrown when a freshly spawned `dgdebug` dies before its startup banner (a source compile error), or when `frotz-build.ts`'s `dialogc` pre-flight compile fails
+- `frotz-build.ts` - `buildFrotzGame`: compiles a project's sources (patch source prepended) into a `.zblorb` via `dialogc`, for `frotz`/`frotz-release` sessions
 - `progress.ts` - `ProgressHost` seam over `vscode.window.withProgress`, so session/service code never imports `vscode` directly
 
 UI layer (`src/dialoged/skein/ui/`), all plain TypeScript template-literal HTML (no JSX, no client framework beyond vendored Datastar for `data-on:*`/SSE patching):
@@ -101,7 +102,7 @@ Sessions are created via `SkeinSession.createNew(config)` (fresh skein) or `Skei
 
 ## Development Notes
 
-1. **`dgdebug` is the only runtime-functional engine right now.** `process.ts` builds a command line for `frotz`/`frotz-release` (dfrotz) too, but `SkeinSession.buildProcessConfig` throws for any non-`dgdebug` engine - `@dynamic`, tracing, and queries are dgdebug-only concepts anyway, so frotz support needs its own compile-to-zblorb pre-flight step (via `dialogc`) before it's worth wiring up.
+1. **`frotz`/`frotz-release` run via a real subprocess, not a pty.** dfrotz is launched exactly like dgdebug - plain `child_process.spawn` with pipe stdio, `-r lt` putting it into the same tag-line batch mode `--tag-lines` gives dgdebug (see `io.ts`'s `IoDetector`). Unlike dgdebug, dfrotz needs a pre-compiled `.zblorb`: `SkeinSession.buildProcessConfig` calls `frotz-build.ts`'s `buildFrotzGame` (a `dialogc` pre-flight step) for either engine, compiling fresh into a temp dir on every session start with `resources/dfrotz-skein-patch.dg` prepended to suppress dfrotz's own status-bar line (which would otherwise land inline in the transcript and break tag-line parsing). `@dynamic`, tracing, and queries remain dgdebug-only concepts and stay gated off for both frotz engines.
 2. All communication between the webview and the extension host happens over local HTTP + SSE (`SkeinService`), not VS Code's webview postMessage API - the webview is just an iframe pointed at a `localhost` port.
 3. The UI is reactive via Datastar (`data-on:*` attributes + `datastar-patch-elements` SSE events), not a client framework - `render.ts`'s own HTML strings are the only templating.
 4. `SkeinTree`'s undo/redo covers structural edits (bless, delete, splice, label/lock, running a new command) - pure navigation (`setActiveKnot`, `navigateSpine`, `seekStatus`, menu toggles, collapse/expand) deliberately never pushes an undo snapshot, unlike dialog-tool's own `session/capture-undo`-on-everything convention.
@@ -109,5 +110,5 @@ Sessions are created via `SkeinSession.createNew(config)` (fresh skein) or `Skei
 
 ## Known gaps
 
-- `frotz`/`frotz-release` engines aren't runnable yet (see Development Notes #1).
+- `dfrotz` isn't bundled per-platform the way `dgdebug`/`dialogc` are (see `scripts/fetch-dialog-binaries.js`) - frotz's own upstream has no prebuilt-binary releases to fetch, only source, so `frotz`/`frotz-release` sessions currently rely on `dfrotz` being on `PATH` or a project's configured `binDir`.
 - No "Reload" action (re-reading a `.skein` file from disk after external changes) - dialog-tool has one, dialog-ide doesn't yet.
