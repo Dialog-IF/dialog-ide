@@ -8,6 +8,7 @@
 - ⌘⇧A / Ctrl+Shift+A now opens the Command Palette while the Skein or Trace panel has focus
 - A labeled knot is now treated as locked (can't be deleted) even if never explicitly locked
 - Export commands' post-export notification now says "Reveal in Finder" on macOS instead of "Reveal in Explorer"
+- Fixed the nav graph's expand/collapse icon drifting off its connector line for a small/narrow skein
 
 ## 0.1.0 - 15 Aug 2026
 

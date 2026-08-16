@@ -189,7 +189,8 @@ function renderSubtree(
   knotId: number,
   spine: Set<number>,
   activeKnotId: number | null,
-  graphMenuId: number | null
+  graphMenuId: number | null,
+  isRoot: boolean = false
 ): string {
   const knot = tree.getDerivedKnot(knotId)!;
   const children = tree.sortedChildren(knotId);
@@ -205,7 +206,21 @@ ${children.map((child) => `<div class="flex flex-col items-center">${renderSubtr
     }
   }
 
-  return `<div class="flex flex-col items-center gap-10 min-w-max">
+  // Only the root call's own wrapper is a direct child of #tree-pane, which isn't itself a flex
+  // container - a plain block box with width:auto (min-w-max's floor aside) stretches to fill its
+  // parent's full width whenever the tree is narrower than the pane, and items-center then
+  // re-centers the tree within that pane-width box rather than around its own content. That
+  // makes the whole tree's on-screen position a function of the pane's current (possibly still-
+  // settling) width, which is what let the expand/collapse icon and its SVG connector line (drawn
+  // from a getBoundingClientRect() snapshot - see main.js's drawTreeArrows) drift apart for a
+  // small/narrow tree. w-max (width:max-content) pins the root wrapper to its own content width
+  // unconditionally, so its position is never pane-width-dependent - matching how a tree wide
+  // enough to overflow the pane already behaves via min-w-max alone. Every recursive call below
+  // this one is instead a flex *item* inside a flex-row of siblings (where min-w-max's real job is
+  // resisting flex-shrink from those siblings, not fill-vs-content sizing), so isRoot deliberately
+  // only affects this one wrapper, not the whole shared template.
+  const widthClass = isRoot ? ' w-max' : '';
+  return `<div class="flex flex-col items-center gap-10 min-w-max${widthClass}">
 ${renderTreeNode(tree, knot, spine, activeKnotId, graphMenuId)}
 ${childrenHtml}
 </div>`;
@@ -222,6 +237,6 @@ export function renderTreePane(tree: SkeinTree, graphMenuId: number | null = nul
   class="overflow-x-auto overflow-y-auto p-4 relative bg-base-200 h-full cursor-grab"
   data-active-knot="${activeKnotId ?? ''}"
   data-init="sk.initTreeGraph()">
-${renderSubtree(tree, 0, spineIds(tree), activeKnotId, graphMenuId)}
+${renderSubtree(tree, 0, spineIds(tree), activeKnotId, graphMenuId, true)}
 </div>`;
 }
