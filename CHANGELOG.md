@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.2.0 - Unreleased
+## 0.2.0 - 16 Aug 2026
 
 - Run the Skein using `frotz`/`frotz-release` (dfrotz) as the engine - requires `dfrotz` on `PATH` or `binDir` (not yet bundled)
 - "Initialize Dialog Project" no longer asks for target format(s); removed `dialog.json`'s `target` field
