@@ -11,6 +11,7 @@ import { DynamicProcessor, DynamicState } from './dynamic';
 import { DialogCompileError } from './compile-error';
 import { readProject, expandSources } from './project';
 import { ProgressHost, CancellationToken, noopProgressHost } from './progress';
+import { buildFrotzGame } from './frotz-build';
 
 const DYNAMIC_COMMAND = '@dynamic';
 // dialog-tool's start-debug-process! filters sources by :target :dgdebug when launching the
@@ -104,6 +105,9 @@ export interface SessionConfig {
   seed: number;
   projectRoot: string;
   bundledBinDir?: string;
+  // Bundled resources/dfrotz-skein-patch.dg - only needed for frotz/frotz-release (see
+  // buildProcessConfig); undefined for dgdebug-only tests/call sites.
+  patchSourcePath?: string;
 }
 
 /**
@@ -266,7 +270,7 @@ export class SkeinSession {
    * - findDynamicState's ancestor walk starts here.
    */
   private async launchProcessAndCaptureBanner(tree: SkeinTree, blessRoot: boolean): Promise<SkeinTree> {
-    this.process = new SkeinProcess(this.buildProcessConfig());
+    this.process = new SkeinProcess(await this.buildProcessConfig());
     this.sourcesChanged = false;
     await this.process.start();
 
@@ -289,22 +293,28 @@ export class SkeinSession {
   }
 
   /**
-   * Reads the project and expands its sources into the ProcessConfig the running engine
-   * needs. dgdebug interprets source files directly; frotz/frotz-release need a compiled game
-   * (a dialogc pre-flight build step, which doesn't exist yet - see technical-design.md's
-   * Process Management section for the dfrotz/frotz-release compile-time distinction).
+   * Reads the project and expands its sources into the ProcessConfig the running engine needs.
+   * dgdebug interprets source files directly; frotz/frotz-release need a compiled game, built
+   * fresh on every call via frotz-build.ts's buildFrotzGame (a dialogc pre-flight step - see
+   * technical-design.md's Process Management section for the dfrotz/frotz-release compile-time
+   * distinction). patchSourcePath must be set for a frotz/frotz-release config - every real call
+   * site (extension.ts) sets it; its absence here means a config was built for a frotz engine
+   * without threading it through, which is a caller bug rather than something to work around.
    */
-  private buildProcessConfig(debugFlags?: string[]): ProcessConfig {
-    const { engine, seed, projectRoot, bundledBinDir } = this.config;
+  private async buildProcessConfig(debugFlags?: string[]): Promise<ProcessConfig> {
+    const { engine, seed, projectRoot, bundledBinDir, patchSourcePath } = this.config;
+    const project = readProject(projectRoot);
 
-    if (engine !== 'dgdebug') {
-      throw new Error(`${engine} is not yet supported - compiling a game file isn't implemented`);
+    if (engine === 'dgdebug') {
+      const sourceFiles = expandSources(project, { debug: true, target: DGDEBUG_TARGET_FILTER });
+      return { engine, seed, sourceFiles, binDir: project.binDir, bundledBinDir, debugFlags };
     }
 
-    const project = readProject(projectRoot);
-    const sourceFiles = expandSources(project, { debug: true, target: DGDEBUG_TARGET_FILTER });
-
-    return { engine, seed, sourceFiles, binDir: project.binDir, bundledBinDir, debugFlags };
+    if (!patchSourcePath) {
+      throw new Error(`${engine} requires patchSourcePath to be set on the session config`);
+    }
+    const gamePath = await buildFrotzGame({ project, engine, binDir: project.binDir, bundledBinDir, patchSourcePath });
+    return { engine, seed, gamePath, binDir: project.binDir, bundledBinDir, debugFlags };
   }
 
   /**
@@ -608,7 +618,7 @@ export class SkeinSession {
         if (token.isCancellationRequested) {
           return undefined;
         }
-        const process = new SkeinProcess(this.buildProcessConfig());
+        const process = new SkeinProcess(await this.buildProcessConfig());
         await process.start();
         const banner = await process.readResponse();
         if (!process.isProcessRunning()) {
@@ -736,7 +746,7 @@ export class SkeinSession {
       return null;
     }
 
-    const tracedProcess = new SkeinProcess(this.buildProcessConfig(['--trace']));
+    const tracedProcess = new SkeinProcess(await this.buildProcessConfig(['--trace']));
     await tracedProcess.start();
     const tracedBanner = await tracedProcess.readResponse();
     if (!tracedProcess.isProcessRunning()) {

@@ -37,6 +37,14 @@ jest.mock('./process', () => ({
   })
 }));
 
+// frotz-build.ts's buildFrotzGame does a real dialogc compile - mocked here like SkeinProcess
+// above, so these tests stay fast/offline; frotz-build.spec.ts is the real (non-mocked) coverage
+// for the compile step itself.
+const mockBuildFrotzGame = jest.fn();
+jest.mock('./frotz-build', () => ({
+  buildFrotzGame: (...args: unknown[]) => mockBuildFrotzGame(...args)
+}));
+
 /**
  * A fully independent mock process instance - its own start/sendCommand/readResponse/terminate,
  * not the shared mock* functions - for scripting one of replayAll's concurrently-running leaves.
@@ -63,6 +71,7 @@ import { SkeinSession, SessionConfig } from './session';
 import { DialogCompileError } from './compile-error';
 import { CommandConflictError, KnotLockedError, LabelConflictError, SkeinTree } from './tree';
 import { ProgressHost } from './progress';
+import { SkeinProcess } from './process';
 
 /**
  * A controllable ProgressHost double for replayAll's progress/cancellation tests - runs the task
@@ -119,7 +128,8 @@ function dynamicResponse(flagLines: string[]) {
 // expands its sources for real here, only the process I/O itself is mocked.
 const DGSAMPLE_ROOT = path.join(__dirname, '__fixtures__', 'project', 'dgsample');
 const DGDEBUG_CONFIG: SessionConfig = { engine: 'dgdebug', seed: 1, projectRoot: DGSAMPLE_ROOT };
-const FROTZ_CONFIG: SessionConfig = { engine: 'frotz', seed: 1, projectRoot: DGSAMPLE_ROOT };
+const PATCH_SOURCE_PATH = '/ext/resources/dfrotz-skein-patch.dg';
+const FROTZ_CONFIG: SessionConfig = { engine: 'frotz', seed: 1, projectRoot: DGSAMPLE_ROOT, patchSourcePath: PATCH_SOURCE_PATH };
 
 describe('SkeinSession', () => {
   beforeEach(() => {
@@ -128,6 +138,7 @@ describe('SkeinSession', () => {
     mockReadResponse.mockReset();
     mockTerminate.mockReset().mockResolvedValue(undefined);
     mockIsProcessRunning.mockReset().mockReturnValue(true);
+    mockBuildFrotzGame.mockReset().mockResolvedValue('/tmp/dialog-ide-skein/the-orb/frotz/the-orb.zblorb');
     processInstanceOverrides = [];
     processConstructionCount = 0;
   });
@@ -178,9 +189,44 @@ describe('SkeinSession', () => {
       expect(onChange).toHaveBeenCalledTimes(1);
     });
 
-    it('throws for engines that need a compiled game (frotz/frotz-release), which isn\'t implemented yet', async () => {
+    it('compiles a game via buildFrotzGame and starts against it, for frotz/frotz-release', async () => {
+      mockReadResponse.mockResolvedValueOnce(BANNER_RESPONSE);
       const session = SkeinSession.createNew(FROTZ_CONFIG);
-      await expect(session.start()).rejects.toThrow('frotz is not yet supported');
+
+      await session.start();
+
+      expect(mockBuildFrotzGame).toHaveBeenCalledTimes(1);
+      const [buildConfig] = mockBuildFrotzGame.mock.calls[0];
+      expect(buildConfig.engine).toBe('frotz');
+      expect(buildConfig.patchSourcePath).toBe(PATCH_SOURCE_PATH);
+      expect(buildConfig.project.rootDir).toBe(DGSAMPLE_ROOT);
+
+      const mockCalls = (SkeinProcess as unknown as jest.Mock).mock.calls;
+      const [processConfig] = mockCalls[mockCalls.length - 1];
+      expect(processConfig.gamePath).toBe('/tmp/dialog-ide-skein/the-orb/frotz/the-orb.zblorb');
+      expect(processConfig.sourceFiles).toBeUndefined();
+      expect(session.isRunningSession()).toBe(true);
+    });
+
+    it('never captures @dynamic for frotz - not a dgdebug concept', async () => {
+      mockReadResponse.mockResolvedValueOnce(BANNER_RESPONSE);
+      const session = SkeinSession.createNew(FROTZ_CONFIG);
+
+      await session.start();
+
+      expect(mockSendCommand).not.toHaveBeenCalled();
+    });
+
+    it('throws a clear error if a frotz/frotz-release config is missing patchSourcePath - a caller bug, not a runtime condition', async () => {
+      const session = SkeinSession.createNew({ engine: 'frotz', seed: 1, projectRoot: DGSAMPLE_ROOT });
+      await expect(session.start()).rejects.toThrow('frotz requires patchSourcePath');
+      expect(session.isRunningSession()).toBe(false);
+    });
+
+    it('propagates a DialogCompileError thrown by buildFrotzGame (a real dialogc compile failure)', async () => {
+      mockBuildFrotzGame.mockReset().mockRejectedValue(new DialogCompileError('Error: src/orb.dg, line 3: bad rule.\n'));
+      const session = SkeinSession.createNew(FROTZ_CONFIG);
+      await expect(session.start()).rejects.toThrow(DialogCompileError);
       expect(session.isRunningSession()).toBe(false);
     });
 

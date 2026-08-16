@@ -27,6 +27,20 @@ describe('renderKnotMenu', () => {
       expect(traceItem).toContain(' disabled');
       expect(traceItem).toContain('title="Tracing isn');
     });
+
+    it('is disabled, with an explanatory title, for a non-dgdebug engine - tracing is a dgdebug-only debug-console concept', () => {
+      const html = renderKnotMenu(3, true, false, '/actions/open-transcript-menu', false, null, null, 'compact', false, 'frotz');
+      const traceItem = html.split('>Trace</button>')[0].split('<li').pop()!;
+      expect(traceItem).toContain('menu-disabled');
+      expect(traceItem).toContain(' disabled');
+      expect(traceItem).toContain('title="Tracing requires the dgdebug engine"');
+    });
+
+    it('is not disabled for the dgdebug engine (the default)', () => {
+      const html = renderKnotMenu(3, true, false, '/actions/open-transcript-menu', false, null, null, 'compact', false, 'dgdebug');
+      const traceItem = html.split('>Trace</button>')[0].split('<li').pop()!;
+      expect(traceItem).not.toContain('menu-disabled');
+    });
   });
 
   describe('Insert Parent item', () => {

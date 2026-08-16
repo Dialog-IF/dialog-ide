@@ -179,7 +179,7 @@ function renderTreeNode(tree: SkeinTree, knot: DerivedKnot, spine: Set<number>, 
     data-on:click="if (!evt.target.closest('details')) { ${selectCall} }"
     data-on:keydown="if (evt.key === 'Enter' || evt.key === ' ') { evt.preventDefault(); ${selectCall} }"
     aria-label="${escapeHtml(knot.command)}${statusSuffix}"
-    aria-pressed="${active}">${statusIcon}${lockIcon}${labelChip}${commandLabel}<span class="ml-auto">${renderKnotMenu(knot.id, knot.unblessedResponse !== null, knot.id === graphMenuId, '/actions/open-graph-menu', active, knot.label, knot.command, 'compact', tree.promptTypeAt(knot.parentId) === 'key')}</span></div>
+    aria-pressed="${active}">${statusIcon}${lockIcon}${labelChip}${commandLabel}<span class="ml-auto">${renderKnotMenu(knot.id, knot.unblessedResponse !== null, knot.id === graphMenuId, '/actions/open-graph-menu', active, knot.label, knot.command, 'compact', tree.promptTypeAt(knot.parentId) === 'key', tree.getEngine())}</span></div>
   ${toggleButton}
 </div>`;
 }

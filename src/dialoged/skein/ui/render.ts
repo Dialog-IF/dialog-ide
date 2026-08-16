@@ -240,7 +240,7 @@ function renderKnot(
     knot.label
       ? `<span class="font-bold bg-neutral text-neutral-content px-1 py-0.5 rounded text-sm">${escapeHtml(knot.label)}</span>`
       : ''
-  }${renderKnotMenu(knot.id, knot.unblessedResponse !== null, knot.id === transcriptMenuId, '/actions/open-transcript-menu', active, knot.label, knot.command, 'prominent', tree.promptTypeAt(knot.parentId) === 'key')}</div>`;
+  }${renderKnotMenu(knot.id, knot.unblessedResponse !== null, knot.id === transcriptMenuId, '/actions/open-transcript-menu', active, knot.label, knot.command, 'prominent', tree.promptTypeAt(knot.parentId) === 'key', tree.getEngine())}</div>`;
 
   const keystrokeChip =
     reachedViaKeystroke(tree, knot)

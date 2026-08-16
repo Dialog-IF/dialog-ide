@@ -2,6 +2,7 @@
 
 ## 0.1.1 - Unreleased
 
+- Run the Skein using `frotz`/`frotz-release` (dfrotz) as the engine - requires `dfrotz` on `PATH` or `binDir` (not yet bundled)
 - "Initialize Dialog Project" no longer asks for target format(s); removed `dialog.json`'s `target` field
 - "Export Web Page..." now asks which export configuration builds the downloadable story file, instead of building every target
 - ⌘⇧A / Ctrl+Shift+A now opens the Command Palette while the Skein or Trace panel has focus

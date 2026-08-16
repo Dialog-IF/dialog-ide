@@ -201,7 +201,13 @@ export class SkeinProcess extends EventEmitter {
           throw new Error(`${engine} requires gamePath`);
         }
         return {
-          command: resolveCommandPath(binDir, 'dfrotz', bundledBinDir),
+          // No bundledBinDir here, unlike dgdebug above: dfrotz isn't one of the toolchain
+          // binaries this extension bundles (see fetch-dialog-binaries.js/resolveBundledBinDir) -
+          // falling back to it would resolve to a path that never exists (ENOENT), since that
+          // directory only ever contains dgdebug/dialogc/aambundle. binDir (a project's own
+          // dialog.json setting) still takes priority if set; otherwise this resolves to the bare
+          // command name, i.e. PATH lookup.
+          command: resolveCommandPath(binDir, 'dfrotz'),
           args: [
             '-q', '-m', '-r', 'lt', '-f', 'normal',
             '-s', seed.toString(),
@@ -229,6 +235,18 @@ export class SkeinProcess extends EventEmitter {
    * only justification on record for that half, so this keeps the same behavior rather than
    * guessing at a better one. Since dfrotz is family !== 'dgdebug', `needsNewline` covers both
    * cases with one check.
+   *
+   * dgdebug's own --transcripting flag echoes the command it just read back onto its output
+   * stream, which is what makes a knot's response start with "> <command>\n" (see
+   * nextBufferSeed's doc comment - the seeded "> " prompt plus that real echo). dfrotz has no
+   * equivalent flag and never echoes anything it reads, so without this it would run straight
+   * from the seeded prompt into its own next response line with no command or newline in
+   * between. dialog-tool's command-loop compensates by synthesizing the same echo directly into
+   * its read buffer before writing to stdin (echo-commands?, its own "hack for dfrotz" comment) -
+   * this does the same, appended straight into `buffer` (not written to the process) so
+   * drainCompleteResponse's next parse sees it exactly as if the interpreter had echoed it
+   * itself. Only for a non-keystroke command, matching dialog-tool: a keystroke reply has no
+   * echoed line of its own for either engine.
    */
   public sendCommand(command: string, keystroke: boolean = false): void {
     if (!this.process || !this.isRunning) {
@@ -237,6 +255,9 @@ export class SkeinProcess extends EventEmitter {
 
     this.lastCommand = command;
     const needsNewline = !keystroke || this.config.engine !== 'dgdebug';
+    if (this.config.engine !== 'dgdebug' && !keystroke) {
+      this.buffer += `${command}\n`;
+    }
     this.process.stdin?.write(needsNewline ? `${command}\n` : command);
   }
 

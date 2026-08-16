@@ -125,6 +125,20 @@ describe('SkeinProcess', () => {
       const proc = new SkeinProcess({ engine: 'frotz', seed: 1 });
       await expect(proc.start()).rejects.toThrow('frotz requires gamePath');
     });
+
+    it('never resolves dfrotz from bundledBinDir - that directory only ever contains dgdebug/dialogc/aambundle, never dfrotz, so falling back to it would spawn a path that always ENOENT\'s', async () => {
+      const proc = new SkeinProcess({ engine: 'frotz', seed: 1, gamePath: '/tmp/g.zblorb', bundledBinDir: '/ext/bin/darwin-arm64' });
+      await proc.start();
+
+      expect(mockSpawn).toHaveBeenCalledWith('dfrotz', expect.anything(), expect.anything());
+    });
+
+    it('still resolves dfrotz from binDir when a project sets one, same as dgdebug', async () => {
+      const proc = new SkeinProcess({ engine: 'frotz', seed: 1, gamePath: '/tmp/g.zblorb', binDir: '/opt/dialog/bin' });
+      await proc.start();
+
+      expect(mockSpawn).toHaveBeenCalledWith('/opt/dialog/bin/dfrotz', expect.anything(), expect.anything());
+    });
   });
 
   describe('readResponse', () => {
@@ -287,6 +301,52 @@ describe('SkeinProcess', () => {
       proc.sendCommand('x', true);
 
       expect(fakeChild.stdin.write).toHaveBeenCalledWith('x\n');
+    });
+
+    it('synthesizes the "> command" echo for dfrotz - unlike dgdebug (which echoes it as real stdout, see echoedResponseBuffer above), dfrotz never echoes what it read on its own', async () => {
+      const proc = new SkeinProcess({ engine: 'frotz', seed: 1, gamePath: '/tmp/g.zblorb' });
+      await proc.start();
+
+      // Startup banner - no prior command to echo yet, same as dgdebug's own banner. dfrotz's
+      // line-prompt tag is "T > ", not dgdebug's plain "> " - see io.ts's LINE_TAG_TERMINATOR.
+      const banner = proc.readResponse();
+      fakeChild.stdout.emit('data', Buffer.from(taggedBuffer(['Endless Featureless Space'], 'T > ')));
+      await banner;
+
+      proc.sendCommand('look');
+      const response = proc.readResponse();
+      // Only the real, un-echoed tagged content - proving the "> look" prefix below came from
+      // sendCommand's own buffer synthesis, not from anything simulated in this stdout emit.
+      fakeChild.stdout.emit('data', Buffer.from(taggedBuffer(['You are in an endless space.'], 'T > ')));
+
+      await expect(response).resolves.toEqual({
+        command: 'look',
+        response: '> look\nYou are in an endless space.\n',
+        promptType: 'line'
+      });
+    });
+
+    it('does not synthesize an echo for a keystroke reply, matching dialog-tool\'s echo-commands? guard', async () => {
+      const proc = new SkeinProcess({ engine: 'frotz', seed: 1, gamePath: '/tmp/g.zblorb' });
+      await proc.start();
+
+      const banner = proc.readResponse();
+      fakeChild.stdout.emit('data', Buffer.from(taggedBuffer(['Press any key.'], ') ')));
+      await banner;
+
+      proc.sendCommand('x', true);
+      const response = proc.readResponse();
+      // Unlike a freshly-tagged response, the raw line right after a keystroke reply carries no
+      // 2-char tag of its own - nextBufferSeed's "  " placeholder covers that budget instead (see
+      // its own doc comment), so this deliberately doesn't use taggedBuffer's own tag-prepending.
+      // Terminates on dfrotz's own "T > " line-prompt tag, not dgdebug's plain "> ".
+      fakeChild.stdout.emit('data', Buffer.from('Continuing.\nT > '));
+
+      await expect(response).resolves.toEqual({
+        command: 'x',
+        response: 'Continuing.\n',
+        promptType: 'line'
+      });
     });
   });
 
