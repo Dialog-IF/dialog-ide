@@ -1,5 +1,7 @@
 # Changelog
 
+## 0.2.1 - Unreleased
+
 ## 0.2.0 - 16 Aug 2026
 
 - Run the Skein using `frotz`/`frotz-release` (dfrotz) as the engine - requires `dfrotz` on `PATH` or `binDir` (not yet bundled)
