@@ -12,6 +12,7 @@ import {
   DialogProject,
   EngineType,
   ExportConfig,
+  FeelieConfig,
   PersistenceManager,
   readProject,
   expandSources,
@@ -37,6 +38,7 @@ import {
   setProjectDialogcOptions
 } from './dialog-export';
 import { bundleWebExport, WebExportPaths } from './dialog-web-export';
+import { addFeelie, removeFeelie } from './dialog-feelies';
 import {
   DEFAULT_SESSION_ID,
   EngineChoice,
@@ -276,6 +278,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           path.join(context.extensionPath, 'resources', 'bundle')
         )
       )
+    ),
+    vscode.commands.registerCommand(
+      'dialog-ide.addFeelie',
+      withErrorHandling((uri?: vscode.Uri) => addFeelieWizard(resolveProjectRoot(getWorkspaceRoot()), uri?.fsPath))
+    ),
+    vscode.commands.registerCommand(
+      'dialog-ide.removeFeelie',
+      withErrorHandling(() => removeFeelieWizard(resolveProjectRoot(getWorkspaceRoot())))
     )
   );
 
@@ -772,6 +782,79 @@ async function removeExportConfigWizard(dialogJsonPath: string, name: string): P
   }
   removeExportConfig(dialogJsonPath, name);
   vscode.window.showInformationMessage(`Removed export configuration "${name}".`);
+}
+
+/**
+ * "Add Feelie..." - registers dialog.json's `feelies` array with a file, then prompts for its
+ * display name. `filePath`, when given (right-clicking a file in the Explorer - see
+ * package.json's `explorer/context` menu contribution), is used directly; otherwise (invoked
+ * from the Command Palette) falls back to showOpenDialog, defaulting to the project root since a
+ * feelie is conventionally kept alongside dialog.json like cover.png. Unlike "Configure
+ * Exports..."'s in-palette QuickPick loop, this is a single standalone command (as is "Remove
+ * Feelie...") since there's only one thing to configure per feelie.
+ */
+async function addFeelieWizard(projectRoot: string, filePath?: string): Promise<void> {
+  if (!filePath) {
+    const picked = await vscode.window.showOpenDialog({
+      defaultUri: vscode.Uri.file(projectRoot),
+      canSelectMany: false,
+      openLabel: 'Add Feelie',
+      filters: { 'PDF files': ['pdf'], 'All files': ['*'] }
+    });
+    if (!picked || picked.length === 0) {
+      return;
+    }
+    filePath = picked[0].fsPath;
+  }
+
+  const dialogJsonPath = path.join(projectRoot, 'dialog.json');
+  const feeliePath = toDialogJsonPath(projectRoot, filePath);
+
+  const name = await vscode.window.showInputBox({
+    prompt: 'Feelie display name (the link text on the exported page)',
+    value: path.basename(filePath, path.extname(filePath)),
+    validateInput: (value) => (value.trim() === '' ? 'Enter a name.' : undefined)
+  });
+  if (!name) {
+    return;
+  }
+
+  const feelie: FeelieConfig = { path: feeliePath, name: name.trim() };
+  addFeelie(dialogJsonPath, feelie);
+  vscode.window.showInformationMessage(`Added feelie "${feelie.name}".`);
+}
+
+/**
+ * "Remove Feelie..." - picks one of dialog.json's configured feelies via QuickPick and removes
+ * it after confirmation. removeFeelie itself throws if the picked path somehow isn't found (it
+ * always will be, since the QuickPick is built from the same project.feelies list).
+ */
+async function removeFeelieWizard(projectRoot: string): Promise<void> {
+  const dialogJsonPath = path.join(projectRoot, 'dialog.json');
+  const project = readProject(projectRoot);
+  const feelies = project.feelies ?? [];
+  if (feelies.length === 0) {
+    vscode.window.showInformationMessage('This project has no feelies configured.');
+    return;
+  }
+
+  const picked = await vscode.window.showQuickPick(
+    feelies.map((feelie) => ({ label: feelie.name, description: feelie.path, feelie })),
+    { placeHolder: 'Remove which feelie?' }
+  );
+  if (!picked) {
+    return;
+  }
+
+  const choice = await vscode.window.showQuickPick(['Remove', 'Cancel'], {
+    placeHolder: `Remove feelie "${picked.feelie.name}"?`
+  });
+  if (choice !== 'Remove') {
+    return;
+  }
+
+  removeFeelie(dialogJsonPath, picked.feelie.path);
+  vscode.window.showInformationMessage(`Removed feelie "${picked.feelie.name}".`);
 }
 
 function revealFileLabel(): string {

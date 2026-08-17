@@ -4,10 +4,9 @@
  * than porting dialog-tool's Selmer-rendered resources/bundle/index.html verbatim. Field-for-field
  * parity with that page: title/author in <title>/meta tags, an optional cover thumbnail linking
  * to the full-size image, title/author/release headers, one list item per compiled story file,
- * a "how to play IF" PDF link for each one still present in the project (see PdfLink), a
- * "Play In-Browser" link to play.html (produced by aambundle itself, not by this function), an
- * optional walkthrough link, the story's blurb, and a closing paragraph naming the IFID and
- * recommending interpreters.
+ * a link for each of the project's configured feelies (see FeelieLink), a "Play In-Browser" link
+ * to play.html (produced by aambundle itself, not by this function), an optional walkthrough
+ * link, the story's blurb, and a closing paragraph naming the IFID and recommending interpreters.
  */
 
 /** A single compiled game file, ready for download - built by dialog-web-export.ts's buildStoryFile. */
@@ -29,15 +28,15 @@ export interface StoryInfo {
 }
 
 /**
- * A "how to play IF" PDF link actually present in this export's out/web/ - dialog-web-export.ts's
- * PDF_ASSETS lists the two possible ones (seeded into a project by "Initialize Dialog Project");
- * either can be deleted from the project to opt it out of the page entirely, so this list only
- * ever contains the ones that still exist.
+ * A feelie link actually present in this export's out/web/ - one per entry in the project's
+ * dialog.json `feelies` config (see dialog-web-export.ts's resolveFeelieLinks). `ext` is the
+ * source file's extension (no dot), used for the page's "(ext, description)" subtitle.
  */
-export interface PdfLink {
+export interface FeelieLink {
   name: string;
   label: string;
   description: string;
+  ext: string;
 }
 
 function escapeHtml(text: string): string {
@@ -53,12 +52,12 @@ export interface WebExportPageContext {
   story: StoryInfo;
   storyFiles: BuiltTarget[];
   hasCover: boolean;
-  pdfLinks: PdfLink[];
+  feelieLinks: FeelieLink[];
   walkthroughDescription: string | null;
 }
 
 export function renderWebExportPage(context: WebExportPageContext): string {
-  const { story, storyFiles, hasCover, pdfLinks, walkthroughDescription } = context;
+  const { story, storyFiles, hasCover, feelieLinks, walkthroughDescription } = context;
   const title = escapeHtml(story.title);
   const author = escapeHtml(story.author);
 
@@ -73,10 +72,10 @@ export function renderWebExportPage(context: WebExportPageContext): string {
     )
     .join('\n');
 
-  const pdfLinksHtml = pdfLinks
+  const feelieLinksHtml = feelieLinks
     .map(
-      (pdf) =>
-        `\t\t<li><a href="${escapeHtml(pdf.name)}">${escapeHtml(pdf.label)}</a> <span class="filetype">(pdf, ${escapeHtml(pdf.description)})</span></li>`
+      (feelie) =>
+        `\t\t<li><a href="${escapeHtml(feelie.name)}">${escapeHtml(feelie.label)}</a> <span class="filetype">(${escapeHtml(feelie.ext)}, ${escapeHtml(feelie.description)})</span></li>`
     )
     .join('\n');
 
@@ -104,7 +103,7 @@ ${coverHtml}
 \t<ul>
 ${storyFilesHtml}
 \t<div class="auxiliary">
-${pdfLinksHtml}
+${feelieLinksHtml}
 \t\t<li><a href="play.html">Play In-Browser</a> <span class="filetype">(link)</span></li></div>
 ${walkthroughHtml}
 \t</ul>

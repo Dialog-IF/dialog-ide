@@ -4,7 +4,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { DialogProject, ExportConfig, SkeinTree } from './dialoged/skein';
 import { serializeTree } from './dialoged/skein/persistence';
-import { PDF_ASSETS, bundleWebExport, extractStoryInfo, extractWalkthrough } from './dialog-web-export';
+import { DEFAULT_FEELIES, bundleWebExport, extractStoryInfo, extractWalkthrough } from './dialog-web-export';
 
 describe('extractWalkthrough', () => {
   const ROOT_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'dialog-web-export-walkthrough-'));
@@ -92,8 +92,8 @@ describeIfFullToolchain('bundleWebExport (real dialogc/dgdebug/aambundle)', () =
     fs.cpSync(path.join(FIXTURE_ROOT, 'lib'), path.join(rootDir, 'lib'), { recursive: true });
     fs.copyFileSync(path.join(ASSETS_DIR, 'default-cover.png'), path.join(rootDir, 'cover.png'));
     // Mirrors what "Initialize Dialog Project" seeds at the project root (dialog-project-init.ts).
-    for (const asset of PDF_ASSETS) {
-      fs.copyFileSync(path.join(ASSETS_DIR, asset.filename), path.join(rootDir, asset.filename));
+    for (const feelie of DEFAULT_FEELIES) {
+      fs.copyFileSync(path.join(ASSETS_DIR, feelie.path), path.join(rootDir, feelie.path));
     }
   });
 
@@ -106,6 +106,7 @@ describeIfFullToolchain('bundleWebExport (real dialogc/dgdebug/aambundle)', () =
       name: 'The Orb',
       sources: { main: ['main'], library: ['lib/dialog'] },
       exports: [],
+      feelies: DEFAULT_FEELIES,
       rootDir,
       dialogcOptions
     };
@@ -188,7 +189,7 @@ describeIfFullToolchain('bundleWebExport (real dialogc/dgdebug/aambundle)', () =
     expect(html).toContain('The Orb.aastory');
   }, 60000);
 
-  it('omits a deleted PDF from the output directory and the generated page, keeping the other one', async () => {
+  it('errors when a configured feelie\'s file is missing from the project root', async () => {
     fs.rmSync(path.join(rootDir, 'introduction-to-if.pdf'));
 
     const result = await bundleWebExport(
@@ -197,26 +198,16 @@ describeIfFullToolchain('bundleWebExport (real dialogc/dgdebug/aambundle)', () =
       { dialogcPath: 'dialogc', aambundlePath: 'aambundle' },
       ASSETS_DIR
     );
-    expect(result.ok).toBe(true);
-    if (result.ok !== true) {
-      return;
+    expect(result.ok).toBe(false);
+    if (result.ok === false) {
+      expect(result.step).toBe('assemble');
+      expect(result.message).toContain('Introduction to IF');
     }
-
-    expect(fs.existsSync(path.join(result.outDir, 'introduction-to-if.pdf'))).toBe(false);
-    expect(fs.existsSync(path.join(result.outDir, 'play-if-card.pdf'))).toBe(true);
-
-    const html = fs.readFileSync(path.join(result.outDir, 'index.html'), 'utf8');
-    expect(html).not.toContain('introduction-to-if.pdf');
-    expect(html).toContain('play-if-card.pdf');
   }, 60000);
 
-  it('omits both PDFs when neither exists at the project root', async () => {
-    for (const asset of PDF_ASSETS) {
-      fs.rmSync(path.join(rootDir, asset.filename));
-    }
-
+  it('produces a page with no feelie links when the project has none configured', async () => {
     const result = await bundleWebExport(
-      project(),
+      { ...project(), feelies: [] },
       zblorbConfig(),
       { dialogcPath: 'dialogc', aambundlePath: 'aambundle' },
       ASSETS_DIR

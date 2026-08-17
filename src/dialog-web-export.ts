@@ -11,10 +11,9 @@
  * chosen export configuration's format as the downloadable story file, plus :aa separately (for
  * the in-browser player, unless the chosen configuration is itself :aa - see bundleWebExport),
  * query title/author/ifid/noun/blurb/release live from dgdebug, run aambundle to produce the
- * AAmachine web player, assemble everything (vendored CSS, the story file, cover thumbnail,
- * whichever "how to play IF" PDFs are still present in the project - see
- * PDF_ASSETS/resolvePdfLinks, optional walkthrough, index.html) into out/web/, then zip it into
- * out/<name>-<release>.zip.
+ * AAmachine web player, assemble everything (vendored CSS, the story file, cover thumbnail, the
+ * project's configured feelies - see resolveFeelieLinks, optional walkthrough, index.html) into
+ * out/web/, then zip it into out/<name>-<release>.zip.
  */
 
 import { execFile } from 'child_process';
@@ -23,9 +22,9 @@ import { promises as fsp } from 'fs';
 import * as path from 'path';
 import { promisify } from 'util';
 import { ZipFile } from 'yazl';
-import { DialogProject, ExportConfig, SkeinProcess, deserializeTree, expandSources } from './dialoged/skein';
+import { DialogProject, ExportConfig, FeelieConfig, SkeinProcess, deserializeTree, expandSources } from './dialoged/skein';
 import { stripAnsi } from './dialoged/skein/ui/ansi';
-import { BuiltTarget, PdfLink, StoryInfo, renderWebExportPage } from './dialoged/skein/ui/webExportPage';
+import { BuiltTarget, FeelieLink, StoryInfo, renderWebExportPage } from './dialoged/skein/ui/webExportPage';
 import { resizeCoverPng } from './dialog-cover-resize';
 import { resolveCoverImage, resolveDialogcOptions } from './dialog-export';
 
@@ -69,32 +68,41 @@ function extFor(target: string): string {
 }
 
 /**
- * The two "how to play IF" PDFs "Initialize Dialog Project" seeds at the project root (see
- * dialog-project-init.ts's scaffoldProject) - each is independently optional at export time: a
- * user who deletes one from their project simply gets a page/out-web-dir without that link,
- * rather than an error (see resolvePdfLinks).
+ * The two "how to play IF" PDFs "Initialize Dialog Project" seeds at the project root and wires
+ * into the freshly generated dialog.json's `feelies` array (see dialog-project-init.ts's
+ * scaffoldProject) - not otherwise special once a project exists; from then on feelies are plain
+ * dialog.json config (see FeelieConfig/resolveFeelieLinks), and a user is free to remove either
+ * via "Remove Feelie...".
  */
-export const PDF_ASSETS: Array<{ filename: string; label: string }> = [
-  { filename: 'introduction-to-if.pdf', label: 'Introduction to IF' },
-  { filename: 'play-if-card.pdf', label: 'IF in One Page' }
+export const DEFAULT_FEELIES: FeelieConfig[] = [
+  { path: 'introduction-to-if.pdf', name: 'Introduction to IF' },
+  { path: 'play-if-card.pdf', name: 'IF in One Page' }
 ];
 
 /**
- * Copies whichever of PDF_ASSETS still exist at the project root into outDir, returning a
- * PdfLink per one actually copied (in PDF_ASSETS order) - the page (renderWebExportPage) only
- * ever links to PDFs that made it into this list, so deleting one from the project root adapts
- * the generated page automatically.
+ * Copies each of project.feelies' files into outDir, returning a FeelieLink per one (in
+ * dialog.json order). Unlike the old hardcoded-PDF opt-out-by-deletion convention, a configured
+ * feelie whose file is missing is an error - the user explicitly asked for it to be there, so
+ * silently omitting it would hide a mistake (a typo'd path, a moved/deleted file) rather than
+ * surface it.
  */
-async function resolvePdfLinks(project: DialogProject, outDir: string): Promise<PdfLink[]> {
-  const links: PdfLink[] = [];
-  for (const asset of PDF_ASSETS) {
-    const sourcePath = path.join(project.rootDir, asset.filename);
+async function resolveFeelieLinks(project: DialogProject, outDir: string): Promise<FeelieLink[]> {
+  const links: FeelieLink[] = [];
+  for (const feelie of project.feelies ?? []) {
+    const sourcePath = path.join(project.rootDir, feelie.path);
     if (!fs.existsSync(sourcePath)) {
-      continue;
+      throw new Error(`Feelie "${feelie.name}" not found: ${sourcePath}`);
     }
-    await fsp.copyFile(sourcePath, path.join(outDir, asset.filename));
+    const fileName = path.basename(feelie.path);
+    await fsp.copyFile(sourcePath, path.join(outDir, fileName));
     const stat = await fsp.stat(sourcePath);
-    links.push({ name: asset.filename, label: asset.label, description: formatSize(stat.size) });
+    const ext = path.extname(feelie.path).replace(/^\./, '') || 'file';
+    links.push({
+      name: fileName,
+      label: feelie.name,
+      description: formatSize(stat.size),
+      ext
+    });
   }
   return links;
 }
@@ -297,9 +305,8 @@ async function zipDirectory(sourceDir: string, zipPath: string): Promise<void> {
  * format is "aa", that same build also drives the in-browser player (no separate build); for any
  * other format, "aa" is built separately (see buildAaPlayer) purely to drive the player, and
  * isn't itself offered as a download. assetsDir is this extension's own vendored
- * resources/bundle/ directory (style.css, play.css) - the "how to play IF" PDFs, by contrast,
- * come from the project itself (see resolvePdfLinks), since those are meant to be deletable
- * per-project.
+ * resources/bundle/ directory (style.css, play.css) - feelies, by contrast, come from the
+ * project's own dialog.json `feelies` config (see resolveFeelieLinks).
  */
 export async function bundleWebExport(
   project: DialogProject,
@@ -345,7 +352,7 @@ export async function bundleWebExport(
     await fsp.copyFile(path.join(assetsDir, 'play.css'), path.join(outDir, 'resources', 'style.css'));
     await fsp.copyFile(path.join(assetsDir, 'style.css'), path.join(outDir, 'style.css'));
 
-    const pdfLinks = await resolvePdfLinks(project, outDir);
+    const feelieLinks = await resolveFeelieLinks(project, outDir);
 
     for (const file of storyFiles) {
       await fsp.copyFile(file.path, path.join(outDir, file.name));
@@ -370,7 +377,7 @@ export async function bundleWebExport(
       story,
       storyFiles,
       hasCover,
-      pdfLinks,
+      feelieLinks,
       walkthroughDescription
     });
     await fsp.writeFile(path.join(outDir, 'index.html'), html);

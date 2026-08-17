@@ -150,6 +150,28 @@ describe('scaffoldProject', () => {
       expect(fs.existsSync(path.join(rootDir, 'introduction-to-if.pdf'))).toBe(true);
       expect(fs.existsSync(path.join(rootDir, 'play-if-card.pdf'))).toBe(false);
     });
+
+    it('wires each copied PDF into dialog.json\'s feelies array', () => {
+      scaffoldProject(rootDir, { name: 'The Orb' }, libraryDir, undefined, pdfAssetsDir);
+      const dialogJson = JSON.parse(fs.readFileSync(path.join(rootDir, 'dialog.json'), 'utf8'));
+      expect(dialogJson.feelies).toEqual([
+        { path: 'introduction-to-if.pdf', name: 'Introduction to IF' },
+        { path: 'play-if-card.pdf', name: 'IF in One Page' }
+      ]);
+    });
+
+    it('omits the feelies array when no PDFs were copied', () => {
+      scaffoldProject(rootDir, { name: 'The Orb' }, libraryDir);
+      const dialogJson = JSON.parse(fs.readFileSync(path.join(rootDir, 'dialog.json'), 'utf8'));
+      expect(dialogJson.feelies).toBeUndefined();
+    });
+
+    it('only wires the feelies that were actually copied', () => {
+      fs.rmSync(path.join(pdfAssetsDir, 'play-if-card.pdf'));
+      scaffoldProject(rootDir, { name: 'The Orb' }, libraryDir, undefined, pdfAssetsDir);
+      const dialogJson = JSON.parse(fs.readFileSync(path.join(rootDir, 'dialog.json'), 'utf8'));
+      expect(dialogJson.feelies).toEqual([{ path: 'introduction-to-if.pdf', name: 'Introduction to IF' }]);
+    });
   });
 
   function isDialogcAvailable(): boolean {

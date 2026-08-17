@@ -31,6 +31,18 @@ export interface ExportConfig {
   dialogcOptions?: string[];
 }
 
+/**
+ * A "feelie" - an auxiliary file (traditionally a PDF, but not required to be) linked from
+ * "Export Web Page..."'s generated page, e.g. a "how to play IF" primer. `path` is relative to
+ * the project root (like a source entry); `name` is the link text. See dialog-web-export.ts's
+ * resolveFeelieLinks - unlike the old hardcoded PDF_ASSETS convention, a configured feelie whose
+ * file is missing at export time is an error, not a silent omission.
+ */
+export interface FeelieConfig {
+  path: string;
+  name: string;
+}
+
 export interface DialogProject {
   name: string;
   binDir?: string;
@@ -41,6 +53,7 @@ export interface DialogProject {
   // appending to it - see dialog-export.ts's resolveDialogcOptions) - also applied to the "aa"
   // build "Export Web Page..." makes for the in-browser player.
   dialogcOptions?: string[];
+  feelies?: FeelieConfig[];
   rootDir: string;
 }
 
@@ -60,6 +73,7 @@ export function readProject(rootDir: string): DialogProject {
     sources?: Partial<ProjectSources>;
     exports?: unknown;
     dialogcOptions?: unknown;
+    feelies?: unknown;
   };
   try {
     parsed = JSON.parse(fs.readFileSync(filePath, 'utf8'));
@@ -73,6 +87,7 @@ export function readProject(rootDir: string): DialogProject {
     sources: { main: [], ...parsed.sources },
     exports: normalizeExports(parsed.exports),
     dialogcOptions: normalizeDialogcOptions(parsed.dialogcOptions),
+    feelies: normalizeFeelies(parsed.feelies),
     rootDir
   };
 }
@@ -115,6 +130,31 @@ function normalizeExports(exports: unknown): ExportConfig[] {
       });
     } else {
       console.warn(`Skipping malformed dialog.json export entry: ${JSON.stringify(entry)}`);
+    }
+  }
+  return result;
+}
+
+/**
+ * Parses dialog.json's `feelies` array defensively - an entry missing path/name is skipped with
+ * a warning rather than failing the whole project read, matching normalizeExports.
+ */
+function normalizeFeelies(feelies: unknown): FeelieConfig[] {
+  if (!Array.isArray(feelies)) {
+    return [];
+  }
+  const result: FeelieConfig[] = [];
+  for (const entry of feelies) {
+    if (
+      entry &&
+      typeof entry === 'object' &&
+      typeof (entry as FeelieConfig).path === 'string' &&
+      typeof (entry as FeelieConfig).name === 'string'
+    ) {
+      const { path: feeliePath, name } = entry as FeelieConfig;
+      result.push({ path: feeliePath, name });
+    } else {
+      console.warn(`Skipping malformed dialog.json feelie entry: ${JSON.stringify(entry)}`);
     }
   }
   return result;

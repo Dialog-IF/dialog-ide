@@ -8,7 +8,8 @@
 import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
-import { PDF_ASSETS } from './dialog-web-export';
+import { FeelieConfig } from './dialoged/skein';
+import { DEFAULT_FEELIES } from './dialog-web-export';
 
 const LIBRARY_FILES = ['stdlib.dg', 'stddebug.dg', 'unit.dg'];
 
@@ -81,11 +82,12 @@ const STARTER_STORY_DG = `#void
  * skipped (no cover.png written) if coverImageSource is undefined or missing, rather than
  * failing the whole scaffold over a cosmetic asset.
  *
- * Similarly seeds the two "how to play IF" PDFs (PDF_ASSETS) at the project root, from
- * pdfAssetsDir, if given - "Export Web Page..." links to whichever of these still exist at
- * export time (see dialog-web-export.ts's resolvePdfLinks), so deleting one from the project
- * root is how an author opts it out of the exported page. Each PDF is skipped independently if
- * missing from pdfAssetsDir, same tolerant handling as the cover image.
+ * Similarly seeds the two "how to play IF" PDFs (DEFAULT_FEELIES) at the project root, from
+ * pdfAssetsDir, if given, wiring each one actually copied into the generated dialog.json's
+ * `feelies` array - "Export Web Page..." links to whichever feelies are configured there (see
+ * dialog-web-export.ts's resolveFeelieLinks), and "Remove Feelie..." is how an author opts one
+ * out after the fact. Each PDF is skipped independently (and left out of `feelies`) if missing
+ * from pdfAssetsDir, same tolerant handling as the cover image.
  *
  * Throws if dialog.json already exists at rootDir (no silent overwrite of an existing project),
  * or if libraryDir is undefined (local dev before `npm run fetch-dialog-binaries` has ever been
@@ -124,11 +126,13 @@ export function scaffoldProject(
     fs.copyFileSync(coverImageSource, path.join(rootDir, 'cover.png'));
   }
 
+  const feelies: FeelieConfig[] = [];
   if (pdfAssetsDir) {
-    for (const asset of PDF_ASSETS) {
-      const source = path.join(pdfAssetsDir, asset.filename);
+    for (const feelie of DEFAULT_FEELIES) {
+      const source = path.join(pdfAssetsDir, feelie.path);
       if (fs.existsSync(source)) {
-        fs.copyFileSync(source, path.join(rootDir, asset.filename));
+        fs.copyFileSync(source, path.join(rootDir, feelie.path));
+        feelies.push(feelie);
       }
     }
   }
@@ -140,7 +144,8 @@ export function scaffoldProject(
       test: ['test', 'lib/unit.dg'],
       debug: ['debug', 'lib/stddebug.dg'],
       library: ['lib/stdlib.dg']
-    }
+    },
+    ...(feelies.length > 0 ? { feelies } : {})
   };
   fs.writeFileSync(dialogJsonPath, `${JSON.stringify(dialogJson, null, 2)}\n`);
 }

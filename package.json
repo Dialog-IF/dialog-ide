@@ -95,8 +95,25 @@
       {
         "command": "dialog-ide.exportWebPage",
         "title": "Dialog IDE: Export Web Page..."
+      },
+      {
+        "command": "dialog-ide.addFeelie",
+        "title": "Dialog IDE: Add Feelie..."
+      },
+      {
+        "command": "dialog-ide.removeFeelie",
+        "title": "Dialog IDE: Remove Feelie..."
       }
     ],
+    "menus": {
+      "explorer/context": [
+        {
+          "command": "dialog-ide.addFeelie",
+          "when": "!explorerResourceIsFolder && resourceExtname != '.dg'",
+          "group": "dialog-ide@1"
+        }
+      ]
+    },
     "configuration": {
       "title": "Dialog IDE",
       "properties": {

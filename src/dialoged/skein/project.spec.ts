@@ -106,6 +106,56 @@ describe('readProject', () => {
     });
   });
 
+  describe('feelies parsing', () => {
+    let tmpDir: string;
+
+    beforeEach(() => {
+      tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dialog-ide-project-feelies-'));
+    });
+
+    afterEach(() => {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    });
+
+    function writeDialogJson(feelies: unknown): void {
+      fs.writeFileSync(
+        path.join(tmpDir, 'dialog.json'),
+        JSON.stringify({ name: 'Test', sources: { main: ['src'] }, feelies }, null, 2)
+      );
+    }
+
+    it('defaults to an empty array when feelies is absent', () => {
+      fs.writeFileSync(
+        path.join(tmpDir, 'dialog.json'),
+        JSON.stringify({ name: 'Test', sources: { main: ['src'] } }, null, 2)
+      );
+      expect(readProject(tmpDir).feelies).toEqual([]);
+    });
+
+    it('parses well-formed entries', () => {
+      writeDialogJson([
+        { path: 'intro.pdf', name: 'Introduction to IF' },
+        { path: 'card.pdf', name: 'IF in One Page' }
+      ]);
+      expect(readProject(tmpDir).feelies).toEqual([
+        { path: 'intro.pdf', name: 'Introduction to IF' },
+        { path: 'card.pdf', name: 'IF in One Page' }
+      ]);
+    });
+
+    it('skips (rather than throwing on) an entry missing a required field', () => {
+      const warnSpy = jest.spyOn(console, 'warn');
+      writeDialogJson([{ path: 'intro.pdf', name: 'Introduction to IF' }, { path: 'broken.pdf' }]);
+      expect(readProject(tmpDir).feelies).toEqual([{ path: 'intro.pdf', name: 'Introduction to IF' }]);
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('broken.pdf'));
+    });
+
+    it('treats a non-array feelies value as empty', () => {
+      writeDialogJson('not-an-array');
+      expect(readProject(tmpDir).feelies).toEqual([]);
+    });
+  });
+
   describe('project-level dialogcOptions', () => {
     let tmpDir: string;
 
