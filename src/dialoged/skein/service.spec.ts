@@ -386,6 +386,19 @@ describe('SkeinService', () => {
       expect(fake.runCommandCalls).toEqual(['take orb']);
     });
 
+    it('lowercases the command before running it', async () => {
+      const tree = SkeinTree.newTree('dgdebug', 1);
+      const fake = createFakeSession(tree);
+      service.setActiveSession(fake as unknown as SkeinSession, 'default');
+
+      const res = await post(`http://localhost:${service.getPort()}/actions/send-command`, {
+        newCommand: 'Take Orb'
+      });
+
+      expect(res.status).toBe(204);
+      expect(fake.runCommandCalls).toEqual(['take orb']);
+    });
+
     it('no-ops (204, no runCommand call) for a blank command', async () => {
       const tree = SkeinTree.newTree('dgdebug', 1);
       const fake = createFakeSession(tree);

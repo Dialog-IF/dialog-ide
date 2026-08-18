@@ -1676,6 +1676,16 @@ describe('SkeinSession', () => {
       expect(mockTerminate).not.toHaveBeenCalled();
     });
 
+    it('lowercases and collapses internal whitespace before comparing/using the command text', async () => {
+      const session = await startedSessionWith(
+        SkeinTree.newTree('dgdebug', 1).addChild(0, 'take orb', { text: 'a', inputType: 'line' })
+      );
+
+      await session.setCommand(1, 'Take   Orb'); // same as the current command, once normalized
+
+      expect(mockTerminate).not.toHaveBeenCalled();
+    });
+
     it('does not navigate the active knot - editing a command is not a click', async () => {
       const session = await startedSessionWith(
         SkeinTree.newTree('dgdebug', 1)
@@ -1740,6 +1750,24 @@ describe('SkeinSession', () => {
       expect(tree.getKnot(1)!.command).toBe('look'); // id's own command text is untouched
       expect(tree.getDerivedKnot(1)!.unblessedResponse).toBe('Room A, later.\n');
       expect(tree.getActiveKnotId()).toBe(newId);
+    });
+
+    it('normalizes the command text (lowercased, whitespace collapsed) before storing/using it', async () => {
+      const session = await startedSessionWith(
+        SkeinTree.newTree('dgdebug', 1).addChild(0, 'look', { text: 'Room A.\n', inputType: 'line' })
+      );
+      mockReadResponse
+        .mockResolvedValueOnce(BANNER_RESPONSE) // insertParent's relaunch
+        .mockResolvedValueOnce(dynamicResponse([])) // relaunch's own @dynamic, for knot 0
+        .mockResolvedValueOnce({ command: 'wait', response: 'Time passes.\n', promptType: 'line' })
+        .mockResolvedValueOnce(dynamicResponse(['  (waited) on']))
+        .mockResolvedValueOnce({ command: 'look', response: 'Room A, later.\n', promptType: 'line' })
+        .mockResolvedValueOnce(dynamicResponse(['  (waited) on']));
+
+      await session.insertParent(1, '  Wait  ');
+
+      const tree = session.getTree();
+      expect(tree.findChildId(0, 'wait')).not.toBeNull();
     });
 
     it('throws for the root knot - no parent to insert above', async () => {

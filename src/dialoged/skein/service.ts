@@ -7,7 +7,7 @@ import * as http from 'http';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { IGrammar } from 'vscode-textmate';
-import { SkeinSession, SpineDirection, SeekableStatus } from './session';
+import { SkeinSession, SpineDirection, SeekableStatus, normalizeCommand } from './session';
 import { DialogCompileError } from './compile-error';
 import { CommandConflictError, KnotLockedError, LabelConflictError, SkeinTree } from './tree';
 import { renderApp, renderPage, SessionDisplayInfo } from './ui/render';
@@ -76,11 +76,6 @@ function readRequestBody(req: http.IncomingMessage): Promise<string> {
     req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
     req.on('error', reject);
   });
-}
-
-/** Trims and collapses internal whitespace, matching dialog-tool's own normalize-input. */
-function normalizeCommand(text: string): string {
-  return text.trim().replace(/\s+/g, ' ');
 }
 
 // The keystroke command-input's own special-name buttons (render.ts's renderKeystrokeInput) -

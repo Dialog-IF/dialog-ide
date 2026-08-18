@@ -3,6 +3,7 @@
 ## 0.2.1 - Unreleased
 
 - "Export Web Page..."'s attachments ("feelies", e.g. the "how to play IF" PDFs) are now configurable via `dialog.json`'s `feelies` array, instead of a hardcoded pair of filenames; "Add Feelie..." (also available via right-click in the Explorer) and "Remove Feelie..." commands manage them. A configured feelie whose file is missing is now an export error, not a silent omission
+- Command input (new commands and "Edit Command...") now lowercases and collapses consecutive whitespace, not just trims
 
 ## 0.2.0 - 16 Aug 2026
 

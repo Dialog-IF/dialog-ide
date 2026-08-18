@@ -98,6 +98,18 @@ export type SpineDirection = 'up' | 'down' | 'left' | 'right' | 'first' | 'last'
 export type SeekableStatus = 'new' | 'error';
 
 /**
+ * Trims, collapses internal whitespace, and lowercases player-typed command text, so e.g. "Look"
+ * and "look" (or "take  orb" and "take orb") are recorded as the same command rather than distinct
+ * sibling knots (tree.ts's findChildId/renameCommand match by exact text). Shared by every entry
+ * point that accepts raw command text: service.ts's new-command handler (runCommand) and this
+ * class's own setCommand/insertParent (editing existing commands) - extends dialog-tool's own
+ * normalize-input (trim only) with whitespace-collapsing and lowercasing.
+ */
+export function normalizeCommand(text: string): string {
+  return text.trim().replace(/\s+/g, ' ').toLowerCase();
+}
+
+/**
  * Session configuration
  */
 export interface SessionConfig {
@@ -1022,8 +1034,8 @@ export class SkeinSession {
    * command - mirrors the same root? guard every other structural action already has (toggleLock,
    * setLabel, deleteKnot, spliceKnot). A blank command is rejected outright, unlike setLabel's
    * "blank clears" convention - a knot has to have *some* command text. Renaming to the knot's own
-   * already-current command (after trimming) is a no-op: no reason to restart the process and
-   * replay just to reconfirm a response that's already current.
+   * already-current command (after normalizeCommand) is a no-op: no reason to restart the process
+   * and replay just to reconfirm a response that's already current.
    *
    * On an actual change, tree.renameCommand throws CommandConflictError for a sibling collision
    * without touching this.tree - computed before pushUndoSnapshot for the usual reason (a rejected
@@ -1042,19 +1054,19 @@ export class SkeinSession {
     if (!this.isRunning) {
       throw new Error('Session not running');
     }
-    const trimmed = command.trim();
-    if (trimmed === '') {
+    const normalized = normalizeCommand(command);
+    if (normalized === '') {
       throw new Error('Command cannot be blank');
     }
     const knot = this.tree.getKnot(id);
     if (!knot) {
       throw new Error(`Knot ${id} not found`);
     }
-    if (trimmed === knot.command) {
+    if (normalized === knot.command) {
       return;
     }
 
-    const renamed = this.tree.renameCommand(id, trimmed);
+    const renamed = this.tree.renameCommand(id, normalized);
     this.pushUndoSnapshot();
     this.tree = renamed;
     await this.replayProcessTo(id);
@@ -1095,15 +1107,15 @@ export class SkeinSession {
     if (!knot || knot.parentId === null) {
       throw new Error(`Knot ${id} not found, or is the root (which has no parent to insert above)`);
     }
-    const trimmed = command.trim();
-    if (trimmed === '') {
+    const normalized = normalizeCommand(command);
+    if (normalized === '') {
       throw new Error('Command cannot be blank');
     }
     if (this.tree.promptTypeAt(knot.parentId) === 'key') {
       throw new Error('Cannot insert a parent here: reached via a keystroke prompt.');
     }
-    if (this.tree.findChildId(knot.parentId, trimmed) !== null) {
-      throw new CommandConflictError(trimmed);
+    if (this.tree.findChildId(knot.parentId, normalized) !== null) {
+      throw new CommandConflictError(normalized);
     }
 
     // Computed before the mutation - see tree.ts's nextId doc comment for why this is safe to
@@ -1113,7 +1125,7 @@ export class SkeinSession {
     this.pushUndoSnapshot();
     // A throwaway placeholder - replayProcessTo below immediately overwrites both this knot's and
     // id's responses with what the process actually produces, so nothing ever renders this text.
-    this.tree = this.tree.insertParent(id, trimmed, { text: '', inputType: 'line' });
+    this.tree = this.tree.insertParent(id, normalized, { text: '', inputType: 'line' });
     await this.replayProcessTo(id);
     this.tree = this.tree.selectKnot(newId);
     this.closeMenus();
