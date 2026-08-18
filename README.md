@@ -63,6 +63,8 @@ exceptions first, before default rules.
 
 If you create a `.dg` file that isn't covered by any of the categories above, Dialog IDE flags it - a dismissible notification plus a persistent Explorer badge, both with a one-click "Add to dialog.json" fix. Turn this off via the `dialog-ide.warnOnUncoveredSource` setting.
 
+Dialog IDE also flags a source file declared in more than one category (or twice in the same one) - since order matters, a duplicate isn't harmless, it's compiled twice. Turn this off via the `dialog-ide.warnOnDuplicateSource` setting.
+
 If you need a specific `dgdebug` (e.g. a locally built one, or a platform Dialog IDE doesn't bundle a toolchain for - see [Requirements](#requirements)), add a `binDir` field pointing at the directory containing it:
 
 ```json

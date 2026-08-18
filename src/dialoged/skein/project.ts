@@ -222,6 +222,68 @@ export function isFileCoveredBySource(project: DialogProject, filePath: string):
   });
 }
 
+/**
+ * One source file declared by more than one dialog.json source entry - see
+ * findDuplicateSourceFiles. `categories` lists each category that covers it, once per covering
+ * entry (so a file listed twice within the very same category, e.g. two overlapping directory
+ * entries, shows that category name twice rather than being deduplicated away).
+ */
+export interface DuplicateSourceFile {
+  filePath: string;
+  categories: string[];
+}
+
+/**
+ * Every source file covered by more than one of dialog.json's declared source entries - whether
+ * across categories (the same file listed under both `main` and `debug`, say) or within a single
+ * one (two directory entries that happen to overlap). Unlike isFileCoveredBySource, this doesn't
+ * check one candidate file against the project - it scans the whole project for any file that's
+ * declared more than once anywhere.
+ *
+ * This matters because, unlike a plain "unused/uncovered" file, a duplicate can't just be
+ * ignored: Dialog compiles/loads sources in the single fixed order expandSources produces, so a
+ * duplicated file would be fed to dgdebug/dialogc twice, at two different points in that order -
+ * clumsy hand-editing of dialog.json (e.g. copy-pasting an entry into the wrong category, or two
+ * directory entries that overlap) is the expected cause, not something to silently tolerate.
+ *
+ * Only considers a file duplicated when it resolves to the *same* actual path from two different
+ * entries (a directory entry and an explicit file entry both covering the same .dg file counts,
+ * same as isFileCoveredBySource) - two different files that merely share a name in different
+ * directories do not. Results are sorted by file path for deterministic reporting.
+ */
+export function findDuplicateSourceFiles(project: DialogProject): DuplicateSourceFile[] {
+  const { main, test = [], debug = [], library = [] } = project.sources;
+  const categoryEntries: [string, string[]][] = [
+    ['main', main],
+    ['test', test],
+    ['debug', debug],
+    ['library', library]
+  ];
+
+  const categoriesByFile = new Map<string, string[]>();
+  for (const [category, entries] of categoryEntries) {
+    for (const entry of entries) {
+      for (const filePath of expandSourceEntry(project.rootDir, entry)) {
+        const resolved = path.resolve(filePath);
+        const categories = categoriesByFile.get(resolved);
+        if (categories) {
+          categories.push(category);
+        } else {
+          categoriesByFile.set(resolved, [category]);
+        }
+      }
+    }
+  }
+
+  const duplicates: DuplicateSourceFile[] = [];
+  for (const [filePath, categories] of categoriesByFile) {
+    if (categories.length > 1) {
+      duplicates.push({ filePath, categories });
+    }
+  }
+  return duplicates.sort((a, b) => a.filePath.localeCompare(b.filePath));
+}
+
 function expandSourceEntry(rootDir: string, entry: string): string[] {
   const fullPath = path.isAbsolute(entry) ? entry : path.join(rootDir, entry);
 

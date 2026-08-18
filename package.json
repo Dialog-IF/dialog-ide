@@ -121,6 +121,11 @@
           "type": "boolean",
           "default": true,
           "description": "Warn when a .dg file isn't covered by any source in dialog.json."
+        },
+        "dialog-ide.warnOnDuplicateSource": {
+          "type": "boolean",
+          "default": true,
+          "description": "Warn when dialog.json declares the same source file in more than one category."
         }
       }
     },

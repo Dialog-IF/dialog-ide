@@ -7,6 +7,7 @@ import {
   resolveCommandPath,
   resolveBundledBinDir,
   isFileCoveredBySource,
+  findDuplicateSourceFiles,
   DialogProject
 } from './project';
 
@@ -324,6 +325,63 @@ describe('isFileCoveredBySource', () => {
       rootDir: DGSAMPLE_DIR
     };
     expect(isFileCoveredBySource(project, path.join(DGSAMPLE_DIR, 'src', 'orb.dg'))).toBe(false);
+  });
+});
+
+describe('findDuplicateSourceFiles', () => {
+  it('finds nothing for a project whose sources do not overlap', () => {
+    const project = readProject(DGSAMPLE_DIR);
+    expect(findDuplicateSourceFiles(project)).toEqual([]);
+  });
+
+  it('finds a file declared under two different categories', () => {
+    const project: DialogProject = {
+      name: 'stand-in',
+      exports: [],
+      sources: { main: ['src'], debug: [path.join('src', 'orb.dg')] },
+      rootDir: DGSAMPLE_DIR
+    };
+    const duplicates = findDuplicateSourceFiles(project);
+    expect(duplicates).toEqual([
+      { filePath: path.join(DGSAMPLE_DIR, 'src', 'orb.dg'), categories: ['main', 'debug'] }
+    ]);
+  });
+
+  it('finds a file declared twice within the very same category', () => {
+    const project: DialogProject = {
+      name: 'stand-in',
+      exports: [],
+      sources: { main: [path.join('src', 'orb.dg'), path.join('src', 'orb.dg')] },
+      rootDir: DGSAMPLE_DIR
+    };
+    const duplicates = findDuplicateSourceFiles(project);
+    expect(duplicates).toEqual([
+      { filePath: path.join(DGSAMPLE_DIR, 'src', 'orb.dg'), categories: ['main', 'main'] }
+    ]);
+  });
+
+  it('finds a file covered by both a directory entry and a separate exact-file entry', () => {
+    const project: DialogProject = {
+      name: 'stand-in',
+      exports: [],
+      sources: { main: ['src'], library: [path.join('src', 'meta.dg')] },
+      rootDir: DGSAMPLE_DIR
+    };
+    const duplicates = findDuplicateSourceFiles(project);
+    expect(duplicates).toEqual([
+      { filePath: path.join(DGSAMPLE_DIR, 'src', 'meta.dg'), categories: ['main', 'library'] }
+    ]);
+  });
+
+  it('reports every duplicate, sorted by file path', () => {
+    const project: DialogProject = {
+      name: 'stand-in',
+      exports: [],
+      sources: { main: ['src'], debug: ['src'] },
+      rootDir: DGSAMPLE_DIR
+    };
+    const duplicates = findDuplicateSourceFiles(project);
+    expect(duplicates.map((d) => path.basename(d.filePath))).toEqual(['meta.dg', 'orb.dg']);
   });
 });
 

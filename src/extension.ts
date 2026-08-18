@@ -16,6 +16,7 @@ import {
   PersistenceManager,
   readProject,
   expandSources,
+  findDuplicateSourceFiles,
   isFileCoveredBySource,
   resolveBundledBinDir,
   resolveBundledLibraryDir,
@@ -218,6 +219,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     workspaceWatcher.onDidChangeProjectConfig(() => {
       activeSession?.markSourcesChanged();
       sourceDecorationProvider.refresh(workspaceWatcher.listFiles());
+      warnIfDuplicateSources(getWorkspaceRoot()).catch((error) => {
+        console.error('Failed to check dialog.json for duplicate sources:', error);
+      });
     })
   );
 
@@ -590,6 +594,50 @@ async function warnIfUncoveredSource(rootDir: string | undefined, filePath: stri
   );
   if (choice === 'Add to dialog.json') {
     await vscode.commands.executeCommand('dialog-ide.addSourceToProject', filePath);
+  }
+}
+
+/**
+ * Warns (via a dismissible toast, not a modal) when dialog.json declares the same source file
+ * more than once - across categories (e.g. both `main` and `debug`) or within a single one (two
+ * overlapping directory entries) - the opposite failure mode from warnIfUncoveredSource, but
+ * every bit as silent otherwise: Dialog compiles/loads sources in the single fixed order
+ * expandSources produces, so a duplicated file would be fed to dgdebug/dialogc twice, at two
+ * different points in that order, not simply ignored the way an unused file would be. Fires on
+ * dialog.json changes (the expected cause - see findDuplicateSourceFiles's own doc comment), not
+ * on every .dg file created, since a duplicate is a project-config problem, not a per-file one.
+ * Unlike an uncovered file, there's no single obvious fix to offer as an action button - the
+ * toast just opens dialog.json for the user to sort out by hand. Silently does nothing when
+ * there's no workspace, the setting is off, or dialog.json is missing/invalid (readProject
+ * already logs/throws for those elsewhere).
+ */
+async function warnIfDuplicateSources(rootDir: string | undefined): Promise<void> {
+  if (!rootDir || !vscode.workspace.getConfiguration('dialog-ide').get<boolean>('warnOnDuplicateSource', true)) {
+    return;
+  }
+
+  let project;
+  try {
+    project = readProject(rootDir);
+  } catch {
+    return;
+  }
+
+  const duplicates = findDuplicateSourceFiles(project);
+  if (duplicates.length === 0) {
+    return;
+  }
+
+  const summary = duplicates
+    .map(({ filePath, categories }) => `${path.basename(filePath)} (${categories.join(', ')})`)
+    .join(', ');
+  const choice = await vscode.window.showWarningMessage(
+    `dialog.json declares the same source more than once: ${summary}. Dialog would compile it twice.`,
+    'Open dialog.json'
+  );
+  if (choice === 'Open dialog.json') {
+    const document = await vscode.workspace.openTextDocument(path.join(rootDir, 'dialog.json'));
+    await vscode.window.showTextDocument(document);
   }
 }
 
