@@ -49,19 +49,6 @@ export function isEffectivelyLocked(knot: { locked: boolean; label: string | nul
 }
 
 /**
- * Thrown by renameCommand when the knot's parent already has a *different* child using the
- * requested command text. Unlike a label (tree-wide unique via findByLabel), command uniqueness
- * is scoped to siblings sharing the same parent - the same scope findChildId itself uses to
- * decide whether runCommand should reuse an existing child or create a new one.
- */
-export class CommandConflictError extends Error {
-  constructor(command: string) {
-    super(`This knot's parent already has a child with the command "${command}".`);
-    this.name = 'CommandConflictError';
-  }
-}
-
-/**
  * Whether a freshly-captured response is identical to a knot's already-blessed response, in
  * which case there's nothing pending to diff or persist as unblessedResponse - see
  * responseAfterUpdate.
@@ -456,7 +443,9 @@ export class SkeinTree {
   /**
    * Insert a new parent knot above an existing knot - returns a new SkeinTree instance.
    * The existing knot becomes the (sole) child of the newly inserted parent, which takes
-   * the existing knot's former place among its old parent's children.
+   * the existing knot's former place among its old parent's children. If the new parent's
+   * command collides with an already-existing (different) sibling, that sibling is folded into
+   * the new parent instead of coexisting alongside it - see mergeSiblingInto.
    */
   public insertParent(id: number, command: string, response: Response): SkeinTree {
     const knot = this.knots.get(id);
@@ -487,6 +476,9 @@ export class SkeinTree {
 
     let knots = this.knots.set(newId, newParentKnot).set(id, updatedKnot);
     let knotStates = this.knotStates.set(newId, newParentState);
+    let collapsedKnotIds = this.collapsedKnotIds;
+    let dynamicStates = this.dynamicStates;
+    let activeKnotId = this.activeKnotId;
 
     if (oldParentId !== null) {
       const grandparentState = knotStates.get(oldParentId)!;
@@ -499,13 +491,26 @@ export class SkeinTree {
         children,
         selectedChild: grandparentState.selectedChild === id ? newId : grandparentState.selectedChild
       });
+
+      const otherId = children.find((cid) => cid !== newId && knots.get(cid)!.command === command) ?? null;
+      if (otherId !== null) {
+        const merged = new SkeinTree(this.engine, this.seed, knots, knotStates, activeKnotId, collapsedKnotIds, dynamicStates)
+          .mergeSiblingInto(newId, otherId);
+        knots = merged.knots;
+        knotStates = merged.knotStates;
+        collapsedKnotIds = merged.collapsedKnotIds;
+        dynamicStates = merged.dynamicStates;
+        activeKnotId = merged.activeKnotId;
+        knotStates = SkeinTree.absorbSiblingInParent(knotStates, oldParentId, newId, otherId);
+      }
     }
 
-    // Recomputes newId's own treeState from its (pre-existing) child id, then continues
-    // upward - covers both the newly inserted knot and its ancestors in one pass.
+    // Recomputes newId's own treeState from its children, then continues upward - covers both
+    // the newly inserted knot (whether or not it just absorbed a colliding sibling) and its
+    // ancestors in one pass.
     knotStates = SkeinTree.propagateTreeState(knots, knotStates, newId);
 
-    return new SkeinTree(this.engine, this.seed, knots, knotStates, this.activeKnotId, this.collapsedKnotIds, this.dynamicStates);
+    return new SkeinTree(this.engine, this.seed, knots, knotStates, activeKnotId, collapsedKnotIds, dynamicStates);
   }
 
   /**
@@ -552,12 +557,14 @@ export class SkeinTree {
    * Rename a knot's command - returns a new SkeinTree instance. Unlike a label (tree-wide unique
    * via findByLabel), command uniqueness is scoped to siblings sharing the same parent - the same
    * scope findChildId itself uses when runCommand decides whether to reuse an existing child or
-   * create a new one. A collision with a *different* sibling throws CommandConflictError; renaming
-   * to the knot's own already-current command is a no-op. Deliberately doesn't touch response/
-   * unblessedResponse or knot state at all - the caller (session.ts's setCommand) is responsible
-   * for replaying to refresh the knot's response under its new command, mirroring dialog-tool's
-   * tree/change-command (a pure rename, documented there as not affecting status "until the
-   * command is re-executed") always being paired with its caller's own do-replay-to!.
+   * create a new one. Renaming to the knot's own already-current command is a no-op. A collision
+   * with a *different* sibling no longer rejects the rename - id keeps its own identity and the
+   * colliding sibling is folded into it instead (see mergeSiblingInto), rather than the two
+   * coexisting as separate same-command knots. Aside from that merge, deliberately doesn't touch
+   * response/unblessedResponse or knot state at all - the caller (session.ts's setCommand) is
+   * responsible for replaying to refresh the knot's response under its new command, mirroring
+   * dialog-tool's tree/change-command (a pure rename, documented there as not affecting status
+   * "until the command is re-executed") always being paired with its caller's own do-replay-to!.
    */
   public renameCommand(id: number, command: string): SkeinTree {
     const knot = this.knots.get(id);
@@ -567,15 +574,126 @@ export class SkeinTree {
     if (command === knot.command) {
       return this;
     }
+
+    let knots = this.knots.set(id, { ...knot, command });
+    let knotStates = this.knotStates;
+    let collapsedKnotIds = this.collapsedKnotIds;
+    let dynamicStates = this.dynamicStates;
+    let activeKnotId = this.activeKnotId;
+
     if (knot.parentId !== null) {
-      const existingChildId = this.findChildId(knot.parentId, command);
-      if (existingChildId !== null) {
-        throw new CommandConflictError(command);
+      const parentState = knotStates.get(knot.parentId)!;
+      const otherId = parentState.children.find((cid) => cid !== id && knots.get(cid)!.command === command) ?? null;
+      if (otherId !== null) {
+        const merged = new SkeinTree(this.engine, this.seed, knots, knotStates, activeKnotId, collapsedKnotIds, dynamicStates)
+          .mergeSiblingInto(id, otherId);
+        knots = merged.knots;
+        knotStates = merged.knotStates;
+        collapsedKnotIds = merged.collapsedKnotIds;
+        dynamicStates = merged.dynamicStates;
+        activeKnotId = merged.activeKnotId;
+        knotStates = SkeinTree.absorbSiblingInParent(knotStates, knot.parentId, id, otherId);
+        knotStates = SkeinTree.propagateTreeState(knots, knotStates, knot.parentId);
       }
     }
 
-    const updatedKnot: WireKnot = { ...knot, command };
-    return new SkeinTree(this.engine, this.seed, this.knots.set(id, updatedKnot), this.knotStates, this.activeKnotId, this.collapsedKnotIds, this.dynamicStates);
+    return new SkeinTree(this.engine, this.seed, knots, knotStates, activeKnotId, collapsedKnotIds, dynamicStates);
+  }
+
+  /**
+   * Folds otherId's whole subtree into keepId - both must currently share a command (the
+   * caller's own edit, either renameCommand or insertParent, just produced that collision; no
+   * safeguard rejects it anymore, two same-command siblings recursively merge into one instead).
+   * keepId survives; otherId - and every id absorbed along the way, at whatever depth - is
+   * deleted. keepId adopts otherId's label if it didn't already carry one of its own (one of the
+   * two labels is simply dropped on an actual collision, which is fine per the caller), and
+   * becomes locked if either side was (never silently drops a lock). Each of otherId's own
+   * children either merges (recursively, same rule) into an existing keepId child that already
+   * shares its command, or is reparented straight under keepId when no such collision exists.
+   * Deliberately doesn't touch keepId's parent's own children/selectedChild list - callers use
+   * absorbSiblingInParent for that, since this method also runs recursively one level down, where
+   * there's no such list (otherId was never a listed child of keepId's parent to begin with).
+   */
+  private mergeSiblingInto(keepId: number, otherId: number): SkeinTree {
+    const keepKnot = this.knots.get(keepId)!;
+    const otherKnot = this.knots.get(otherId)!;
+    const otherState = this.knotStates.get(otherId)!;
+
+    let knots = this.knots.set(keepId, {
+      ...keepKnot,
+      label: keepKnot.label ?? otherKnot.label,
+      locked: keepKnot.locked || otherKnot.locked
+    });
+    let knotStates = this.knotStates;
+    let collapsedKnotIds = this.collapsedKnotIds;
+    let dynamicStates = this.dynamicStates;
+    let activeKnotId = this.activeKnotId;
+
+    for (const otherChildId of otherState.children) {
+      const otherChildCommand = knots.get(otherChildId)!.command;
+      const keepState = knotStates.get(keepId)!;
+      const matchedKeepChildId = keepState.children.find((cid) => knots.get(cid)!.command === otherChildCommand) ?? null;
+
+      if (matchedKeepChildId !== null) {
+        const merged = new SkeinTree(this.engine, this.seed, knots, knotStates, activeKnotId, collapsedKnotIds, dynamicStates)
+          .mergeSiblingInto(matchedKeepChildId, otherChildId);
+        knots = merged.knots;
+        knotStates = merged.knotStates;
+        collapsedKnotIds = merged.collapsedKnotIds;
+        dynamicStates = merged.dynamicStates;
+        activeKnotId = merged.activeKnotId;
+      } else {
+        knots = knots.set(otherChildId, { ...knots.get(otherChildId)!, parentId: keepId });
+        const ks = knotStates.get(keepId)!;
+        knotStates = knotStates.set(keepId, {
+          ...ks,
+          children: [...ks.children, otherChildId],
+          selectedChild: ks.selectedChild ?? otherChildId
+        });
+      }
+    }
+
+    knots = knots.delete(otherId);
+    knotStates = knotStates.delete(otherId);
+    collapsedKnotIds = collapsedKnotIds.remove(otherId);
+    dynamicStates = dynamicStates.delete(otherId);
+    if (activeKnotId === otherId) {
+      activeKnotId = keepId;
+    }
+
+    // Recomputes keepId's own treeState from its (now-final) children - deliberately not the
+    // full propagateTreeState walk up to root: otherId's former parent still lists otherId among
+    // its children at this point (the top-level caller fixes that afterward, via
+    // absorbSiblingInParent), so walking past keepId here would read a treeState for an id
+    // that's just been deleted.
+    const keepState = knotStates.get(keepId)!;
+    const treeState = keepState.children.reduce(
+      (acc, cid) => SkeinTree.maxStatus(acc, knotStates.get(cid)!.treeState),
+      keepState.state
+    );
+    knotStates = knotStates.set(keepId, { ...keepState, treeState });
+
+    return new SkeinTree(this.engine, this.seed, knots, knotStates, activeKnotId, collapsedKnotIds, dynamicStates);
+  }
+
+  /**
+   * Removes otherId from parentId's children (it just got folded into keepId - see
+   * mergeSiblingInto), redirecting parentId's own selectedChild to keepId if otherId was the one
+   * selected, so a merge never leaves a parent "selecting" a knot that no longer exists.
+   */
+  private static absorbSiblingInParent(
+    knotStates: Map<number, KnotState>,
+    parentId: number,
+    keepId: number,
+    otherId: number
+  ): Map<number, KnotState> {
+    const parentState = knotStates.get(parentId)!;
+    const children = parentState.children.filter((cid) => cid !== otherId);
+    return knotStates.set(parentId, {
+      ...parentState,
+      children,
+      selectedChild: parentState.selectedChild === otherId ? keepId : parentState.selectedChild
+    });
   }
 
   /**

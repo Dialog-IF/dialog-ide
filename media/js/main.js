@@ -330,14 +330,13 @@ window.sk = {
     document.getElementById('label-modal')?.remove();
   },
 
-  // Edit Command's modal - near-identical to showLabelModal above, with two deliberate
-  // differences: a blank command is rejected client-side (never even POSTed) rather than treated
-  // as "clear" the way a blank label is, since a knot has to have *some* command text; and a 409
-  // here (tree.ts's CommandConflictError - command uniqueness is scoped to siblings, not
-  // tree-wide like labels) means a different child of the same parent already uses that command.
-  // Success (204) relies on the session's own 'change' broadcast to refresh the knot's response
-  // (service.ts's setCommand replays it under the corrected text) - this modal never touches
-  // #skein-app directly, same as the label modal.
+  // Edit Command's modal - near-identical to showLabelModal above, except a blank command is
+  // rejected client-side (never even POSTed) rather than treated as "clear" the way a blank label
+  // is, since a knot has to have *some* command text. A command matching a sibling's is no longer
+  // a rejection (service.ts's setCommand merges the two knots together instead - see tree.ts's
+  // mergeSiblingInto). Success (204) relies on the session's own 'change' broadcast to refresh
+  // the knot's response (service.ts's setCommand replays it under the corrected text) - this
+  // modal never touches #skein-app directly, same as the label modal.
   showCommandModal(knotId, currentCommand) {
     this.hideCommandModal();
     closeAllDropdowns();
@@ -413,12 +412,7 @@ window.sk = {
         this.hideCommandModal();
         return;
       }
-      if (res.status === 409) {
-        const body = await res.json().catch(() => ({}));
-        errorEl.textContent = body.error || 'A sibling already uses that command.';
-      } else {
-        errorEl.textContent = 'Failed to save command.';
-      }
+      errorEl.textContent = 'Failed to save command.';
       errorEl.classList.remove('hidden');
       input.focus();
       input.select();
@@ -453,13 +447,12 @@ window.sk = {
     document.getElementById('command-modal')?.remove();
   },
 
-  // Insert Parent's modal - near-identical to showCommandModal above (same field, same 409-on-
-  // sibling-collision handling via tree.ts's CommandConflictError, same Escape/Enter/Cmd+A
-  // keydown wiring), with three deliberate differences: the field always starts blank (it's the
-  // new knot's own command, not a rename of the existing one, so there's no "current" text to
-  // pre-fill or select-all on open), the heading/placeholder/endpoint are its own, and success
-  // moves the active knot (service.ts's handleInsertParent broadcasts its own
-  // resetAndFocusCommandInput) rather than just refreshing the edited knot in place.
+  // Insert Parent's modal - near-identical to showCommandModal above (same field, same
+  // Escape/Enter/Cmd+A keydown wiring), with three deliberate differences: the field always
+  // starts blank (it's the new knot's own command, not a rename of the existing one, so there's
+  // no "current" text to pre-fill or select-all on open), the heading/placeholder/endpoint are
+  // its own, and success moves the active knot (service.ts's handleInsertParent broadcasts its
+  // own resetAndFocusCommandInput) rather than just refreshing the edited knot in place.
   showInsertParentModal(knotId) {
     this.hideInsertParentModal();
     closeAllDropdowns();
@@ -534,12 +527,7 @@ window.sk = {
         this.hideInsertParentModal();
         return;
       }
-      if (res.status === 409) {
-        const body = await res.json().catch(() => ({}));
-        errorEl.textContent = body.error || 'A sibling already uses that command.';
-      } else {
-        errorEl.textContent = 'Failed to insert parent.';
-      }
+      errorEl.textContent = 'Failed to insert parent.';
       errorEl.classList.remove('hidden');
       input.focus();
       input.select();

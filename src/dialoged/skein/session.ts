@@ -6,7 +6,7 @@
 import * as os from 'os';
 import { EventEmitter } from 'events';
 import { SkeinProcess, ProcessConfig, EngineType } from './process';
-import { SkeinTree, Response, CommandConflictError } from './tree';
+import { SkeinTree, Response } from './tree';
 import { DynamicProcessor, DynamicState } from './dynamic';
 import { DialogCompileError } from './compile-error';
 import { readProject, expandSources } from './project';
@@ -1037,15 +1037,17 @@ export class SkeinSession {
    * already-current command (after normalizeCommand) is a no-op: no reason to restart the process
    * and replay just to reconfirm a response that's already current.
    *
-   * On an actual change, tree.renameCommand throws CommandConflictError for a sibling collision
-   * without touching this.tree - computed before pushUndoSnapshot for the usual reason (a rejected
-   * rename must not waste an undo entry). Otherwise, pushes one snapshot capturing the *entire*
-   * pre-edit state (old command and old response together, so undo reverts both at once), then
-   * replays root-through-id on a fresh process to capture what the corrected command actually
-   * produces now - mirrors dialog-tool's edit-command! -> do-replay-to!. Only id itself is
-   * refreshed this way; its own descendants keep their previously recorded responses until
-   * separately replayed (Replay to Here / Replay All), same as do-replay-to! only ever walking
-   * root->knot-id. Doesn't navigate the active knot there either - editing a command isn't a click.
+   * On an actual change, if the new command text collides with a *different* sibling,
+   * tree.renameCommand folds that sibling into id instead of rejecting the rename (see
+   * mergeSiblingInto) - id keeps its own identity either way, so the rest of this method doesn't
+   * need to know whether a merge happened. Pushes one snapshot capturing the *entire* pre-edit
+   * state (old command and old response together, so undo reverts both at once - and, on a merge,
+   * the absorbed sibling's subtree along with it), then replays root-through-id on a fresh process
+   * to capture what the corrected command actually produces now - mirrors dialog-tool's
+   * edit-command! -> do-replay-to!. Only id itself is refreshed this way; its own descendants
+   * (including any just merged in) keep their previously recorded responses until separately
+   * replayed (Replay to Here / Replay All), same as do-replay-to! only ever walking root->knot-id.
+   * Doesn't navigate the active knot there either - editing a command isn't a click.
    */
   public async setCommand(id: number, command: string): Promise<void> {
     if (id === 0) {
@@ -1084,11 +1086,11 @@ export class SkeinSession {
    * keep their previously recorded responses until separately replayed, same as setCommand only
    * ever walking root->id.
    *
-   * Command uniqueness is scoped to siblings (tree.findChildId, the same rule setCommand/
-   * renameCommand enforce): the new knot becomes exactly that - a new sibling of whatever else
-   * id's old parent already has - so a collision throws CommandConflictError, checked (and
-   * root/blank/not-running guards applied) before pushUndoSnapshot, so a rejected insert never
-   * wastes an undo entry, same ordering setCommand uses.
+   * The new knot becomes a new sibling of whatever else id's old parent already has; if its
+   * command collides with a *different* one of those siblings, tree.insertParent folds that
+   * sibling into the new knot instead of rejecting the insert (see mergeSiblingInto) - the newly
+   * created id (newId, below) survives either way, so this method doesn't need to know whether a
+   * merge happened.
    *
    * Also throws when id was reached via a keystroke prompt: the new knot's command is always a
    * line of text, unsafe to send while the process is mid-keystroke-read right after replaying to
@@ -1113,9 +1115,6 @@ export class SkeinSession {
     }
     if (this.tree.promptTypeAt(knot.parentId) === 'key') {
       throw new Error('Cannot insert a parent here: reached via a keystroke prompt.');
-    }
-    if (this.tree.findChildId(knot.parentId, normalized) !== null) {
-      throw new CommandConflictError(normalized);
     }
 
     // Computed before the mutation - see tree.ts's nextId doc comment for why this is safe to

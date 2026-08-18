@@ -9,7 +9,7 @@ import * as path from 'path';
 import { IGrammar } from 'vscode-textmate';
 import { SkeinSession, SpineDirection, SeekableStatus, normalizeCommand } from './session';
 import { DialogCompileError } from './compile-error';
-import { CommandConflictError, KnotLockedError, LabelConflictError, SkeinTree } from './tree';
+import { KnotLockedError, LabelConflictError, SkeinTree } from './tree';
 import { renderApp, renderPage, SessionDisplayInfo } from './ui/render';
 import { searchKnots, SearchResults } from './search';
 import { renderTraceApp, renderTracePage, CurrentTraceState } from './ui/traceRender';
@@ -889,12 +889,11 @@ export class SkeinService implements ProgressHost {
 
   /**
    * POST /actions/insert-parent - {knotId, command}, the "Insert Parent…" menu item's modal
-   * (main.js's showInsertParentModal). Same shape as handleSetCommand - a sibling collision
-   * (tree.ts's CommandConflictError, thrown here for the same reason: the new knot becomes a
-   * sibling of whatever else knotId's old parent already has) gets the same 409 + JSON {error}
-   * body the modal reads and displays inline, and this also touches the process (session.ts's
-   * insertParent replays the new knot and knotId itself), so a genuine failure can likewise be a
-   * DialogCompileError.
+   * (main.js's showInsertParentModal). This touches the process (session.ts's insertParent
+   * replays the new knot and knotId itself), so a genuine failure can be a DialogCompileError. A
+   * command colliding with an existing sibling is no longer rejected - session.ts's insertParent
+   * (via tree.ts's mergeSiblingInto) folds the two together instead, so this always succeeds once
+   * past the 400 guards below.
    *
    * Unlike setCommand, a successful insert moves the active knot (to the newly inserted parent -
    * see insertParent's own doc comment), so this broadcasts the same focus/scroll script
@@ -920,11 +919,6 @@ export class SkeinService implements ProgressHost {
     try {
       await this.activeSession.insertParent(knotId, command);
     } catch (error) {
-      if (error instanceof CommandConflictError) {
-        res.writeHead(409, { 'Content-Type': 'application/json; charset=utf-8' });
-        res.end(JSON.stringify({ error: error.message }));
-        return;
-      }
       console.error('Failed to insert parent:', error);
       this.reportIfCompileError(error);
       res.writeHead(500);
@@ -943,12 +937,11 @@ export class SkeinService implements ProgressHost {
   /**
    * POST /actions/set-command - {knotId, command}. Unlike set-label, a blank command is rejected
    * outright (session.ts's setCommand throws) rather than treated as "clear" - a knot has to have
-   * *some* command text. A sibling collision is an expected, user-facing rejection (command
-   * uniqueness is scoped to siblings, not tree-wide like labels - tree.ts's CommandConflictError):
-   * 409 with a JSON {error} body the command modal reads and displays inline, same shape as
-   * handleSetLabel's own 409 path. Unlike setLabel, this does touch the process (it replays the
-   * edited knot to capture its new response), so a genuine failure can be a DialogCompileError -
-   * reported the same way every other replay-triggering handler already does.
+   * *some* command text. A command colliding with an existing sibling is no longer rejected either -
+   * session.ts's setCommand (via tree.ts's mergeSiblingInto) folds the two together instead. This
+   * does touch the process (it replays the edited knot to capture its new response), so a genuine
+   * failure can be a DialogCompileError - reported the same way every other replay-triggering
+   * handler already does.
    */
   private async handleSetCommand(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
     if (!this.activeSession) {
@@ -969,11 +962,6 @@ export class SkeinService implements ProgressHost {
     try {
       await this.activeSession.setCommand(knotId, command);
     } catch (error) {
-      if (error instanceof CommandConflictError) {
-        res.writeHead(409, { 'Content-Type': 'application/json; charset=utf-8' });
-        res.end(JSON.stringify({ error: error.message }));
-        return;
-      }
       console.error('Failed to set command:', error);
       this.reportIfCompileError(error);
       res.writeHead(500);

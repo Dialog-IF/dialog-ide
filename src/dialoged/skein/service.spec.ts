@@ -2,7 +2,7 @@ import * as http from 'http';
 import * as path from 'path';
 import { SkeinService } from './service';
 import { SkeinSession } from './session';
-import { CommandConflictError, KnotLockedError, LabelConflictError, SkeinTree } from './tree';
+import { KnotLockedError, LabelConflictError, SkeinTree } from './tree';
 
 const MEDIA_ROOT = path.join(__dirname, '..', '..', '..', 'media');
 
@@ -1024,23 +1024,6 @@ describe('SkeinService', () => {
       expect(fake.calls.setCommand).toEqual([[1, '']]);
     });
 
-    it('409s with a JSON {error} body for a sibling command collision - the modal reads this to show inline, not a generic 500', async () => {
-      const tree = SkeinTree.newTree('dgdebug', 1).addChild(0, 'look', { text: 'a', inputType: 'line' });
-      const fake = createFakeSession(tree, {
-        setCommand: () => {
-          throw new CommandConflictError('inventory');
-        }
-      });
-      service.setActiveSession(fake as unknown as SkeinSession, 'default');
-
-      const res = await post(`http://localhost:${service.getPort()}/actions/set-command`, { knotId: 1, command: 'inventory' });
-
-      expect(res.status).toBe(409);
-      expect(JSON.parse(res.body)).toEqual({
-        error: 'This knot\'s parent already has a child with the command "inventory".'
-      });
-    });
-
     it('500s for any other setCommand failure', async () => {
       const tree = SkeinTree.newTree('dgdebug', 1).addChild(0, 'look', { text: 'a', inputType: 'line' });
       const fake = createFakeSession(tree, {
@@ -1081,23 +1064,6 @@ describe('SkeinService', () => {
       await post(`http://localhost:${service.getPort()}/actions/insert-parent`, { knotId: 1 });
 
       expect(fake.calls.insertParent).toEqual([[1, '']]);
-    });
-
-    it('409s with a JSON {error} body for a sibling command collision - the modal reads this to show inline, not a generic 500', async () => {
-      const tree = SkeinTree.newTree('dgdebug', 1).addChild(0, 'look', { text: 'a', inputType: 'line' });
-      const fake = createFakeSession(tree, {
-        insertParent: () => {
-          throw new CommandConflictError('wait');
-        }
-      });
-      service.setActiveSession(fake as unknown as SkeinSession, 'default');
-
-      const res = await post(`http://localhost:${service.getPort()}/actions/insert-parent`, { knotId: 1, command: 'wait' });
-
-      expect(res.status).toBe(409);
-      expect(JSON.parse(res.body)).toEqual({
-        error: 'This knot\'s parent already has a child with the command "wait".'
-      });
     });
 
     it('500s for any other insertParent failure', async () => {

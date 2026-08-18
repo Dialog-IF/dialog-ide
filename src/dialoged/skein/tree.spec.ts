@@ -1,5 +1,5 @@
 import { DynamicState } from './dynamic';
-import { CommandConflictError, KnotLockedError, LabelConflictError, SkeinTree, WireKnot, isEffectivelyLocked } from './tree';
+import { KnotLockedError, LabelConflictError, SkeinTree, WireKnot, isEffectivelyLocked } from './tree';
 
 const EMPTY_DYNAMIC_STATE: DynamicState = { flags: new Set(), vars: {} };
 
@@ -395,6 +395,24 @@ describe('SkeinTree.insertParent', () => {
     const tree = SkeinTree.newTree('dgdebug', 1);
     expect(() => tree.insertParent(999, 'wait', { text: 'a', inputType: 'line' })).toThrow();
   });
+
+  // A command colliding with an existing sibling of the target no longer rejects the insert -
+  // the new parent absorbs that sibling instead (see the mergeSiblingInto describe block below).
+  it('merges into a different sibling that already uses the requested command, rather than throwing', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1)
+      .addChild(0, 'look', { text: 'a', inputType: 'line' }) // id 1
+      .addChild(0, 'wait', { text: 'Time passes.', inputType: 'line' }); // id 2, already "wait"
+
+    const withParent = tree.insertParent(1, 'wait', { text: 'ignored', inputType: 'line' });
+
+    // The newly inserted knot (id 3) survives - session.ts's insertParent navigates there
+    // afterward - absorbing the pre-existing "wait" sibling (id 2) instead of the reverse.
+    expect(withParent.getAllKnots()).toHaveLength(3);
+    expect(withParent.getKnot(2)).toBeNull();
+    expect(withParent.getKnot(1)!.parentId).toBe(3);
+    expect(withParent.getDerivedKnot(3)!.children).toEqual([1]);
+    expect(withParent.getDerivedKnot(0)!.children).toEqual([3]);
+  });
 });
 
 describe('SkeinTree.nextId', () => {
@@ -468,15 +486,19 @@ describe('SkeinTree.renameCommand', () => {
 
   // Command uniqueness is scoped to siblings sharing the same parent, not tree-wide like labels -
   // matches findChildId's own scope, the same lookup runCommand uses to decide reuse-vs-create.
-  it('throws CommandConflictError when a different sibling already uses the requested command', () => {
+  // A collision no longer rejects the rename: id keeps its own identity and the sibling it
+  // collided with is folded into it (see the dedicated mergeSiblingInto describe block below for
+  // the merge semantics themselves).
+  it('merges into a different sibling that already uses the requested command, rather than throwing', () => {
     const tree = SkeinTree.newTree('dgdebug', 1)
       .addChild(0, 'look', { text: 'a', inputType: 'line' }) // knot 1
       .addChild(0, 'inventory', { text: 'b', inputType: 'line' }); // knot 2
 
-    expect(() => tree.renameCommand(2, 'look')).toThrow(CommandConflictError);
-    expect(() => tree.renameCommand(2, 'look')).toThrow(
-      'This knot\'s parent already has a child with the command "look".'
-    );
+    const merged = tree.renameCommand(2, 'look');
+
+    expect(merged.getKnot(2)!.command).toBe('look'); // knot 2 survives - it's the one that was renamed
+    expect(merged.getKnot(1)).toBeNull(); // knot 1 (the pre-existing "look") is gone, absorbed into 2
+    expect(merged.getDerivedKnot(0)!.children).toEqual([2]);
   });
 
   it('allows renaming to a command already used by a knot under a *different* parent', () => {
@@ -509,6 +531,95 @@ describe('SkeinTree.renameCommand', () => {
   it('throws when the knot does not exist', () => {
     const tree = SkeinTree.newTree('dgdebug', 1);
     expect(() => tree.renameCommand(999, 'look')).toThrow();
+  });
+});
+
+// The merge triggered by renameCommand/insertParent when an edit produces a same-command
+// sibling - exercised here through renameCommand, since it's the simplest trigger, but the
+// underlying mergeSiblingInto is shared by both.
+describe('SkeinTree merges same-command siblings', () => {
+  it('keeps the merged knot locked when either side was locked', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1)
+      .addChild(0, 'look', { text: 'a', inputType: 'line' }) // knot 1, about to be absorbed
+      .addChild(0, 'inventory', { text: 'b', inputType: 'line' }) // knot 2, survives
+      .setLockStatus(1, true);
+
+    const merged = tree.renameCommand(2, 'look');
+
+    expect(merged.getKnot(2)!.locked).toBe(true);
+  });
+
+  it("keeps the surviving knot's own label when it already had one", () => {
+    const tree = SkeinTree.newTree('dgdebug', 1)
+      .addChild(0, 'look', { text: 'a', inputType: 'line' }) // knot 1, about to be absorbed
+      .addChild(0, 'inventory', { text: 'b', inputType: 'line' }) // knot 2, survives
+      .setLabel(1, 'OLD_LOOK')
+      .setLabel(2, 'MY_INVENTORY');
+
+    const merged = tree.renameCommand(2, 'look');
+
+    expect(merged.getKnot(2)!.label).toBe('MY_INVENTORY');
+  });
+
+  it('adopts the absorbed knot\'s label when the surviving knot had none', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1)
+      .addChild(0, 'look', { text: 'a', inputType: 'line' }) // knot 1, about to be absorbed
+      .addChild(0, 'inventory', { text: 'b', inputType: 'line' }) // knot 2, survives, unlabeled
+      .setLabel(1, 'CHECKPOINT');
+
+    const merged = tree.renameCommand(2, 'look');
+
+    expect(merged.getKnot(2)!.label).toBe('CHECKPOINT');
+  });
+
+  it('reparents a non-colliding child of the absorbed knot straight under the survivor', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1)
+      .addChild(0, 'look', { text: 'a', inputType: 'line' }) // knot 1, about to be absorbed
+      .addChild(1, 'take orb', { text: 'c', inputType: 'line' }) // knot 2, child of 1
+      .addChild(0, 'inventory', { text: 'b', inputType: 'line' }); // knot 3, survives
+
+    const merged = tree.renameCommand(3, 'look');
+
+    expect(merged.getKnot(2)!.parentId).toBe(3);
+    expect(merged.getDerivedKnot(3)!.children).toEqual([2]);
+  });
+
+  it("recursively merges a child of the absorbed knot into the survivor's own child sharing that command", () => {
+    const tree = SkeinTree.newTree('dgdebug', 1)
+      .addChild(0, 'look', { text: 'a', inputType: 'line' }) // knot 1, about to be absorbed
+      .addChild(1, 'take orb', { text: 'c', inputType: 'line' }) // knot 2, child of 1
+      .addChild(0, 'inventory', { text: 'b', inputType: 'line' }) // knot 3, survives
+      .addChild(3, 'take orb', { text: 'd', inputType: 'line' }); // knot 4, child of 3 - same command as knot 2
+
+    const merged = tree.renameCommand(3, 'look');
+
+    expect(merged.getAllKnots()).toHaveLength(3); // root, knot 3 (survivor), knot 4 (surviving grandchild)
+    expect(merged.getKnot(1)).toBeNull();
+    expect(merged.getKnot(2)).toBeNull();
+    expect(merged.getKnot(4)!.parentId).toBe(3);
+    expect(merged.getDerivedKnot(3)!.children).toEqual([4]);
+  });
+
+  it('redirects activeKnotId to the survivor when the active knot was the one absorbed', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1)
+      .addChild(0, 'look', { text: 'a', inputType: 'line' }) // knot 1, about to be absorbed
+      .addChild(0, 'inventory', { text: 'b', inputType: 'line' }) // knot 2, survives
+      .setActiveKnotId(1);
+
+    const merged = tree.renameCommand(2, 'look');
+
+    expect(merged.getActiveKnotId()).toBe(2);
+  });
+
+  it("redirects the parent's selectedChild to the survivor when it was pointing at the absorbed knot", () => {
+    const tree = SkeinTree.newTree('dgdebug', 1)
+      .addChild(0, 'look', { text: 'a', inputType: 'line' }) // knot 1, about to be absorbed
+      .addChild(0, 'inventory', { text: 'b', inputType: 'line' }) // knot 2, survives
+      .selectKnot(1); // root's selectedChild -> 1
+
+    const merged = tree.renameCommand(2, 'look');
+
+    expect(merged.getDerivedKnot(0)!.selectedChild).toBe(2);
   });
 });
 

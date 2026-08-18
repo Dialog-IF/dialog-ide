@@ -69,7 +69,7 @@ function fakeProcessInstance() {
 import * as path from 'path';
 import { SkeinSession, SessionConfig } from './session';
 import { DialogCompileError } from './compile-error';
-import { CommandConflictError, KnotLockedError, LabelConflictError, SkeinTree } from './tree';
+import { KnotLockedError, LabelConflictError, SkeinTree } from './tree';
 import { ProgressHost } from './progress';
 import { SkeinProcess } from './process';
 
@@ -1644,16 +1644,25 @@ describe('SkeinSession', () => {
       await expect(session.setCommand(1, '   ')).rejects.toThrow('Command cannot be blank');
     });
 
-    it('propagates CommandConflictError for a command a different sibling already uses, without touching the process', async () => {
+    it('merges into a different sibling that already uses the requested command, replaying to capture a fresh response', async () => {
       const session = await startedSessionWith(
         SkeinTree.newTree('dgdebug', 1)
-          .addChild(0, 'look', { text: 'a', inputType: 'line' })
-          .addChild(0, 'inventory', { text: 'b', inputType: 'line' })
+          .addChild(0, 'look', { text: 'a', inputType: 'line' }) // knot 1, about to be absorbed
+          .addChild(0, 'inventory', { text: 'b', inputType: 'line' }) // knot 2, survives
       );
+      mockReadResponse
+        .mockResolvedValueOnce(BANNER_RESPONSE) // setCommand's relaunch
+        .mockResolvedValueOnce(dynamicResponse([])) // relaunch's own @dynamic, for knot 0
+        .mockResolvedValueOnce({ command: 'look', response: 'Room A.\n', promptType: 'line' })
+        .mockResolvedValueOnce(dynamicResponse([]));
 
-      await expect(session.setCommand(2, 'look')).rejects.toThrow(CommandConflictError);
-      expect(session.getTree().getKnot(2)!.command).toBe('inventory');
-      expect(mockTerminate).not.toHaveBeenCalled();
+      await session.setCommand(2, 'look');
+
+      const tree = session.getTree();
+      expect(tree.getKnot(1)).toBeNull(); // absorbed into knot 2
+      expect(tree.getKnot(2)!.command).toBe('look');
+      expect(tree.getDerivedKnot(2)!.unblessedResponse).toBe('Room A.\n');
+      expect(tree.getDerivedKnot(0)!.children).toEqual([2]);
     });
 
     it("is a no-op (no process restart) when renaming to the knot's own already-current command", async () => {
@@ -1704,26 +1713,27 @@ describe('SkeinSession', () => {
       expect(session.getTree().getActiveKnotId()).toBe(2);
     });
 
-    // A rejected rename was never a real edit - undo must not treat it as one (same reasoning as
-    // setLabel's own equivalent test).
-    it('does not waste an undo entry on a rejected (conflicting) command', async () => {
+    // A merge is a single real edit - undo must reverse it completely, bringing the absorbed
+    // knot back rather than leaving it gone.
+    it('undo restores both knots to their pre-merge state', async () => {
       const session = await startedSessionWith(
         SkeinTree.newTree('dgdebug', 1)
-          .addChild(0, 'look', { text: 'a', inputType: 'line' })
-          .addChild(0, 'inventory', { text: 'b', inputType: 'line' })
+          .addChild(0, 'look', { text: 'a', inputType: 'line' }) // knot 1, about to be absorbed
+          .addChild(0, 'inventory', { text: 'b', inputType: 'line' }) // knot 2, survives
       );
       mockReadResponse
         .mockResolvedValueOnce(BANNER_RESPONSE)
         .mockResolvedValueOnce(dynamicResponse([]))
-        .mockResolvedValueOnce({ command: 'examine room', response: 'a', promptType: 'line' })
+        .mockResolvedValueOnce({ command: 'look', response: 'a', promptType: 'line' })
         .mockResolvedValueOnce(dynamicResponse([]));
 
-      await session.setCommand(1, 'examine room'); // a real, valid edit - pushes one undo entry
-      await expect(session.setCommand(2, 'examine room')).rejects.toThrow(CommandConflictError); // rejected
+      await session.setCommand(2, 'look'); // merges knot 1 into knot 2
 
       session.undo();
 
-      expect(session.getTree().getKnot(1)!.command).toBe('look');
+      const tree = session.getTree();
+      expect(tree.getKnot(1)!.command).toBe('look');
+      expect(tree.getKnot(2)!.command).toBe('inventory');
     });
   });
 
@@ -1782,17 +1792,29 @@ describe('SkeinSession', () => {
       await expect(session.insertParent(1, '   ')).rejects.toThrow('Command cannot be blank');
     });
 
-    it('throws CommandConflictError when a sibling of id already uses the command, without touching the process', async () => {
+    it('merges into a different sibling that already uses the command, replaying id under the new context, and navigates to the survivor', async () => {
       const session = await startedSessionWith(
         SkeinTree.newTree('dgdebug', 1)
-          .addChild(0, 'look', { text: 'a', inputType: 'line' })
-          .addChild(0, 'wait', { text: 'b', inputType: 'line' })
+          .addChild(0, 'look', { text: 'a', inputType: 'line' }) // knot 1
+          .addChild(0, 'wait', { text: 'b', inputType: 'line' }) // knot 2, already "wait"
       );
+      mockReadResponse
+        .mockResolvedValueOnce(BANNER_RESPONSE) // insertParent's relaunch
+        .mockResolvedValueOnce(dynamicResponse([])) // relaunch's own @dynamic, for knot 0
+        .mockResolvedValueOnce({ command: 'wait', response: 'Time passes.\n', promptType: 'line' })
+        .mockResolvedValueOnce(dynamicResponse([]))
+        .mockResolvedValueOnce({ command: 'look', response: 'Room A, later.\n', promptType: 'line' })
+        .mockResolvedValueOnce(dynamicResponse([]));
 
-      await expect(session.insertParent(1, 'wait')).rejects.toThrow(CommandConflictError);
+      await session.insertParent(1, 'wait');
 
-      expect(mockTerminate).not.toHaveBeenCalled();
-      expect(session.getTree().getAllKnots()).toHaveLength(3); // unchanged: root + look + wait
+      const tree = session.getTree();
+      // The newly inserted knot (id 3) survives, absorbing the pre-existing "wait" (id 2).
+      expect(tree.getAllKnots()).toHaveLength(3);
+      expect(tree.getKnot(2)).toBeNull();
+      expect(tree.getKnot(1)!.parentId).toBe(3);
+      expect(tree.getDerivedKnot(3)!.children).toEqual([1]);
+      expect(tree.getActiveKnotId()).toBe(3);
     });
 
     it('throws when id was reached via a keystroke prompt - the new command is line-mode text, unsafe mid-keystroke-read', async () => {
@@ -1815,30 +1837,28 @@ describe('SkeinSession', () => {
       await expect(session.insertParent(1, 'wait')).rejects.toThrow('Session not running');
     });
 
-    it('does not waste an undo entry on a rejected (conflicting) insert', async () => {
+    it('undo restores the pre-merge structure', async () => {
       const session = await startedSessionWith(
         SkeinTree.newTree('dgdebug', 1)
-          .addChild(0, 'look', { text: 'Room A.\n', inputType: 'line' })
-          .addChild(0, 'inventory', { text: 'Empty-handed.\n', inputType: 'line' })
+          .addChild(0, 'look', { text: 'Room A.\n', inputType: 'line' }) // knot 1
+          .addChild(0, 'wait', { text: 'Time passes.\n', inputType: 'line' }) // knot 2, already "wait"
       );
       mockReadResponse
         .mockResolvedValueOnce(BANNER_RESPONSE)
         .mockResolvedValueOnce(dynamicResponse([]))
         .mockResolvedValueOnce({ command: 'wait', response: 'Time passes.\n', promptType: 'line' })
         .mockResolvedValueOnce(dynamicResponse([]))
-        .mockResolvedValueOnce({ command: 'look', response: 'Room A.\n', promptType: 'line' })
+        .mockResolvedValueOnce({ command: 'look', response: 'Room A, later.\n', promptType: 'line' })
         .mockResolvedValueOnce(dynamicResponse([]));
 
-      await session.insertParent(1, 'wait'); // a real, valid insert - pushes one undo entry
-      // Rejected: root's children are now ['wait' (the just-inserted knot), 'inventory'] - trying
-      // to insert another 'wait' above knot 2 (also a child of root) collides with it.
-      await expect(session.insertParent(2, 'wait')).rejects.toThrow(CommandConflictError);
+      await session.insertParent(1, 'wait'); // merges knot 2 into the newly inserted knot 3
 
       session.undo();
 
       const tree = session.getTree();
-      expect(tree.getAllKnots()).toHaveLength(3); // back to root + look + inventory, insert undone
+      expect(tree.getAllKnots()).toHaveLength(3); // back to root + look (1) + wait (2)
       expect(tree.getKnot(1)!.parentId).toBe(0);
+      expect(tree.getKnot(2)!.command).toBe('wait');
     });
   });
 
