@@ -61,6 +61,12 @@ The order of sources in a single directory is not guaranteed; if order counts, y
 in the order you need them to be.  Remember that Dialog searches for rules top to bottom, so you should have 
 exceptions first, before default rules.
 
+A source file named `<name>.<format>.dg` is only included when building for that format - e.g. `colors.zblorb.dg` is
+included in a `zblorb` export but skipped everywhere else, and `layout.dgdebug.dg` is included only when running a
+Skein session, **Debug in Terminal**, or **Run Tests** (all of which run against `dgdebug`). This lets you fine-tune
+things like colors or layout per format without those tweaks leaking into other builds. A file with no such suffix
+(or one that doesn't match any format Dialog IDE builds for) is always included.
+
 If you create a `.dg` file that isn't covered by any of the categories above, Dialog IDE flags it - a dismissible notification plus a persistent Explorer badge, both with a one-click "Add to dialog.json" fix. Turn this off via the `dialog-ide.warnOnUncoveredSource` setting.
 
 Dialog IDE also flags a source file declared in more than one category (or twice in the same one) - since order matters, a duplicate isn't harmless, it's compiled twice. Turn this off via the `dialog-ide.warnOnDuplicateSource` setting.

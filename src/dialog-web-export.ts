@@ -206,14 +206,16 @@ const RELEASE_RE = /\(story release (\d+)\)/;
  * "(story <key>)" for each text field, plus "(story release $)" (whose value shows up inside the
  * "Query succeeded: (story release N)" confirmation line itself, not as a separate echoed line -
  * verified against a real dgdebug session, matching bundle.clj's own separate regex handling for
- * release).
+ * release). target: 'dgdebug' matches every other dgdebug launch in this codebase (session.ts,
+ * extension.ts's debugInTerminal/runTestsInTerminal) - without it, a source meant only for a
+ * specific export format (e.g. "colors.zblorb.dg") would leak into this metadata-only process.
  */
 export async function extractStoryInfo(
   project: DialogProject,
   binDir?: string,
   bundledBinDir?: string
 ): Promise<StoryInfo> {
-  const sourceFiles = expandSources(project);
+  const sourceFiles = expandSources(project, { target: 'dgdebug' });
   const skeinProcess = new SkeinProcess({ engine: 'dgdebug', seed: 0, sourceFiles, binDir, bundledBinDir });
   await skeinProcess.start();
   await skeinProcess.readResponse(); // startup banner, discarded

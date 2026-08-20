@@ -251,7 +251,7 @@ describe('expandSources', () => {
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('does-not-exist'));
   });
 
-  describe('target-suffix filtering (against dialog-tool\'s own target-filter fixture)', () => {
+  describe('target-suffix filtering (against dialog-tool\'s own target-filter fixture, plus a "dgdebug" file of our own)', () => {
     it('includes every *.dg file, target-suffixed or not, when no target is given', () => {
       const project = readProject(TARGET_FILTER_DIR);
       const sources = expandSources(project, {});
@@ -259,6 +259,7 @@ describe('expandSources', () => {
         'always.dg',
         'never.whatsit.dg',
         'sometimes.aa.dg',
+        'sometimes.dgdebug.dg',
         'sometimes.zblorb.dg'
       ]);
     });
@@ -273,6 +274,16 @@ describe('expandSources', () => {
       const project = readProject(TARGET_FILTER_DIR);
       const sources = expandSources(project, { target: 'aa' });
       expect(sources.map((p) => path.basename(p))).toEqual(['always.dg', 'sometimes.aa.dg']);
+    });
+
+    // The "build for dgdebug" case (Skein sessions, "Debug in Terminal", "Run Tests") - not
+    // special-cased by expandSources/filterByTarget, just "dgdebug" plugged in as an ordinary
+    // target suffix like "zblorb"/"aa" above, so a source can be fine-tuned (colors, layout, etc.)
+    // for interactive debugging specifically without leaking into a compiled release build.
+    it('includes non-suffixed files plus only the matching target when target "dgdebug" is given', () => {
+      const project = readProject(TARGET_FILTER_DIR);
+      const sources = expandSources(project, { target: 'dgdebug' });
+      expect(sources.map((p) => path.basename(p))).toEqual(['always.dg', 'sometimes.dgdebug.dg']);
     });
   });
 });
