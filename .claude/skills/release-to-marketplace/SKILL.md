@@ -5,43 +5,56 @@ description: Use when the user explicitly asks to release, cut a release, or pub
 
 # Release Dialog IDE
 
-Walks through releasing the current `package.json` version of Dialog IDE (publisher `hlship`,
-extension id `hlship.dialog-ide`) to the VS Code Marketplace, tagging it in git, and opening the
-next development cycle. Run interactively, one step at a time - stop at every checkpoint marked
+Confirms the version and release notes for the current `package.json` version of Dialog IDE
+(publisher `hlship`, extension id `hlship.dialog-ide`), tags it, and pushes - that tag push is
+what actually ships it: `.github/workflows/release.yml` takes over from there (build/test gate,
+publish to the Marketplace for all four targets, create the GitHub Release). This skill's own job
+ends at "push the tag"; its last step (opening the next development cycle) runs after, once the
+tag is safely pushed. Run interactively, one step at a time - stop at every checkpoint marked
 **CONFIRM** and wait for explicit go-ahead before running it, per this repo's "don't commit or
 push without confirming" rule. Never batch past a CONFIRM checkpoint even if earlier ones were
 approved.
 
+## Division of labor
+
+- **This skill (local, interactive)**: confirm the version and release notes, finalize the
+  changelog date, tag, push. Nothing here talks to the Marketplace or GitHub Releases directly.
+- **`.github/workflows/release.yml` (triggered by the tag push)**: `npm run build` + `npm test` as
+  a last gate, then for each of `win32-x64`/`darwin-arm64`/`linux-x64`/universal: fetch that
+  target's bundled binaries, `vsce publish`, `vsce package`. Finally reads the annotated tag's own
+  message back out as release notes and creates the GitHub Release with all four `.vsix`s
+  attached. Watch it at `gh run list --workflow=release.yml` or the Actions tab.
+
+Because pushing the tag is now irreversible (it immediately publishes), do the local verification
+in step 3 for real, not as a formality - there's no later human checkpoint before the Marketplace
+publish the way there used to be.
+
 ## Facts specific to this project (don't re-derive these)
 
-- The extension is already live on the Marketplace (`hlship.dialog-ide`) - publishing credentials/
-  (`vsce login hlship`, PAT stored in the OS keychain) are already configured on this machine from
-  a prior publish. If `vsce publish` fails with an auth error, tell the user to run
-  `npx vsce login hlship` and retry - don't try to source or create a PAT yourself.
-- **No git tags or GitHub Releases exist yet in this repo** - this skill establishes the
-  convention (`vX.Y.Z`, matching npm/vsce's own default tag format) rather than following one.
+- **One-time setup, if not already done**: the workflow needs a `VSCE_PAT` repository secret (a
+  Marketplace personal access token for publisher `hlship`) - `Settings > Secrets and variables >
+  Actions` on GitHub, or `gh secret set VSCE_PAT`. If a release run fails with a publish auth
+  error, that's almost certainly a missing/expired secret - tell the user to refresh it; don't try
+  to source or create a PAT yourself.
 - This project bumps `package.json`'s version and opens a new `CHANGELOG.md` heading *proactively*
-  while work lands on `main`, ahead of actually publishing - e.g. `package.json` may already read
+  while work lands on `main`, ahead of actually releasing - e.g. `package.json` may already read
   `0.0.2` while the Marketplace still has `0.0.1` live. That means **the version to release is
-  whatever's currently in `package.json`** - never run `vsce publish patch`/`minor`/`major` (or
-  give it a bare version) here, since vsce would bump the version *before* publishing and skip
-  past the one that's actually ready.
-- `.github/workflows/test.yml` runs `npm run build` + `npm test` on every push to `main` - this
-  skill re-verifies locally too (main may have moved, or the local toolchain may differ) but isn't
-  reinventing CI from scratch.
-- `*.vsix` is gitignored - safe to build one in the repo root and delete it afterward.
+  whatever's currently in `package.json`** - never bump the version as part of releasing (that
+  happens only in step 6, for the *next* cycle).
+- `*.vsix` is gitignored - the release workflow builds its own on the runner; nothing to clean up
+  locally.
 - `package.json`'s `files` allowlist is an explicit, manually-maintained list (see CLAUDE.md's
   Packaging section) - a new static asset or dependency not added there silently won't ship. Worth
-  a `vsce ls` sanity check before publishing, especially if this release touched that list.
+  a local `npx vsce ls` sanity check in step 3 if this release touched that list, since a bad
+  entry would otherwise only surface as a failed (or worse, wrongly-succeeded) Marketplace publish
+  in CI.
 - This extension bundles the `dgdebug`/`dialogc` binaries for exactly three targets -
   `win32-x64`, `darwin-arm64`, `linux-x64` - staged into the gitignored `bin/<target>/` by
   `scripts/fetch-dialog-binaries.js` from the release pinned in
   `scripts/dialog-toolchain-version.json`. Every other target, and the universal (no-`--target`)
   package, ship with no bundled binary and keep relying on `PATH`/`dialog.json`'s `binDir` as
-  before - this means publishing is now **4 passes** (3 targeted + 1 universal), not 1, and each
-  targeted pass must re-run the fetch script for its own target immediately beforehand so the
-  `.vsix` only ever contains that platform's binaries (`vsce`'s `--target` flag does not filter
-  which files get packaged - it only tags the output's platform metadata).
+  before - the release workflow already accounts for this (4 publish/package passes), nothing to
+  do here.
 
 ## Steps
 
@@ -56,7 +69,7 @@ approved.
   or equivalent). If it's failing or still running, stop and surface that rather than releasing
   through it.
 
-### 2. Determine the release version
+### 2. Determine the release version and notes
 
 - Read the `version` field from `package.json` - this is the version being released.
 - Read `CHANGELOG.md`'s top-most `##` heading. Its version must match `package.json`'s. If it
@@ -64,24 +77,27 @@ approved.
 - Check whether that heading's date is actually today. This project dates a heading as bullets
   land during development, so it may already be stale by the time of the real release - update it
   to today's date if so.
+- Draft the release notes, starting from that heading's bullet list. If anything worth telling
+  users isn't well captured by the changelog as-is - a first-time-only heads-up (e.g. "this
+  release bundles native binaries for the first time"), a migration note, a known issue - add it.
+  This is the one place to supply that; the release workflow only ever sees what ends up in the
+  tag message (step 5), not the changelog itself.
 
-**CONFIRM**: Show the user the full version number and the complete bullet list under that
-heading. Get explicit go/no-go before continuing - this is the content that becomes the release
-notes.
+**CONFIRM**: Show the user the full version number and the complete release notes (changelog
+bullets plus anything added). Get explicit go/no-go before continuing - this becomes both the tag
+message and the GitHub Release body, verbatim.
 
 ### 3. Local verification
 
 - `npm test` - must pass in full (not just the subset that ran last in this session).
 - `npm run build` - must succeed cleanly.
-- `npx vsce ls` - eyeball the file list, especially if this release added any new static asset,
-  dependency, or touched the `files` allowlist. This is the point to catch a missing entry before
-  it ships as a `Cannot find module` crash on activation. `vsce ls` has no `--target` flag - the
-  `files` allowlist is the same regardless of target, so a plain `vsce ls` is enough to confirm
-  `bin/**/*` is present once something is staged there (`node scripts/fetch-dialog-binaries.js
-  --target <any-target>` first if `bin/` is currently empty).
+- `npx vsce ls` - eyeball the file list if this release added any new static asset, dependency, or
+  touched the `files` allowlist. `vsce ls` has no `--target` flag - the allowlist is the same
+  regardless of target, so a plain `vsce ls` is enough (`node scripts/fetch-dialog-binaries.js
+  --target <any-target>` first if `bin/` is currently empty, so `bin/**/*` has something to list).
 
 If anything here fails, stop and fix it (or hand it back to the user) rather than proceeding past
-a red step.
+a red step - remember, there's no human checkpoint after step 5 anymore.
 
 ### 4. Finalize the changelog
 
@@ -89,13 +105,20 @@ Only if step 2 required a date fix: commit it.
 
 **CONFIRM** before running `git commit`. Suggested message: `chore: release vX.Y.Z`.
 
-### 5. Tag
+### 5. Tag and push
+
+Write the confirmed release notes from step 2 to a scratch file (e.g. via the Write tool), then:
 
 ```
-git tag -a vX.Y.Z -m "vX.Y.Z"
+git tag -a vX.Y.Z -F <path-to-that-file>
 ```
 
-**CONFIRM** before pushing - a pushed tag is effectively public and awkward to walk back:
+`release.yml` reads the tag's own annotation back out via `git tag -l --format='%(contents)'`, so
+whatever's in the tag message becomes the GitHub Release body verbatim - a plain `-m "vX.Y.Z"`
+here would ship a release with no real notes.
+
+**CONFIRM** before pushing - this is the point of no return: pushing the tag triggers
+`release.yml`, which publishes to the Marketplace immediately, with no further pause:
 
 ```
 git push origin main --follow-tags
@@ -103,59 +126,18 @@ git push origin main --follow-tags
 
 (This also pushes the changelog-date commit from step 4, if any.)
 
-### 6. Publish to the Marketplace
+After pushing, tell the user the release workflow has started and where to watch it (`gh run list
+--workflow=release.yml --limit 1`, or the repo's Actions tab) - don't wait/poll for it yourself.
 
-**CONFIRM once** before running the whole sequence below - publishing is a one-way door: a
-version number, once published, can't be republished, only unpublished as a separate, heavier
-action. Don't ask for a separate confirmation per target; this is one logical step.
+### 6. Open the next development cycle
 
-```
-for target in win32-x64 darwin-arm64 linux-x64; do
-  node scripts/fetch-dialog-binaries.js --target "$target"
-  npx vsce publish --target "$target"
-done
-node scripts/fetch-dialog-binaries.js --target none
-npx vsce publish --allow-unused-files-pattern
-```
-
-No version argument on any of the four `vsce publish` calls - this ships whatever's currently in
-`package.json` as-is (see the facts above for why). The final call needs
-`--allow-unused-files-pattern` because `bin/` is empty for the universal package, which would
-otherwise make `vsce` error on the `bin/**/*` entry in `files` matching nothing.
-
-### 7. GitHub Release (recommended, but skippable if the user doesn't want it)
-
-```
-for target in win32-x64 darwin-arm64 linux-x64; do
-  node scripts/fetch-dialog-binaries.js --target "$target"
-  npx vsce package --target "$target"
-done
-node scripts/fetch-dialog-binaries.js --target none
-npx vsce package --allow-unused-files-pattern
-
-gh release create vX.Y.Z dialog-ide-X.Y.Z-win32-x64.vsix dialog-ide-X.Y.Z-darwin-arm64.vsix \
-  dialog-ide-X.Y.Z-linux-x64.vsix dialog-ide-X.Y.Z.vsix \
-  --title "vX.Y.Z" --notes "<the changelog bullets from step 2>"
-rm dialog-ide-X.Y.Z*.vsix
-```
-
-Gives a changelog-anchored release page and non-Marketplace `.vsix` download options (one per
-bundled target, plus the universal package). Clean up the local `.vsix` files afterward - they're
-gitignored but there's no reason to leave them lying around.
-
-**First time only** (this project has never shipped a `.vsix` with native executables before):
-install one of the freshly built targeted `.vsix` files in a clean VS Code profile with no Dialog
-toolchain on `PATH` and no `binDir` set, and run "New Skein..." once to confirm it actually
-launches using the bundled binary. Also budget extra time for this first bundled-binary publish -
-the Marketplace's malware/antivirus scanning may take longer over a package containing native
-executables than this project's past pure-JS/TS releases.
-
-### 8. Open the next development cycle
+This step is independent of whether the release workflow has finished yet - it only touches
+`main`, not anything the workflow publishes.
 
 - `npm version --no-git-tag-version <patch|minor|major>` to bump `package.json` toward the next
   version. Ask the user which bump size if it isn't obvious from what's already planned/in
-  flight. The `--no-git-tag-version` flag matters - this step must NOT create another tag or
-  commit on its own; step 9 does that deliberately.
+  flight. The `--no-git-tag-version` flag matters - this step must NOT create another tag on its
+  own; only step 5 does that.
 - Add a new heading to the top of `CHANGELOG.md`: `## X.Y.Z - Unreleased` (no bullets yet - they
   accumulate as work lands, matching this project's existing convention. No date yet either; that
   gets filled in at the next release, per step 2).

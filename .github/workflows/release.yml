@@ -1,0 +1,77 @@
+name: Release
+
+# Triggered by the release-to-marketplace skill's tag-and-push step (git push --follow-tags of
+# an annotated vX.Y.Z tag) - see that skill for what happens before this point (version bump,
+# changelog finalization). Everything after "push the tag" - verification, publishing every
+# bundled-binary target plus the universal package, and the GitHub Release - lives here instead
+# of being driven by hand.
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history (not just the tagged commit) so the "extract release notes" step below
+          # can read the tag's own annotation - a shallow clone still includes the tag object
+          # itself, but fetch-depth: 0 is the simplest way to guarantee it.
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      # Same gate test.yml runs on every push to main - re-run here too since the tagged commit
+      # is what's about to ship, and this is the last chance to abort before an irreversible
+      # Marketplace publish.
+      - run: npm run build
+      - run: npm test
+
+      # Fetches this platform's dgdebug/dialogc/aambundle binaries fresh immediately before both
+      # vsce calls for that target - see scripts/fetch-dialog-binaries.js's own doc comment: it
+      # wipes and re-stages bin/ on every invocation, so publish and package always ship exactly
+      # one platform's binaries, never a stale or mixed set left over from the previous target in
+      # this loop.
+      - name: Publish and package each bundled-binary target
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+        run: |
+          for target in win32-x64 darwin-arm64 linux-x64; do
+            node scripts/fetch-dialog-binaries.js --target "$target"
+            npx vsce publish --target "$target"
+            npx vsce package --target "$target"
+          done
+
+      # The universal (no-target) package relies on PATH/dialog.json's binDir instead, same as
+      # every platform this project doesn't bundle binaries for - --allow-unused-files-pattern is
+      # required here because bin/ is empty, and package.json's `files` allowlist still lists
+      # bin/**/*.
+      - name: Publish and package the universal build
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+        run: |
+          node scripts/fetch-dialog-binaries.js --target none
+          npx vsce publish --allow-unused-files-pattern
+          npx vsce package --allow-unused-files-pattern
+
+      # The release-to-marketplace skill puts the full release notes (changelog bullets, plus
+      # anything it supplied beyond what the changelog itself says) into the annotated tag's own
+      # message at `git tag -a vX.Y.Z -m "..."` time - reading it back here means this workflow
+      # never has to re-derive or re-parse CHANGELOG.md itself.
+      - name: Extract release notes from the tag
+        run: git tag -l --format='%(contents)' "$GITHUB_REF_NAME" > release-notes.md
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" *.vsix --title "$GITHUB_REF_NAME" --notes-file release-notes.md

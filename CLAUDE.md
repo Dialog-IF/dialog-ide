@@ -55,7 +55,7 @@ Produces a `.vsix` installable via `code --install-extension` or the Extensions 
 
 `win32-x64`/`darwin-arm64`/`linux-x64` builds also bundle the `dgdebug`/`dialogc` binaries under `bin/<target>/`, so those platforms work without a separately installed Dialog toolchain (see `resolveBundledBinDir`/`resolveCommandPath` in `project.ts`). `bin/` is gitignored and populated on demand by `scripts/fetch-dialog-binaries.js` from the upstream release pinned in `scripts/dialog-toolchain-version.json` - it's normal for `bin/` to be absent during ordinary local development (`npm test`/`npm run build` don't need it), and every other platform/target (including the universal no-target package) keeps relying on `PATH`/`dialog.json`'s `binDir` exactly as before. See `THIRD_PARTY_LICENSES.md` for the bundled binaries' upstream license.
 
-Published to the VS Code Marketplace as `hlship.dialog-ide`. See the `release-to-marketplace` skill (`.claude/skills/release-to-marketplace/SKILL.md`) for the actual release/publish workflow, including staging bundled binaries per target before publishing.
+Published to the VS Code Marketplace as `hlship.dialog-ide`. See the `release-to-marketplace` skill (`.claude/skills/release-to-marketplace/SKILL.md`) for confirming the version/release notes and pushing the release tag; `.github/workflows/release.yml`, triggered by that tag push, does the actual build/publish (all four targets, staging bundled binaries per target) and creates the GitHub Release.
 
 ## Key Files
 
