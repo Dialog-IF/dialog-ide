@@ -111,4 +111,3 @@ Sessions are created via `SkeinSession.createNew(config)` (fresh skein) or `Skei
 ## Known gaps
 
 - `dfrotz` isn't bundled per-platform the way `dgdebug`/`dialogc` are (see `scripts/fetch-dialog-binaries.js`) - frotz's own upstream has no prebuilt-binary releases to fetch, only source, so `frotz`/`frotz-release` sessions currently rely on `dfrotz` being on `PATH` or a project's configured `binDir`.
-- No "Reload" action (re-reading a `.skein` file from disk after external changes) - dialog-tool has one, dialog-ide doesn't yet.

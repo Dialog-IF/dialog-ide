@@ -2,6 +2,7 @@
 
 ## 0.3.1 - Unreleased
 
+- Prompt to reload the active session's .skein file when it changes on disk outside Dialog IDE
 - "Export Web Page..."'s story-metadata query (title/author/IFID/etc.) now also respects `<name>.dgdebug.dg`/`<name>.<format>.dg` source-suffix filtering, matching every other dgdebug launch - a source meant only for a specific export format could previously leak into it
 
 ## 0.3.0 - 19 Aug 2026

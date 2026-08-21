@@ -68,6 +68,10 @@ let activeSession: SkeinSession | undefined;
 let activeSessionId: string | undefined;
 let activeProjectRoot: string | undefined;
 
+// Set just before saveActiveSession writes the .skein file, so its own change doesn't re-trigger
+// handleSkeinFileChangedOnDisk's reload prompt - see saveActiveSession's comment.
+let suppressReloadPromptUntil = 0;
+
 // The terminal from the most recent "Run Tests" invocation, if it's still open - disposed of (see
 // runTestsInTerminal) before opening a new one, so re-running the command replaces its terminal
 // rather than piling up a fresh tab each time. Disposing an already-closed Terminal (the user
@@ -225,6 +229,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     })
   );
 
+  // Prompts to reload the active session's .skein file if it changes on disk outside Dialog IDE
+  // (e.g. hand-edited, or written by another tool/instance) - see handleSkeinFileChangedOnDisk.
+  const workspaceRoot = getWorkspaceRoot();
+  if (workspaceRoot) {
+    const skeinFileWatcher = vscode.workspace.createFileSystemWatcher(
+      new vscode.RelativePattern(workspaceRoot, '**/*.skein')
+    );
+    context.subscriptions.push(skeinFileWatcher, skeinFileWatcher.onDidChange(handleSkeinFileChangedOnDisk));
+  }
+
   context.subscriptions.push(
     vscode.commands.registerCommand('dialog-ide.openSkein', () => ensureSkeinPanel()),
     vscode.commands.registerCommand(
@@ -356,6 +370,15 @@ async function runLoadedSession(projectRoot: string, sessionId: string): Promise
     return;
   }
 
+  await loadAndActivateSession(projectRoot, sessionId, 'Running');
+}
+
+/**
+ * Shared by runLoadedSession and reloadActiveSessionFromDisk - loads a .skein file, starts a
+ * process against it, and makes it the active session. Callers are responsible for dealing with
+ * whatever session is currently active (confirming/stopping it) before calling this.
+ */
+async function loadAndActivateSession(projectRoot: string, sessionId: string, verb: string): Promise<void> {
   const project = readProject(projectRoot);
   const manager = new PersistenceManager(projectRoot);
   const tree = await manager.loadSession(sessionId);
@@ -377,7 +400,7 @@ async function runLoadedSession(projectRoot: string, sessionId: string): Promise
   // an already-visible window - rather than leaving the user staring at nothing (or the previous
   // session) until the replay finishes.
   setActiveSession(session, sessionId, projectRoot);
-  vscode.window.showInformationMessage(`Running ${sessionId}.skein (${tree.getEngine()})`);
+  vscode.window.showInformationMessage(`${verb} ${sessionId}.skein (${tree.getEngine()})`);
 
   // start() only ever validates knot 0's banner - the process otherwise sits at the root even
   // though the transcript immediately shows the loaded active spine, so without this the process
@@ -394,6 +417,54 @@ async function runLoadedSession(projectRoot: string, sessionId: string): Promise
     // start() is, so this deliberately doesn't tear anything down on failure.
     await runSessionStep(() => session.replayAll());
   }
+}
+
+/**
+ * Reacts to the active session's .skein file changing on disk outside Dialog IDE (e.g. hand
+ * editing labels/locks, or another tool/instance writing it) - reloads the tree fresh from disk,
+ * discarding the in-memory session. Called only after the user confirms via
+ * handleSkeinFileChangedOnDisk's prompt.
+ */
+async function reloadActiveSessionFromDisk(): Promise<void> {
+  if (!activeSession || !activeSessionId || !activeProjectRoot) {
+    return;
+  }
+  const sessionId = activeSessionId;
+  const projectRoot = activeProjectRoot;
+
+  await stopActiveSession();
+  await loadAndActivateSession(projectRoot, sessionId, 'Reloaded');
+}
+
+/**
+ * Fires on every change to any *.skein file in the workspace; ignores everything except the
+ * active session's own file, and (via suppressReloadPromptUntil) the write saveActiveSession just
+ * made itself.
+ */
+function handleSkeinFileChangedOnDisk(uri: vscode.Uri): void {
+  if (!activeSession || !activeSessionId || !activeProjectRoot) {
+    return;
+  }
+  if (Date.now() < suppressReloadPromptUntil) {
+    return;
+  }
+  if (uri.fsPath !== path.join(activeProjectRoot, `${activeSessionId}.skein`)) {
+    return;
+  }
+
+  vscode.window
+    .showWarningMessage(
+      `"${activeSessionId}.skein" was changed on disk outside Dialog IDE. Reload it? This discards any unsaved changes in the running session.`,
+      { modal: true },
+      'Reload'
+    )
+    .then((choice) => {
+      if (choice === 'Reload') {
+        reloadActiveSessionFromDisk().catch((error) => {
+          vscode.window.showErrorMessage(`Failed to reload skein: ${(error as Error).message}`);
+        });
+      }
+    });
 }
 
 /**
@@ -505,6 +576,9 @@ async function saveActiveSession(): Promise<void> {
     vscode.window.showInformationMessage('No skein session is running.');
     return;
   }
+  // Our own write is about to trigger the .skein file watcher below - suppress the "changed on
+  // disk" reload prompt for a moment so it doesn't fire on a save the user just made themselves.
+  suppressReloadPromptUntil = Date.now() + 2000;
   await new PersistenceManager(activeProjectRoot).saveSession(activeSession.getTree(), activeSessionId);
   vscode.window.showInformationMessage(`Saved ${activeSessionId}.skein`);
 }
