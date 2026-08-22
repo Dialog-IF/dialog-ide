@@ -10,10 +10,11 @@
 import { DynamicProcessor, DynamicState } from '../dynamic';
 import { EngineType } from '../process';
 import { SearchResults } from '../search';
-import { DerivedKnot, KnotStatus, SkeinTree } from '../tree';
+import { DerivedKnot, KnotStatus, Marker, SkeinTree } from '../tree';
 import { ansiToHtml, ansiToMarkers } from './ansi';
 import { DiffSegment, diffText } from './diff';
 import { renderKnotMenu } from './knot-menu';
+import { ALL_MARKERS, MARKER_LABEL, MARKER_SWATCH_CLASS } from './marker-colors';
 import { renderTreePane } from './tree-pane';
 
 export interface SessionDisplayInfo {
@@ -237,10 +238,14 @@ function renderKnot(
   const floatCluster = `<div class="float-right flex flex-row items-center gap-1 pl-2 pb-1">${
     knot.locked ? '<div class="icon icon-lock" role="img" aria-label="Locked"></div>' : ''
   }${
+    knot.marker
+      ? `<span class="w-3 h-3 rounded-full shrink-0 ${MARKER_SWATCH_CLASS[knot.marker]}" aria-hidden="true"></span>`
+      : ''
+  }${
     knot.label
       ? `<span class="font-bold bg-neutral text-neutral-content px-1 py-0.5 rounded text-sm">${escapeHtml(knot.label)}</span>`
       : ''
-  }${renderKnotMenu(knot.id, knot.unblessedResponse !== null, knot.id === transcriptMenuId, '/actions/open-transcript-menu', active, knot.label, knot.command, 'prominent', tree.promptTypeAt(knot.parentId) === 'key', tree.getEngine())}</div>`;
+  }${renderKnotMenu(knot.id, knot.unblessedResponse !== null, knot.id === transcriptMenuId, '/actions/open-transcript-menu', active, knot.label, knot.command, 'prominent', tree.promptTypeAt(knot.parentId) === 'key', tree.getEngine(), knot.marker)}</div>`;
 
   const keystrokeChip =
     reachedViaKeystroke(tree, knot)
@@ -541,7 +546,8 @@ export function renderNavbar(
   tree: SkeinTree,
   showDynamicState: boolean = false,
   searchQuery: string = '',
-  searchResults: SearchResults = EMPTY_SEARCH_RESULTS
+  searchResults: SearchResults = EMPTY_SEARCH_RESULTS,
+  markerFilter: Marker | null = null
 ): string {
   const t = totals(tree);
   const spineLeafId = tree.getSelectedLeafId();
@@ -565,6 +571,15 @@ export function renderNavbar(
       title="${dgdebug ? 'Show which dynamic properties (flags/variables) changed after each knot' : 'Dynamic state requires the dgdebug engine'}">
       <div class="icon icon-dynamic" aria-hidden="true"></div><span class="hidden lg:inline">Dynamic State</span>
     </button>
+    <div class="join shrink-0" role="group" aria-label="Filter by marker">
+      ${ALL_MARKERS.map((marker) => `
+      <button type="button" class="btn btn-sm btn-square join-item ${markerFilter === marker ? 'btn-primary' : 'btn-ghost'}"
+        aria-pressed="${markerFilter === marker}" aria-label="Filter to knots marked ${MARKER_LABEL[marker]}"
+        data-on:click="$marker = ${marker}; @post('/actions/set-marker-filter')"
+        title="Show only knots marked ${MARKER_LABEL[marker]} (or with a descendant marked ${MARKER_LABEL[marker]}) - click again to clear">
+        <span class="w-3 h-3 rounded-full ${MARKER_SWATCH_CLASS[marker]}" aria-hidden="true"></span>
+      </button>`).join('')}
+    </div>
     <div class="flex items-center gap-1 shrink-0 ml-auto">
       <button type="button" class="btn btn-primary" data-on:click="@post('/actions/save')" title="Save this skein to its file - the only thing that ever writes to disk (⌘S)">
         <div class="icon icon-save" aria-hidden="true"></div><span class="hidden lg:inline">Save</span>
@@ -612,10 +627,11 @@ export function renderApp(
   transcriptMenuId: number | null = null,
   showDynamicState: boolean = false,
   searchQuery: string = '',
-  searchResults: SearchResults = EMPTY_SEARCH_RESULTS
+  searchResults: SearchResults = EMPTY_SEARCH_RESULTS,
+  markerFilter: Marker | null = null
 ): string {
   return `<div id="skein-app" class="flex flex-col h-screen">
-  ${renderNavbar(info, tree, showDynamicState, searchQuery, searchResults)}
+  ${renderNavbar(info, tree, showDynamicState, searchQuery, searchResults, markerFilter)}
   <div class="flex-1 min-h-0 flex flex-row w-full">
     <div id="tree-pane-outer"
       class="shrink-0 h-full flex flex-row"
@@ -623,7 +639,7 @@ export function renderApp(
       data-preserve-attr="style"
       data-init="sk.initTreePaneResize()">
       <div class="flex-1 min-w-0 bg-base-200 border-r border-base-300">
-        ${renderTreePane(tree, graphMenuId)}
+        ${renderTreePane(tree, graphMenuId, markerFilter)}
       </div>
       <div id="tree-pane-handle" class="w-1 shrink-0 cursor-col-resize bg-base-300 hover:bg-primary transition-colors"></div>
     </div>
@@ -642,11 +658,12 @@ export function renderPage(
   transcriptMenuId: number | null = null,
   showDynamicState: boolean = false,
   searchQuery: string = '',
-  searchResults: SearchResults = EMPTY_SEARCH_RESULTS
+  searchResults: SearchResults = EMPTY_SEARCH_RESULTS,
+  markerFilter: Marker | null = null
 ): string {
   const body =
     info && tree
-      ? renderApp(info, tree, graphMenuId, transcriptMenuId, showDynamicState, searchQuery, searchResults)
+      ? renderApp(info, tree, graphMenuId, transcriptMenuId, showDynamicState, searchQuery, searchResults, markerFilter)
       : '<div id="skein-app" class="p-4">No skein session running.</div>';
 
   return `<!doctype html>

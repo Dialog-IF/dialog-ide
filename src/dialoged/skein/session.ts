@@ -6,7 +6,7 @@
 import * as os from 'os';
 import { EventEmitter } from 'events';
 import { SkeinProcess, ProcessConfig, EngineType } from './process';
-import { SkeinTree, Response } from './tree';
+import { SkeinTree, Response, Marker } from './tree';
 import { DynamicProcessor, DynamicState } from './dynamic';
 import { DialogCompileError } from './compile-error';
 import { readProject, expandSources } from './project';
@@ -147,6 +147,10 @@ export class SkeinSession {
   // removed/changed chips when this is false), not part of the tree, so it's never captured onto
   // the undo/redo stack the way a knot's own dynamic state is (see tree.ts's dynamicStates).
   private showDynamicState: boolean = false;
+  // The navbar's marker-filter toggle buttons - purely a display filter (ui/tree-pane.ts hides
+  // branches with no matching marker when this is set), not part of the tree, so - like
+  // showDynamicState above - it's never captured onto the undo/redo stack.
+  private markerFilter: Marker | null = null;
   private readonly changeEmitter = new EventEmitter();
   // Where the actual interpreter process currently is, as opposed to tree.getActiveKnotId() -
   // which is also the currently *displayed*/navigated-to knot, and can diverge from this once
@@ -1030,6 +1034,22 @@ export class SkeinSession {
   }
 
   /**
+   * Actions menu's marker swatches. Purely cosmetic (tree.ts's isEffectivelyLocked ignores it) -
+   * still undo-tracked like label/lock, since it's a real edit to the knot's own data. Allowed on
+   * the root knot too, unlike toggleLock/setLabel: there's no lock-semantics conflict to guard
+   * against.
+   */
+  public setMarker(id: number, marker: Marker | null): void {
+    if (!this.tree.getKnot(id)) {
+      throw new Error(`Knot ${id} not found`);
+    }
+    this.pushUndoSnapshot();
+    this.tree = this.tree.setMarker(id, marker);
+    this.closeMenus();
+    this.changeEmitter.emit('change');
+  }
+
+  /**
    * Actions menu's "Edit Command...". Root's command is a synthetic placeholder, not a real
    * command - mirrors the same root? guard every other structural action already has (toggleLock,
    * setLabel, deleteKnot, spliceKnot). A blank command is rejected outright, unlike setLabel's
@@ -1260,6 +1280,20 @@ export class SkeinSession {
 
   public getShowDynamicState(): boolean {
     return this.showDynamicState;
+  }
+
+  /**
+   * The navbar's marker-filter swatch buttons (POST /actions/set-marker-filter). Clicking the
+   * already-active color clears the filter (toggle semantics) - the client always posts the
+   * clicked color; the toggle-vs-set decision happens here, next to the field it governs.
+   */
+  public setMarkerFilter(marker: Marker | null): void {
+    this.markerFilter = this.markerFilter === marker ? null : marker;
+    this.changeEmitter.emit('change');
+  }
+
+  public getMarkerFilter(): Marker | null {
+    return this.markerFilter;
   }
 
   /**

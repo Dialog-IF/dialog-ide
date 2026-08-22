@@ -67,6 +67,37 @@ describe('serializeTree / deserializeTree', () => {
     expect(reloaded.getKnot(1)!.locked).toBe(false);
   });
 
+  it('writes marker only when present, as a bare number', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1)
+      .addChild(0, 'look', { text: 'You see nothing.\n', inputType: 'line' });
+    const marked = tree.setMarker(1, 3);
+    expect(serializeTree(marked)).toContain('marker: 3');
+    expect(serializeTree(tree)).not.toContain('marker:');
+
+    const reloaded = deserializeTree(serializeTree(marked));
+    expect(reloaded.getKnot(1)!.marker).toBe(3);
+  });
+
+  it('degrades an unparsable or out-of-range marker value to null rather than throwing', () => {
+    const content = [
+      'seed: 1',
+      'engine: dgdebug',
+      '-'.repeat(80),
+      'id: 0',
+      'label: START',
+      '-'.repeat(80),
+      '-'.repeat(80),
+      'id: 1',
+      'marker: purple',
+      'parent-id: 0',
+      'command: look',
+      '-'.repeat(80),
+      'a room'
+    ].join('\n');
+    expect(() => deserializeTree(content)).not.toThrow();
+    expect(deserializeTree(content).getKnot(1)!.marker).toBeNull();
+  });
+
   it('maps keystroke prompts to the file\'s "prompt: keystroke" field, and omits it for line prompts', () => {
     const tree = SkeinTree.newTree('dgdebug', 1)
       .addChild(0, 'y', { text: 'Are you sure?', inputType: 'key' })

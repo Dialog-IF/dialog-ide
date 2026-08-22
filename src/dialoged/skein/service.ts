@@ -9,7 +9,7 @@ import * as path from 'path';
 import { IGrammar } from 'vscode-textmate';
 import { SkeinSession, SpineDirection, SeekableStatus, normalizeCommand } from './session';
 import { DialogCompileError } from './compile-error';
-import { KnotLockedError, LabelConflictError, SkeinTree } from './tree';
+import { KnotLockedError, LabelConflictError, SkeinTree, isValidMarker } from './tree';
 import { renderApp, renderPage, SessionDisplayInfo } from './ui/render';
 import { searchKnots, SearchResults } from './search';
 import { renderTraceApp, renderTracePage, CurrentTraceState } from './ui/traceRender';
@@ -357,7 +357,8 @@ export class SkeinService implements ProgressHost {
           this.activeSession?.getTranscriptMenuId() ?? null,
           this.activeSession?.getShowDynamicState() ?? false,
           this.searchQuery,
-          this.currentSearchResults()
+          this.currentSearchResults(),
+          this.activeSession?.getMarkerFilter() ?? null
         )
       );
       return;
@@ -455,6 +456,16 @@ export class SkeinService implements ProgressHost {
 
     if (req.method === 'POST' && url.pathname === '/actions/set-label') {
       await this.handleSetLabel(req, res);
+      return;
+    }
+
+    if (req.method === 'POST' && url.pathname === '/actions/set-marker') {
+      await this.handleSetMarker(req, res);
+      return;
+    }
+
+    if (req.method === 'POST' && url.pathname === '/actions/set-marker-filter') {
+      await this.handleSetMarkerFilter(req, res);
       return;
     }
 
@@ -882,6 +893,65 @@ export class SkeinService implements ProgressHost {
       res.end();
       return;
     }
+
+    res.writeHead(204);
+    res.end();
+  }
+
+  /**
+   * POST /actions/set-marker - {knotId, marker}; a missing/invalid marker clears it
+   * (setMarker(id, null)). Unlike set-label, markers aren't tree-unique, so there's no conflict
+   * case to distinguish from a genuine bug - any failure here is a plain 500.
+   */
+  private async handleSetMarker(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+    if (!this.activeSession) {
+      res.writeHead(400);
+      res.end();
+      return;
+    }
+
+    const payload = parseJsonBody(await readRequestBody(req));
+    const knotId = parseKnotId(payload);
+    if (knotId === null) {
+      res.writeHead(400);
+      res.end();
+      return;
+    }
+    const marker = isValidMarker(payload.marker) ? payload.marker : null;
+
+    try {
+      this.activeSession.setMarker(knotId, marker);
+    } catch (error) {
+      console.error('Failed to set marker:', error);
+      res.writeHead(500);
+      res.end();
+      return;
+    }
+
+    res.writeHead(204);
+    res.end();
+  }
+
+  /**
+   * POST /actions/set-marker-filter - {marker}, the navbar's marker-filter swatch buttons
+   * (render.ts's renderNavbar). Unlike toggle-dynamic-state, this has a body: the client always
+   * posts the color it clicked, and session.ts's setMarkerFilter itself decides whether that's a
+   * new filter or a clear (clicking the already-active color).
+   */
+  private async handleSetMarkerFilter(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+    if (!this.activeSession) {
+      res.writeHead(400);
+      res.end();
+      return;
+    }
+
+    const payload = parseJsonBody(await readRequestBody(req));
+    if (!isValidMarker(payload.marker)) {
+      res.writeHead(400);
+      res.end();
+      return;
+    }
+    this.activeSession.setMarkerFilter(payload.marker);
 
     res.writeHead(204);
     res.end();
@@ -1475,7 +1545,8 @@ export class SkeinService implements ProgressHost {
             this.activeSession!.getTranscriptMenuId(),
             this.activeSession!.getShowDynamicState(),
             this.searchQuery,
-            this.currentSearchResults()
+            this.currentSearchResults(),
+            this.activeSession!.getMarkerFilter()
           )
         : NO_ACTIVE_SESSION_FRAGMENT;
     const dataLines = html

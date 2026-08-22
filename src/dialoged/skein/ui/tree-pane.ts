@@ -20,8 +20,9 @@
  * renderTreeNode and knot-menu.ts's renderKnotMenu.
  */
 
-import { DerivedKnot, KnotStatus, SkeinTree } from '../tree';
+import { DerivedKnot, KnotStatus, Marker, SkeinTree } from '../tree';
 import { renderKnotMenu } from './knot-menu';
+import { MARKER_SWATCH_CLASS } from './marker-colors';
 
 function escapeHtml(text: string): string {
   return text
@@ -138,6 +139,9 @@ function renderTreeNode(tree: SkeinTree, knot: DerivedKnot, spine: Set<number>, 
         ? '<div class="icon icon-error w-3 h-3 shrink-0" aria-hidden="true"></div>'
         : '';
   const lockIcon = knot.locked ? '<div class="icon icon-lock w-3 h-3 shrink-0" aria-hidden="true"></div>' : '';
+  const markerSwatch = knot.marker
+    ? `<span class="w-2 h-2 rounded-full shrink-0 ${MARKER_SWATCH_CLASS[knot.marker]}" aria-hidden="true"></span>`
+    : '';
   const labelChip = knot.label
     ? `<span class="text-xs font-bold bg-neutral text-neutral-content px-1 rounded shrink-0">${escapeHtml(knot.label)}</span>`
     : '';
@@ -179,7 +183,7 @@ function renderTreeNode(tree: SkeinTree, knot: DerivedKnot, spine: Set<number>, 
     data-on:click="if (!evt.target.closest('details')) { ${selectCall} }"
     data-on:keydown="if (evt.key === 'Enter' || evt.key === ' ') { evt.preventDefault(); ${selectCall} }"
     aria-label="${escapeHtml(knot.command)}${statusSuffix}"
-    aria-pressed="${active}">${statusIcon}${lockIcon}${labelChip}${commandLabel}<span class="ml-auto">${renderKnotMenu(knot.id, knot.unblessedResponse !== null, knot.id === graphMenuId, '/actions/open-graph-menu', active, knot.label, knot.command, 'compact', tree.promptTypeAt(knot.parentId) === 'key', tree.getEngine())}</span></div>
+    aria-pressed="${active}">${statusIcon}${lockIcon}${markerSwatch}${labelChip}${commandLabel}<span class="ml-auto">${renderKnotMenu(knot.id, knot.unblessedResponse !== null, knot.id === graphMenuId, '/actions/open-graph-menu', active, knot.label, knot.command, 'compact', tree.promptTypeAt(knot.parentId) === 'key', tree.getEngine(), knot.marker)}</span></div>
   ${toggleButton}
 </div>`;
 }
@@ -190,18 +194,19 @@ function renderSubtree(
   spine: Set<number>,
   activeKnotId: number | null,
   graphMenuId: number | null,
+  visibleIds: Set<number> | null,
   isRoot: boolean = false
 ): string {
   const knot = tree.getDerivedKnot(knotId)!;
-  const children = tree.sortedChildren(knotId);
+  const children = tree.sortedChildren(knotId).filter((child) => visibleIds === null || visibleIds.has(child.id));
 
   let childrenHtml = '';
   if (children.length > 0 && !knot.collapsed) {
     if (children.length === 1) {
-      childrenHtml = renderSubtree(tree, children[0].id, spine, activeKnotId, graphMenuId);
+      childrenHtml = renderSubtree(tree, children[0].id, spine, activeKnotId, graphMenuId, visibleIds);
     } else {
       childrenHtml = `<div class="flex flex-row items-start gap-6">
-${children.map((child) => `<div class="flex flex-col items-center">${renderSubtree(tree, child.id, spine, activeKnotId, graphMenuId)}</div>`).join('\n')}
+${children.map((child) => `<div class="flex flex-col items-center">${renderSubtree(tree, child.id, spine, activeKnotId, graphMenuId, visibleIds)}</div>`).join('\n')}
 </div>`;
     }
   }
@@ -231,12 +236,16 @@ ${childrenHtml}
  * the SVG connector lines (and keeps them redrawn on DOM/size changes) and enables drag-to-pan -
  * see main.js for why a separate window-resize binding isn't needed on top of that.
  */
-export function renderTreePane(tree: SkeinTree, graphMenuId: number | null = null): string {
+export function renderTreePane(tree: SkeinTree, graphMenuId: number | null = null, markerFilter: Marker | null = null): string {
   const activeKnotId = tree.getActiveKnotId();
+  // Root itself is passed through renderSubtree's own isRoot=true, unfiltered - only its children
+  // get pruned by visibleIds - so when the filter matches nothing anywhere, the pane still shows
+  // just the root pill as an anchor/empty-state rather than going blank.
+  const visibleIds = markerFilter !== null ? tree.visibleKnotIdsForMarkerFilter(markerFilter) : null;
   return `<div id="tree-pane"
   class="overflow-x-auto overflow-y-auto p-4 relative bg-base-200 h-full cursor-grab"
   data-active-knot="${activeKnotId ?? ''}"
   data-init="sk.initTreeGraph()">
-${renderSubtree(tree, 0, spineIds(tree), activeKnotId, graphMenuId, true)}
+${renderSubtree(tree, 0, spineIds(tree), activeKnotId, graphMenuId, visibleIds, true)}
 </div>`;
 }

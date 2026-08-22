@@ -2,6 +2,7 @@
 
 ## 0.3.1 - Unreleased
 
+- Knots can carry one of four color markers (actions menu), shown next to the label chip and persisted in the .skein file; navbar filter buttons show only knots with a chosen marker (or a marked descendant)
 - Prompt to reload the active session's .skein file when it changes on disk outside Dialog IDE
 - "Export Web Page..."'s story-metadata query (title/author/IFID/etc.) now also respects `<name>.dgdebug.dg`/`<name>.<format>.dg` source-suffix filtering, matching every other dgdebug launch - a source meant only for a specific export format could previously leak into it
 

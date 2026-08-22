@@ -43,6 +43,9 @@ export class KnotLockedError extends Error {
  * `locked` flag only - a label already gets its own visible chip, so a redundant lock icon isn't
  * needed to tell the user it's protected). Structurally typed so it works for both WireKnot and
  * DerivedKnot without needing two copies.
+ *
+ * Deliberately ignores marker: a marker is purely cosmetic (see Marker's own doc comment) and
+ * must never affect deletion - don't add it here.
  */
 export function isEffectivelyLocked(knot: { locked: boolean; label: string | null }): boolean {
   return knot.locked || knot.label !== null;
@@ -76,6 +79,18 @@ function responseAfterUpdate(existing: WireKnot, fresh: Response): Response | nu
 export type KnotStatus = 'new' | 'valid' | 'error';
 
 /**
+ * A purely cosmetic per-knot flag ("this needs more work") - one of four fixed colors, or none.
+ * Deliberately not part of isEffectivelyLocked, unlike label - see that function's doc comment.
+ * Stored as a bare number, both here and in the .skein file; color/name meaning is a UI-only
+ * concern (see ui/marker-colors.ts), kept out of the data model entirely.
+ */
+export type Marker = 1 | 2 | 3 | 4;
+export const ALL_MARKERS: readonly Marker[] = [1, 2, 3, 4];
+export function isValidMarker(value: unknown): value is Marker {
+  return value === 1 || value === 2 || value === 3 || value === 4;
+}
+
+/**
  * Response type with input type information
  */
 export interface Response {
@@ -94,6 +109,7 @@ export interface WireKnot {
   parentId: number | null;
   label: string | null;
   locked: boolean;
+  marker: Marker | null;
 }
 
 /**
@@ -122,6 +138,7 @@ export interface DerivedKnot {
   inputType: 'line' | 'key';
   label: string | null;
   locked: boolean;
+  marker: Marker | null;
   collapsed: boolean;
 }
 
@@ -184,7 +201,8 @@ export class SkeinTree {
       unblessedResponse: null,
       parentId: null,
       label: 'START',
-      locked: false
+      locked: false,
+      marker: null
     };
 
     const initialState: KnotState = {
@@ -226,7 +244,8 @@ export class SkeinTree {
       unblessedResponse: response,
       parentId,
       label: null,
-      locked: false
+      locked: false,
+      marker: null
     };
 
     // Create new state for the knot
@@ -463,7 +482,8 @@ export class SkeinTree {
       unblessedResponse: response,
       parentId: oldParentId,
       label: null,
-      locked: false
+      locked: false,
+      marker: null
     };
     const newParentState: KnotState = {
       state: 'new',
@@ -554,6 +574,20 @@ export class SkeinTree {
   }
 
   /**
+   * Set (or clear) a knot's marker - returns a new SkeinTree instance. Unlike setLabel, markers
+   * aren't tree-unique, so there's no conflict check - any number of knots can share a marker.
+   */
+  public setMarker(id: number, marker: Marker | null): SkeinTree {
+    const knot = this.knots.get(id);
+    if (!knot) {
+      throw new Error(`Knot ${id} not found`);
+    }
+
+    return new SkeinTree(this.engine, this.seed, this.knots.set(id, { ...knot, marker }),
+      this.knotStates, this.activeKnotId, this.collapsedKnotIds, this.dynamicStates);
+  }
+
+  /**
    * Rename a knot's command - returns a new SkeinTree instance. Unlike a label (tree-wide unique
    * via findByLabel), command uniqueness is scoped to siblings sharing the same parent - the same
    * scope findChildId itself uses when runCommand decides whether to reuse an existing child or
@@ -606,8 +640,9 @@ export class SkeinTree {
    * safeguard rejects it anymore, two same-command siblings recursively merge into one instead).
    * keepId survives; otherId - and every id absorbed along the way, at whatever depth - is
    * deleted. keepId adopts otherId's label if it didn't already carry one of its own (one of the
-   * two labels is simply dropped on an actual collision, which is fine per the caller), and
-   * becomes locked if either side was (never silently drops a lock). Each of otherId's own
+   * two labels is simply dropped on an actual collision, which is fine per the caller), becomes
+   * locked if either side was (never silently drops a lock), and adopts otherId's marker the same
+   * way as label (keep its own if it has one, else take otherId's). Each of otherId's own
    * children either merges (recursively, same rule) into an existing keepId child that already
    * shares its command, or is reparented straight under keepId when no such collision exists.
    * Deliberately doesn't touch keepId's parent's own children/selectedChild list - callers use
@@ -622,7 +657,8 @@ export class SkeinTree {
     let knots = this.knots.set(keepId, {
       ...keepKnot,
       label: keepKnot.label ?? otherKnot.label,
-      locked: keepKnot.locked || otherKnot.locked
+      locked: keepKnot.locked || otherKnot.locked,
+      marker: keepKnot.marker ?? otherKnot.marker
     });
     let knotStates = this.knotStates;
     let collapsedKnotIds = this.collapsedKnotIds;
@@ -847,8 +883,36 @@ export class SkeinTree {
       inputType: knot.response ? knot.response.inputType : 'line',
       label: knot.label,
       locked: knot.locked,
+      marker: knot.marker,
       collapsed: this.collapsedKnotIds.has(id)
     };
+  }
+
+  /**
+   * The ids that should remain visible in the tree pane when filtering to a single marker color:
+   * every knot that itself carries that marker, plus every ancestor of such a knot (so the path
+   * from root down to a match is never broken). A plain O(n) bottom-up walk done fresh on every
+   * call, not an incrementally-maintained aggregate like treeState - the whole app already
+   * re-renders in full on every mutation (see service.ts's broadcast/sendPatch), so there's no
+   * incremental-render path this would need to hook into, and one full-tree walk per render is
+   * cheap. Returns an empty set (not including the root) when nothing anywhere matches - it's the
+   * tree-pane's own rendering, not this query, that decides to still show the root as an anchor.
+   */
+  public visibleKnotIdsForMarkerFilter(marker: Marker): globalThis.Set<number> {
+    const visible = new globalThis.Set<number>();
+    const visit = (id: number): boolean => {
+      const knot = this.knots.get(id)!;
+      const state = this.knotStates.get(id)!;
+      const anyChildMatches = state.children.map(visit).some(Boolean);
+      const selfMatches = knot.marker === marker;
+      if (anyChildMatches || selfMatches) {
+        visible.add(id);
+        return true;
+      }
+      return false;
+    };
+    visit(0);
+    return visible;
   }
 
   /**

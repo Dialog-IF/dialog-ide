@@ -7,7 +7,7 @@
  * stay interchangeable between the two tools and diff cleanly in a VCS.
  */
 
-import { SkeinTree, WireKnot, Response } from './tree';
+import { SkeinTree, WireKnot, Response, Marker, isValidMarker } from './tree';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 
@@ -88,6 +88,9 @@ function serializeKnot(knot: WireKnot): string {
   if (knot.locked) {
     lines.push('locked: true');
   }
+  if (knot.marker !== null) {
+    lines.push(`marker: ${knot.marker}`);
+  }
   if (knot.parentId !== null) {
     lines.push(`parent-id: ${knot.parentId}`);
   }
@@ -151,6 +154,8 @@ export function deserializeTree(content: string): SkeinTree {
 
     const toResponse = (text: string | null): Response | null =>
       text !== null ? { text, inputType } : null;
+    const parsedMarker = props.marker !== undefined ? parseInt(props.marker, 10) : undefined;
+    const marker: Marker | null = isValidMarker(parsedMarker) ? parsedMarker : null;
 
     wireKnots.push({
       id: parseInt(props.id, 10),
@@ -159,7 +164,8 @@ export function deserializeTree(content: string): SkeinTree {
       unblessedResponse: toResponse(unblessed),
       parentId,
       label: props.label ?? null,
-      locked: props.locked === 'true'
+      locked: props.locked === 'true',
+      marker
     });
   }
 

@@ -2,7 +2,7 @@ import * as http from 'http';
 import * as path from 'path';
 import { SkeinService } from './service';
 import { SkeinSession } from './session';
-import { KnotLockedError, LabelConflictError, SkeinTree } from './tree';
+import { KnotLockedError, LabelConflictError, Marker, SkeinTree } from './tree';
 
 const MEDIA_ROOT = path.join(__dirname, '..', '..', '..', 'media');
 
@@ -21,6 +21,7 @@ function createFakeSession(
     replayToKnot?: (id: number) => void | Promise<void>;
     replayAll?: () => void | Promise<void>;
     setLabel?: (id: number, label: string | null) => void;
+    setMarker?: (id: number, marker: Marker | null) => void;
     setCommand?: (id: number, command: string) => void | Promise<void>;
     insertParent?: (id: number, command: string) => void | Promise<void>;
     deleteKnot?: (id: number) => void;
@@ -40,6 +41,8 @@ function createFakeSession(
     blessChanges: [] as number[],
     toggleLock: [] as number[],
     setLabel: [] as [number, string | null][],
+    setMarker: [] as [number, Marker | null][],
+    setMarkerFilter: [] as (Marker | null)[],
     setCommand: [] as [number, string][],
     deleteKnot: [] as number[],
     spliceKnot: [] as number[],
@@ -58,6 +61,7 @@ function createFakeSession(
   };
   const emit = () => listeners.forEach((fn) => fn());
   let showDynamicState = false;
+  let markerFilter: Marker | null = null;
 
   // Mirrors session.ts's own graphMenuId/transcriptMenuId: every mutating action (including
   // plain navigation) closes both, matching the real closeMenus() called from setActiveKnot and
@@ -157,6 +161,18 @@ function createFakeSession(
       calls.setLabel.push([id, label]);
       options.setLabel?.(id, label);
       closeMenus();
+      emit();
+    },
+    setMarker: (id: number, marker: Marker | null) => {
+      calls.setMarker.push([id, marker]);
+      options.setMarker?.(id, marker);
+      closeMenus();
+      emit();
+    },
+    getMarkerFilter: () => markerFilter,
+    setMarkerFilter: (marker: Marker | null) => {
+      calls.setMarkerFilter.push(marker);
+      markerFilter = markerFilter === marker ? null : marker;
       emit();
     },
     setCommand: async (id: number, command: string) => {
@@ -991,6 +1007,78 @@ describe('SkeinService', () => {
       const res = await post(`http://localhost:${service.getPort()}/actions/set-label`, { knotId: 1, label: 'checkpoint' });
 
       expect(res.status).toBe(500);
+    });
+  });
+
+  describe('POST /actions/set-marker', () => {
+    it('400s when no session is active', async () => {
+      const res = await post(`http://localhost:${service.getPort()}/actions/set-marker`, { knotId: 1, marker: 2 });
+      expect(res.status).toBe(400);
+    });
+
+    it('sets a marker and returns 204', async () => {
+      const tree = SkeinTree.newTree('dgdebug', 1).addChild(0, 'look', { text: 'a', inputType: 'line' });
+      const fake = createFakeSession(tree);
+      service.setActiveSession(fake as unknown as SkeinSession, 'default');
+
+      const res = await post(`http://localhost:${service.getPort()}/actions/set-marker`, { knotId: 1, marker: 3 });
+
+      expect(res.status).toBe(204);
+      expect(fake.calls.setMarker).toEqual([[1, 3]]);
+    });
+
+    it('treats a missing/invalid marker as clearing it (null)', async () => {
+      const tree = SkeinTree.newTree('dgdebug', 1).addChild(0, 'look', { text: 'a', inputType: 'line' });
+      const fake = createFakeSession(tree);
+      service.setActiveSession(fake as unknown as SkeinSession, 'default');
+
+      await post(`http://localhost:${service.getPort()}/actions/set-marker`, { knotId: 1 });
+
+      expect(fake.calls.setMarker).toEqual([[1, null]]);
+    });
+
+    it('500s for any setMarker failure', async () => {
+      const tree = SkeinTree.newTree('dgdebug', 1).addChild(0, 'look', { text: 'a', inputType: 'line' });
+      const fake = createFakeSession(tree, {
+        setMarker: () => {
+          throw new Error('disk full');
+        }
+      });
+      service.setActiveSession(fake as unknown as SkeinSession, 'default');
+
+      const res = await post(`http://localhost:${service.getPort()}/actions/set-marker`, { knotId: 1, marker: 1 });
+
+      expect(res.status).toBe(500);
+    });
+  });
+
+  describe('POST /actions/set-marker-filter', () => {
+    it('400s when no session is active', async () => {
+      const res = await post(`http://localhost:${service.getPort()}/actions/set-marker-filter`, { marker: 1 });
+      expect(res.status).toBe(400);
+    });
+
+    it('400s for a missing or invalid marker', async () => {
+      const tree = SkeinTree.newTree('dgdebug', 1);
+      const fake = createFakeSession(tree);
+      service.setActiveSession(fake as unknown as SkeinSession, 'default');
+
+      const missing = await post(`http://localhost:${service.getPort()}/actions/set-marker-filter`, {});
+      expect(missing.status).toBe(400);
+
+      const invalid = await post(`http://localhost:${service.getPort()}/actions/set-marker-filter`, { marker: 99 });
+      expect(invalid.status).toBe(400);
+    });
+
+    it('sets the filter and returns 204', async () => {
+      const tree = SkeinTree.newTree('dgdebug', 1);
+      const fake = createFakeSession(tree);
+      service.setActiveSession(fake as unknown as SkeinSession, 'default');
+
+      const res = await post(`http://localhost:${service.getPort()}/actions/set-marker-filter`, { marker: 2 });
+
+      expect(res.status).toBe(204);
+      expect(fake.calls.setMarkerFilter).toEqual([2]);
     });
   });
 

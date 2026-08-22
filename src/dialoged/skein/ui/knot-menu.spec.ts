@@ -1,6 +1,15 @@
 import { renderKnotMenu } from './knot-menu';
 
 describe('renderKnotMenu', () => {
+  // Regression: the marker filter (tree-pane.ts) can remove a knot - and its open menu's popover
+  // element - from the DOM entirely. Datastar still re-invokes this data-effect against the
+  // now-detached node afterward, and the native Popover API throws unconditionally for that -
+  // an uncaught error that breaks every other knot's menu too, until guarded with isConnected.
+  it("guards togglePopover with el.isConnected, so a filtered-out knot's already-removed popover doesn't throw", () => {
+    const html = renderKnotMenu(3, true, true, '/actions/open-graph-menu');
+    expect(html).toContain('data-effect="if (el.isConnected) el.togglePopover(true)"');
+  });
+
   describe('Trace item', () => {
     it('posts to trace-knot with the knot id for a non-root knot', () => {
       const html = renderKnotMenu(3, true, false, '/actions/open-transcript-menu');

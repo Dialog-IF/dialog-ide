@@ -308,6 +308,16 @@ describe('SkeinTree.deleteKnot', () => {
     expect(tree.getKnot(1)).toBeNull();
     expect(tree.getKnot(2)).not.toBeNull();
   });
+
+  // A marker is purely cosmetic (see Marker's own doc comment) - unlike a label, it must never
+  // block deletion.
+  it('allows deleting a knot that is only marked (not locked or labeled)', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1)
+      .addChild(0, 'look', { text: 'a', inputType: 'line' }) // id 1
+      .setMarker(1, 1)
+      .deleteKnot(1);
+    expect(tree.getKnot(1)).toBeNull();
+  });
 });
 
 describe('SkeinTree.spliceKnot', () => {
@@ -476,6 +486,28 @@ describe('SkeinTree.setLabel / setLockStatus', () => {
   });
 });
 
+describe('SkeinTree.setMarker', () => {
+  it('sets and clears a marker', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1)
+      .addChild(0, 'look', { text: 'a', inputType: 'line' });
+    expect(tree.setMarker(1, 2).getKnot(1)!.marker).toBe(2);
+    expect(tree.setMarker(1, 2).setMarker(1, null).getKnot(1)!.marker).toBeNull();
+  });
+
+  // Unlike setLabel/setLockStatus, there's no root guard at the tree level (session.ts's
+  // setMarker doesn't add one either - see its own doc comment) since markers have no
+  // lock-semantics conflict with the root knot.
+  it('allows marking the root knot', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1);
+    expect(tree.setMarker(0, 3).getKnot(0)!.marker).toBe(3);
+  });
+
+  it('throws when the knot does not exist', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1);
+    expect(() => tree.setMarker(999, 1)).toThrow();
+  });
+});
+
 describe('SkeinTree.renameCommand', () => {
   it("renames a knot's command", () => {
     const tree = SkeinTree.newTree('dgdebug', 1)
@@ -570,6 +602,30 @@ describe('SkeinTree merges same-command siblings', () => {
     const merged = tree.renameCommand(2, 'look');
 
     expect(merged.getKnot(2)!.label).toBe('CHECKPOINT');
+  });
+
+  // Same "keep mine, else theirs" rule as label, applied to marker.
+  it("keeps the surviving knot's own marker when it already had one", () => {
+    const tree = SkeinTree.newTree('dgdebug', 1)
+      .addChild(0, 'look', { text: 'a', inputType: 'line' }) // knot 1, about to be absorbed
+      .addChild(0, 'inventory', { text: 'b', inputType: 'line' }) // knot 2, survives
+      .setMarker(1, 1)
+      .setMarker(2, 4);
+
+    const merged = tree.renameCommand(2, 'look');
+
+    expect(merged.getKnot(2)!.marker).toBe(4);
+  });
+
+  it("adopts the absorbed knot's marker when the surviving knot had none", () => {
+    const tree = SkeinTree.newTree('dgdebug', 1)
+      .addChild(0, 'look', { text: 'a', inputType: 'line' }) // knot 1, about to be absorbed
+      .addChild(0, 'inventory', { text: 'b', inputType: 'line' }) // knot 2, survives, unmarked
+      .setMarker(1, 2);
+
+    const merged = tree.renameCommand(2, 'look');
+
+    expect(merged.getKnot(2)!.marker).toBe(2);
   });
 
   it('reparents a non-colliding child of the absorbed knot straight under the survivor', () => {
@@ -750,6 +806,7 @@ describe('SkeinTree.fromKnots', () => {
       parentId: null,
       label: null,
       locked: false,
+      marker: null,
       ...overrides
     };
   }
@@ -1164,5 +1221,54 @@ describe('SkeinTree.updateDynamicState / getDynamicState', () => {
       .updateDynamicState(1, EMPTY_DYNAMIC_STATE);
     const reloaded = SkeinTree.fromKnots('dgdebug', 1, tree.getAllKnots());
     expect(reloaded.getDynamicState(1)).toBeNull();
+  });
+});
+
+describe('SkeinTree.visibleKnotIdsForMarkerFilter', () => {
+  it('includes a matching knot and every ancestor up to root, forming a connected path', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1)
+      .addChild(0, 'go north', { text: 'a', inputType: 'line' }) // id 1
+      .addChild(1, 'take orb', { text: 'b', inputType: 'line' }) // id 2, deep match
+      .setMarker(2, 1);
+
+    const visible = tree.visibleKnotIdsForMarkerFilter(1);
+
+    expect(visible.has(0)).toBe(true); // root, ancestor of the match
+    expect(visible.has(1)).toBe(true); // parent of the match
+    expect(visible.has(2)).toBe(true); // the match itself
+  });
+
+  it('excludes a sibling branch that has no matching descendant', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1)
+      .addChild(0, 'go north', { text: 'a', inputType: 'line' }) // id 1, marked
+      .addChild(0, 'go south', { text: 'b', inputType: 'line' }) // id 2, unmarked, unrelated branch
+      .setMarker(1, 1);
+
+    const visible = tree.visibleKnotIdsForMarkerFilter(1);
+
+    expect(visible.has(1)).toBe(true);
+    expect(visible.has(2)).toBe(false);
+  });
+
+  it('returns an empty set (root included) when nothing anywhere matches', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1)
+      .addChild(0, 'look', { text: 'a', inputType: 'line' });
+
+    const visible = tree.visibleKnotIdsForMarkerFilter(1);
+
+    expect(visible.size).toBe(0);
+  });
+
+  it('excludes a knot marked a different color, unless one of its descendants matches', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1)
+      .addChild(0, 'go north', { text: 'a', inputType: 'line' }) // id 1, marked yellow (2)
+      .addChild(1, 'take orb', { text: 'b', inputType: 'line' }) // id 2, marked red (1) - the filter color
+      .setMarker(1, 2)
+      .setMarker(2, 1);
+
+    const visible = tree.visibleKnotIdsForMarkerFilter(1);
+
+    expect(visible.has(2)).toBe(true); // the actual match
+    expect(visible.has(1)).toBe(true); // included as an ancestor of the match, despite its own marker being a different color
   });
 });

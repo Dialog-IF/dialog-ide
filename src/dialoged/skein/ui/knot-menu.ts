@@ -90,6 +90,8 @@
  * happens to contain it.
  */
 import { EngineType } from '../process';
+import { Marker } from '../tree';
+import { ALL_MARKERS, MARKER_LABEL, MARKER_SWATCH_CLASS } from './marker-colors';
 
 function escapeHtml(text: string): string {
   return text
@@ -155,7 +157,8 @@ export function renderKnotMenu(
   // Tracing is a dgdebug-only debug-console concept (session.ts's traceKnot/traceStartup both
   // return null for any other engine) - matches render.ts's own dgdebug-only gate on the Dynamic
   // State toggle.
-  engine: EngineType = 'dgdebug'
+  engine: EngineType = 'dgdebug',
+  currentMarker: Marker | null = null
 ): string {
   const isRoot = id === 0;
   const { pane, directionClass } = PANE_CONFIG[openRoute];
@@ -184,7 +187,13 @@ export function renderKnotMenu(
   </summary>
   <ul id="${popoverId}" popover="manual" tabindex="0" role="menu" class="dropdown-content knot-menu-popover menu bg-base-100 rounded-box p-2 w-52 shadow-xl z-10"
     style="position-anchor: ${anchorName}"
-    data-effect="el.togglePopover(${isOpen})"
+    // el.isConnected guards against the marker filter (tree-pane.ts) pruning a knot whose menu is
+    // currently open: the popover element gets removed from the DOM in that same patch, and
+    // Datastar still re-invokes this effect against the now-detached node afterward - the native
+    // Popover API throws "Invalid on disconnected popover elements" unconditionally for that,
+    // an uncaught error that aborts the rest of Datastar's patch/effect processing (breaking every
+    // other knot's menu, not just this one) until the page is reloaded.
+    data-effect="if (el.isConnected) el.togglePopover(${isOpen})"
     data-on:click__stop="void 0">
     <li${menuItemClass(!hasUnblessed)}><button type="button" role="menuitem"${hint('Bless Knot', '⌥B')}${menuItemAttrs(!hasUnblessed)} data-on:click="$knotId = ${id}; @post('/actions/bless-knot')">Bless Knot</button></li>
     <li><button type="button" role="menuitem"${hint('New Child', '⌥A')} data-on:click="$knotId = ${id}; @post('/actions/new-child')">New Child</button></li>
@@ -193,6 +202,20 @@ export function renderKnotMenu(
     <li${menuItemClass(isRoot)}><button type="button" role="menuitem"${hint('Edit Label', '⌥L')}${menuItemAttrs(isRoot)}
       data-current-label="${escapeHtml(currentLabel ?? '')}"
       data-on:click="sk.showLabelModal(${id}, el.dataset.currentLabel)">Edit Label&hellip;</button></li>
+    <li>
+      <div class="flex flex-row items-center gap-1 px-2 py-1">
+        ${ALL_MARKERS.map((marker) => `<button type="button" role="menuitem" aria-label="Mark ${MARKER_LABEL[marker]}"
+          class="w-4 h-4 rounded-full ${MARKER_SWATCH_CLASS[marker]} ${currentMarker === marker ? 'ring-2 ring-offset-1 ring-base-content' : ''}"
+          data-on:click="$knotId = ${id}; $marker = ${marker}; @post('/actions/set-marker')"></button>`).join('')}
+        ${currentMarker !== null
+          // $marker is a page-level Datastar signal, not scoped to this click - it keeps
+          // whatever value the last marker button (on any knot) set it to. Clearing has to
+          // explicitly reset it (0, not a real marker value) rather than leaving it untouched,
+          // or this would silently re-send the last-clicked color instead of clearing.
+          ? `<button type="button" role="menuitem" class="btn btn-xs btn-ghost" data-on:click="$knotId = ${id}; $marker = 0; @post('/actions/set-marker')">Clear</button>`
+          : ''}
+      </div>
+    </li>
     <li${menuItemClass(isRoot)}><button type="button" role="menuitem"${hint('Edit Command', '⌥E')}${menuItemAttrs(isRoot)}
       data-current-command="${escapeHtml(currentCommand ?? '')}"
       data-on:click="sk.showCommandModal(${id}, el.dataset.currentCommand)">Edit Command&hellip;</button></li>

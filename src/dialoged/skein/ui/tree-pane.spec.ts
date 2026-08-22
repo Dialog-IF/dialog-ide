@@ -221,6 +221,56 @@ describe('renderTreePane', () => {
     expect(knot1).not.toContain('icon-lock');
   });
 
+  it('shows a marker swatch for a marked knot, and omits it for an unmarked one', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1)
+      .addChild(0, 'look', { text: 'a', inputType: 'line' }) // id 1, marked
+      .addChild(0, 'inventory', { text: 'b', inputType: 'line' }) // id 2, unmarked
+      .setMarker(1, 3);
+    const html = renderTreePane(tree);
+    // The per-knot marker indicator (w-2 h-2) is distinct from the always-present marker-picker
+    // swatches (w-4 h-4) inside every knot's own actions menu, which use the same color classes
+    // regardless of that knot's current marker.
+    expect(nodeHtml(html, 1)).toContain('w-2 h-2 rounded-full shrink-0 bg-green-500');
+    expect(nodeHtml(html, 2)).not.toContain('w-2 h-2 rounded-full shrink-0 bg-green-500');
+  });
+
+  describe('marker filter', () => {
+    it('shows a matching knot and all its ancestors, omitting an unrelated sibling branch entirely', () => {
+      const tree = SkeinTree.newTree('dgdebug', 1)
+        .addChild(0, 'go north', { text: 'a', inputType: 'line' }) // id 1
+        .addChild(1, 'take orb', { text: 'b', inputType: 'line' }) // id 2, deep match
+        .addChild(0, 'go south', { text: 'c', inputType: 'line' }) // id 3, unrelated branch
+        .setMarker(2, 1);
+
+      const html = renderTreePane(tree, null, 1);
+
+      expect(html).toContain('data-tree-node-id="0"');
+      expect(html).toContain('data-tree-node-id="1"');
+      expect(html).toContain('data-tree-node-id="2"');
+      expect(html).not.toContain('data-tree-node-id="3"');
+    });
+
+    it('still renders just the root when the filter matches nothing anywhere', () => {
+      const tree = SkeinTree.newTree('dgdebug', 1).addChild(0, 'look', { text: 'a', inputType: 'line' });
+
+      const html = renderTreePane(tree, null, 2);
+
+      expect(html).toContain('data-tree-node-id="0"');
+      expect(html).not.toContain('data-tree-node-id="1"');
+    });
+
+    it('renders every knot when no filter is active', () => {
+      const tree = SkeinTree.newTree('dgdebug', 1)
+        .addChild(0, 'look', { text: 'a', inputType: 'line' })
+        .addChild(0, 'inventory', { text: 'b', inputType: 'line' });
+
+      const html = renderTreePane(tree);
+
+      expect(html).toContain('data-tree-node-id="1"');
+      expect(html).toContain('data-tree-node-id="2"');
+    });
+  });
+
   it('renders siblings side by side and a lone child directly beneath its parent', () => {
     const tree = SkeinTree.newTree('dgdebug', 1)
       .addChild(0, 'look', { text: 'a', inputType: 'line' })

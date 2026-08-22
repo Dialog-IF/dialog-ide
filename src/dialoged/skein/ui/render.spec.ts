@@ -151,6 +151,28 @@ describe('renderNavbar', () => {
     const toggle = html.split('icon-dynamic')[0];
     expect(toggle).toContain('disabled');
   });
+
+  it('wires each marker filter button to its own color, reflecting the active filter in aria-pressed and styling', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1);
+    const html = renderNavbar(INFO, tree, false, undefined, undefined, 2);
+
+    const buttons = html.match(/<button type="button" class="btn btn-sm btn-square join-item[^]*?<\/button>/g) ?? [];
+    expect(buttons).toHaveLength(4);
+
+    const yellowButton = buttons.find((button) => button.includes('$marker = 2;'))!;
+    expect(yellowButton).toContain('aria-pressed="true"');
+    expect(yellowButton).toContain('btn-primary');
+
+    const redButton = buttons.find((button) => button.includes('$marker = 1;'))!;
+    expect(redButton).toContain('aria-pressed="false"');
+    expect(redButton).toContain('btn-ghost');
+  });
+
+  it('renders no marker filter button as active when no filter is set', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1);
+    const html = renderNavbar(INFO, tree);
+    expect(html).not.toContain('aria-pressed="true"');
+  });
 });
 
 describe('renderNavbar search box', () => {
@@ -482,6 +504,24 @@ describe('renderKnotList', () => {
     const html = renderKnotList(tree);
     const knot1Section = html.split('id="knot-1"')[1];
     expect(knot1Section).not.toContain('icon-lock');
+  });
+
+  it("shows a marker swatch next to the label chip, and omits it for an unmarked knot", () => {
+    // renderKnotList only shows the active spine, so both knots need to be on it - a chain, not
+    // siblings.
+    const tree = SkeinTree.newTree('dgdebug', 1)
+      .addChild(0, 'look', { text: 'a', inputType: 'line' }) // id 1, marked
+      .addChild(1, 'take orb', { text: 'b', inputType: 'line' }) // id 2, unmarked
+      .setMarker(1, 1)
+      .setActiveKnotId(2);
+    const html = renderKnotList(tree);
+    const knot1Section = html.split('id="knot-1"')[1].split('id="knot-2"')[0];
+    const knot2Section = html.split('id="knot-2"')[1];
+    // The floatCluster's own indicator (w-3 h-3) is distinct from the always-present marker-picker
+    // swatches (w-4 h-4) inside every knot's own actions menu, which use the same color classes
+    // regardless of that knot's current marker.
+    expect(knot1Section).toContain('w-3 h-3 rounded-full shrink-0 bg-red-500');
+    expect(knot2Section).not.toContain('w-3 h-3 rounded-full shrink-0 bg-red-500');
   });
 
   it('has no stray leading whitespace before the response text on a labeled root knot (regression - the response container is whitespace-pre-wrap, so template-literal indentation around an empty keystroke chip used to render as a visible leading blank line/indent)', () => {

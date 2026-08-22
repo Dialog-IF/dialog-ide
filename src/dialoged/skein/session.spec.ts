@@ -1613,6 +1613,61 @@ describe('SkeinSession', () => {
     });
   });
 
+  describe('setMarker', () => {
+    it('sets and clears a marker', async () => {
+      const session = await startedSessionWith(
+        SkeinTree.newTree('dgdebug', 1).addChild(0, 'look', { text: 'a', inputType: 'line' })
+      );
+
+      session.setMarker(1, 2);
+      expect(session.getTree().getKnot(1)!.marker).toBe(2);
+
+      session.setMarker(1, null);
+      expect(session.getTree().getKnot(1)!.marker).toBeNull();
+    });
+
+    // Unlike toggleLock/setLabel, markers have no root guard - there's no lock-semantics conflict
+    // to protect against (see session.ts's own doc comment).
+    it('allows marking the root knot', async () => {
+      const session = await startedSessionWith(SkeinTree.newTree('dgdebug', 1));
+      session.setMarker(0, 1);
+      expect(session.getTree().getKnot(0)!.marker).toBe(1);
+    });
+
+    it('pushes an undo snapshot that undo() reverts', async () => {
+      const session = await startedSessionWith(
+        SkeinTree.newTree('dgdebug', 1).addChild(0, 'look', { text: 'a', inputType: 'line' })
+      );
+
+      session.setMarker(1, 3);
+      session.undo();
+
+      expect(session.getTree().getKnot(1)!.marker).toBeNull();
+    });
+  });
+
+  describe('setMarkerFilter / getMarkerFilter', () => {
+    it('activates a filter color', async () => {
+      const session = await startedSessionWith(SkeinTree.newTree('dgdebug', 1));
+      session.setMarkerFilter(2);
+      expect(session.getMarkerFilter()).toBe(2);
+    });
+
+    it('clicking the already-active color clears the filter', async () => {
+      const session = await startedSessionWith(SkeinTree.newTree('dgdebug', 1));
+      session.setMarkerFilter(2);
+      session.setMarkerFilter(2);
+      expect(session.getMarkerFilter()).toBeNull();
+    });
+
+    it('clicking a different color while one is active switches directly, without needing to clear first', async () => {
+      const session = await startedSessionWith(SkeinTree.newTree('dgdebug', 1));
+      session.setMarkerFilter(2);
+      session.setMarkerFilter(4);
+      expect(session.getMarkerFilter()).toBe(4);
+    });
+  });
+
   describe('setCommand', () => {
     it("renames the command and replays to capture a fresh response under the new text", async () => {
       const session = await startedSessionWith(
@@ -2086,6 +2141,22 @@ describe('SkeinSession', () => {
       // The single undo reverts the bless, not the navigation - setActiveKnot never pushed its
       // own point, so there's nothing separate to step back through first.
       expect(session.getTree().getDerivedKnot(1)!.state).toBe('new');
+    });
+
+    it('does not create its own undo point for setMarkerFilter - a view setting, not a tree edit', async () => {
+      const session = await startedSessionWith(
+        SkeinTree.newTree('dgdebug', 1).addChild(0, 'look', { text: 'a', inputType: 'line' })
+      );
+
+      session.blessKnot(1);
+      session.setMarkerFilter(2);
+
+      session.undo();
+
+      // The single undo reverts the bless, not the filter - setMarkerFilter never pushed its own
+      // point, so the filter itself is untouched by undo/redo entirely.
+      expect(session.getTree().getDerivedKnot(1)!.state).toBe('new');
+      expect(session.getMarkerFilter()).toBe(2);
     });
 
     it('running a new command pushes an undo point that removes the new knot', async () => {
