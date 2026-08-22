@@ -1,5 +1,7 @@
 # Changelog
 
+## 0.4.1 - Unreleased
+
 ## 0.4.0 - 21 Aug 2026
 
 - Nav graph: zoom in/out via mouse wheel (centered on the cursor) or new bottom-right +/- buttons
