@@ -142,8 +142,13 @@ function renderTreeNode(tree: SkeinTree, knot: DerivedKnot, spine: Set<number>, 
   const markerSwatch = knot.marker
     ? `<span class="w-2 h-2 rounded-full shrink-0 ${MARKER_SWATCH_CLASS[knot.marker]}" aria-hidden="true"></span>`
     : '';
+  // min-w-0 overrides the flex item default of min-width:auto, which would otherwise keep this
+  // (and commandLabel below) from ever shrinking below their own text's full width - without it,
+  // a long label ignores max-w-48 entirely and its own background bleeds out past the pill's
+  // rounded corners instead of truncating (regression: see the nav-graph screenshot where "Can't
+  // go south from Backtracking" overran into the next knot).
   const labelChip = knot.label
-    ? `<span class="text-xs font-bold bg-neutral text-neutral-content px-1 rounded shrink-0">${escapeHtml(knot.label)}</span>`
+    ? `<span class="text-xs font-bold bg-neutral text-neutral-content px-1 rounded truncate min-w-0">${escapeHtml(knot.label)}</span>`
     : '';
   // The root knot's "command" is a synthetic placeholder (tree.ts's newTree bakes in
   // command: 'START', label: 'START' - there's no real typed command to show), so showing it
@@ -151,7 +156,7 @@ function renderTreeNode(tree: SkeinTree, knot: DerivedKnot, spine: Set<number>, 
   // Every other knot's label (if any) and command are genuinely different text, so only root
   // (parentId === null) needs to suppress the command span.
   const commandLabel =
-    knot.parentId !== null ? `<span class="truncate font-mono text-xs">${escapeHtml(knot.command)}</span>` : '';
+    knot.parentId !== null ? `<span class="truncate font-mono text-xs min-w-0">${escapeHtml(knot.command)}</span>` : '';
   const statusSuffix = knot.state === 'new' ? ' (new)' : knot.state === 'error' ? ' (error)' : '';
   const parentAttr = knot.parentId !== null ? ` data-parent-id="${knot.parentId}"` : '';
   const selectCall = `$knotId = ${knot.id}; @post('/actions/select-knot')`;
@@ -178,7 +183,7 @@ function renderTreeNode(tree: SkeinTree, knot: DerivedKnot, spine: Set<number>, 
   return `<div class="flex flex-col items-center gap-1"
     data-knot-id="${knot.id}">
   <div role="button" tabindex="0"
-    class="flex flex-row items-center gap-1 px-2 py-1 rounded-lg border-2 cursor-pointer select-none text-sm min-w-16 max-w-48 ${colorClass} ${borderClass}"
+    class="flex flex-row items-center gap-1 px-2 py-1 rounded-lg border-2 cursor-pointer select-none text-sm min-w-16 max-w-48 overflow-hidden ${colorClass} ${borderClass}"
     data-tree-node-id="${knot.id}"${parentAttr}
     data-on:click="if (!evt.target.closest('details')) { ${selectCall} }"
     data-on:keydown="if (evt.key === 'Enter' || evt.key === ' ') { evt.preventDefault(); ${selectCall} }"

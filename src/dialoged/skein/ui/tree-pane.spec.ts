@@ -116,8 +116,8 @@ describe('renderTreePane', () => {
     const root = nodeHtml(html, 0);
     // The label chip (bold, boxed "START") still shows - only the plain command span next to it,
     // which would otherwise repeat the same placeholder text, is suppressed for root.
-    expect(root).toContain('bg-neutral text-neutral-content px-1 rounded shrink-0">START</span>');
-    expect(root).not.toContain('<span class="truncate font-mono text-xs">START</span>');
+    expect(root).toContain('bg-neutral text-neutral-content px-1 rounded truncate min-w-0">START</span>');
+    expect(root).not.toContain('<span class="truncate font-mono text-xs min-w-0">START</span>');
   });
 
   it("wires the menu's New Child item to its own route, and Edit Label to the modal (not prompt()), carrying the current label", () => {
@@ -232,6 +232,19 @@ describe('renderTreePane', () => {
     // regardless of that knot's current marker.
     expect(nodeHtml(html, 1)).toContain('w-2 h-2 rounded-full shrink-0 bg-green-500');
     expect(nodeHtml(html, 2)).not.toContain('w-2 h-2 rounded-full shrink-0 bg-green-500');
+  });
+
+  // Regression: a long label chip previously had shrink-0 (refusing to shrink) while the pill
+  // itself had no overflow-hidden, so its background bled out past the pill's rounded bounds and
+  // obscured the next knot's command entirely instead of truncating.
+  it("truncates a long label chip within the pill's bounds instead of overflowing it", () => {
+    const tree = SkeinTree.newTree('dgdebug', 1)
+      .addChild(0, 'go south', { text: 'a', inputType: 'line' })
+      .setLabel(1, "Can't go south from Backtracking");
+    const html = renderTreePane(tree);
+    const knot1 = nodeHtml(html, 1);
+    expect(knot1).toContain('rounded truncate min-w-0');
+    expect(html).toMatch(/class="flex flex-row items-center gap-1 px-2 py-1 rounded-lg border-2 cursor-pointer select-none text-sm min-w-16 max-w-48 overflow-hidden/);
   });
 
   describe('marker filter', () => {
