@@ -595,13 +595,39 @@ window.sk = {
     // fire their own data-on:click handlers. The pill is a div[role="button"] rather than a real
     // <button> (it has to contain the menu's nested <details>), so that's excluded explicitly
     // alongside the genuine form controls.
+    //
+    // Pointer events + setPointerCapture, not plain mouse events on document: this pane lives
+    // inside the skein webview's own iframe, so a document-level mouseup listener never fires at
+    // all if the button is released outside that iframe (or outside the VS Code window entirely,
+    // e.g. dragging past its edge) - dragging was left stuck true forever, and the pane kept
+    // panning on the next mousemove even with the button up (regression reported after the dot-
+    // grid background made panning motion visible enough to notice).
+    //
+    // setPointerCapture alone isn't enough here: it doesn't reliably survive the pointer leaving
+    // this webview's own iframe for VS Code's surrounding chrome (a separate frame/document our
+    // script has no visibility into at all), so a release out there can still go unseen. Two
+    // independent backstops cover that: (1) document's pointerleave - unlike move/up, per spec
+    // enter/leave events keep targeting wherever the pointer actually is even while captured, so
+    // this reliably fires the instant the cursor exits the iframe, and we proactively end the
+    // drag right then (we'd get no further events out there to track anyway); (2) e.buttons on
+    // every pointermove we do still receive - a direct, always-accurate read of which buttons are
+    // physically down *right now*, independent of whether we ever saw the up/cancel event for
+    // this pointer - catches the drag having ended out-of-frame if the cursor re-enters afterward
+    // with the button already released.
     let dragging = false;
     let startX = 0;
     let startY = 0;
     let scrollX = 0;
     let scrollY = 0;
 
-    pane.addEventListener('mousedown', (e) => {
+    const stopDragging = () => {
+      if (!dragging) return;
+      dragging = false;
+      pane.style.cursor = '';
+      pane.style.userSelect = '';
+    };
+
+    pane.addEventListener('pointerdown', (e) => {
       if (e.button !== 0) return;
       if (e.target.closest('button, a, input, select, textarea, [role="button"], details')) return;
       dragging = true;
@@ -611,21 +637,23 @@ window.sk = {
       scrollY = pane.scrollTop;
       pane.style.cursor = 'grabbing';
       pane.style.userSelect = 'none';
+      pane.setPointerCapture(e.pointerId);
       e.preventDefault();
     });
 
-    document.addEventListener('mousemove', (e) => {
+    pane.addEventListener('pointermove', (e) => {
       if (!dragging) return;
+      if ((e.buttons & 1) === 0) {
+        stopDragging();
+        return;
+      }
       pane.scrollLeft = scrollX - (e.clientX - startX);
       pane.scrollTop = scrollY - (e.clientY - startY);
     });
 
-    document.addEventListener('mouseup', () => {
-      if (!dragging) return;
-      dragging = false;
-      pane.style.cursor = '';
-      pane.style.userSelect = '';
-    });
+    pane.addEventListener('pointerup', stopDragging);
+    pane.addEventListener('pointercancel', stopDragging);
+    document.addEventListener('pointerleave', stopDragging);
   },
 
   drawTreeArrows() {
