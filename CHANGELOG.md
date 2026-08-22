@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.3.1 - Unreleased
+## 0.4.0 - 21 Aug 2026
 
 - Nav graph: zoom in/out via mouse wheel (centered on the cursor) or new bottom-right +/- buttons
 - Knots can carry one of four color markers (actions menu), shown next to the label chip and persisted in the .skein file; navbar filter buttons show only knots with a chosen marker (or a marked descendant)
