@@ -192,6 +192,19 @@ html {
   min-width: 32rem;
 }
 
+/* Nav graph background (ui/tree-pane.ts's #tree-pane): a faint, widely-spaced dot grid instead of
+   a flat fill, so a click-and-drag pan (main.js's drag-to-pan in initTreeGraph) has something
+   visible to move against - a flat single color gave no sense that anything was happening while
+   dragging. background-color stays on the element's own bg-base-200 Tailwind class; only the dot
+   image/sizing is added here. "local" (not the "scroll" default) makes the dots pan together with
+   the tree as its own content scrolls, rather than staying fixed to the pane's viewport while
+   nodes slide past them. */
+#tree-pane {
+  background-image: radial-gradient(circle, color-mix(in srgb, var(--color-base-content) 20%, transparent) 1px, transparent 1px);
+  background-size: 28px 28px;
+  background-attachment: local;
+}
+
 /* Native <details class="dropdown"> knot-menu trigger: undo daisyUI's own dropdown-widget rule
    that sets pointer-events:none on a dropdown's first tabindex child while the dropdown container
    is :focus-within. That rule exists for daisyUI's other (JS-free, hover/focus-driven) dropdown
