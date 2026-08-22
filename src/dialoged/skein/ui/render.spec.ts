@@ -720,6 +720,19 @@ describe('renderApp', () => {
     expect(html).toMatch(/<nav class="[^"]*\bshrink-0\b/);
   });
 
+  it('wires the nav-graph zoom buttons to main.js, floated over the pane (not scrolling with its content)', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1);
+    const html = renderApp(INFO, tree);
+    const outer = html.split('id="tree-pane-outer"')[1];
+    expect(outer).toContain('data-on:click="sk.zoomTreeGraphIn()"');
+    expect(outer).toContain('data-on:click="sk.zoomTreeGraphOut()"');
+    // The button cluster is a sibling of #tree-pane (main.js's own scroll container), positioned
+    // absolutely within a `relative` ancestor of both, so it stays fixed in the pane's corner
+    // regardless of scroll/pan position rather than scrolling away with the tree.
+    expect(outer).toMatch(/class="[^"]*\brelative\b[^"]*">\s*<div id="tree-pane"/);
+    expect(outer).toContain('class="absolute bottom-6 right-4');
+  });
+
   it('always renders the command input for a line-expecting active knot - "time travel" (jumping to an earlier knot and typing a different command) needs no special confirmation', () => {
     const tree = SkeinTree.newTree('dgdebug', 1)
       .addChild(0, 'look', { text: 'a', inputType: 'line' })

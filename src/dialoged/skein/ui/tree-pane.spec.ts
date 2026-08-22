@@ -43,7 +43,7 @@ describe('renderTreePane', () => {
   it('sizes the root wrapper to its own content width (w-max), not the pane\'s, so tree position never depends on pane width', () => {
     const tree = SkeinTree.newTree('dgdebug', 1).addChild(0, 'look', { text: 'a', inputType: 'line' });
     const html = renderTreePane(tree);
-    expect(html).toContain('<div class="flex flex-col items-center gap-10 min-w-max w-max">');
+    expect(html).toContain('<div class="flex flex-col items-center gap-10 min-w-max w-max origin-top-left" id="tree-pane-content" data-preserve-attr="style">');
     // Only the root wrapper - the recursive per-child call still gets the plain, un-widened class.
     expect(html).toContain('<div class="flex flex-col items-center gap-10 min-w-max">');
   });

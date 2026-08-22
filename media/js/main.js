@@ -569,6 +569,54 @@ window.sk = {
 
   _treeGraphReady: false,
   _arrowSvg: null,
+  _treeGraphZoom: 1,
+  _TREE_GRAPH_MIN_ZOOM: 0.2,
+  _TREE_GRAPH_MAX_ZOOM: 2.5,
+
+  /**
+   * Applies a zoom factor centered on a point (mouse position for wheel-zoom, viewport center for
+   * the +/- buttons) by scaling tree-pane.ts's #tree-pane-content wrapper - #tree-pane itself
+   * stays unscaled so it remains a plain, predictable overflow:auto scroll container (its
+   * scrollWidth/scrollHeight naturally grow to match the scaled content per the CSS Transforms
+   * spec, so panning still works correctly post-zoom). Keeps the point under clientX/clientY
+   * visually fixed by solving for the scrollLeft/scrollTop that preserve its position: the
+   * transform-origin is the content's own top-left (see tree-pane.ts's origin-top-left class), so
+   * a point at contentX/contentY (in unscaled content pixels) always renders at
+   * contentX*zoom - scrollLeft, and we want that to equal the same viewport offset before and
+   * after the zoom changes.
+   */
+  _zoomTreeGraph(factor, clientX, clientY) {
+    const pane = document.getElementById('tree-pane');
+    const content = document.getElementById('tree-pane-content');
+    if (!pane || !content) return;
+
+    const oldZoom = this._treeGraphZoom;
+    const newZoom = Math.min(this._TREE_GRAPH_MAX_ZOOM, Math.max(this._TREE_GRAPH_MIN_ZOOM, oldZoom * factor));
+    if (newZoom === oldZoom) return;
+
+    const rect = pane.getBoundingClientRect();
+    const originX = clientX !== undefined ? clientX - rect.left : pane.clientWidth / 2;
+    const originY = clientY !== undefined ? clientY - rect.top : pane.clientHeight / 2;
+    const contentX = pane.scrollLeft + originX;
+    const contentY = pane.scrollTop + originY;
+    const ratio = newZoom / oldZoom;
+
+    this._treeGraphZoom = newZoom;
+    content.style.transform = `scale(${newZoom})`;
+    pane.scrollLeft = contentX * ratio - originX;
+    pane.scrollTop = contentY * ratio - originY;
+    requestAnimationFrame(() => this.drawTreeArrows());
+  },
+
+  // The bottom-right zoom buttons (render.ts) - centered on the pane's current viewport middle,
+  // since there's no cursor position to zoom toward from a button click.
+  zoomTreeGraphIn() {
+    this._zoomTreeGraph(1.25);
+  },
+
+  zoomTreeGraphOut() {
+    this._zoomTreeGraph(1 / 1.25);
+  },
 
   initTreeGraph() {
     if (this._treeGraphReady) return;
@@ -654,6 +702,18 @@ window.sk = {
     pane.addEventListener('pointerup', stopDragging);
     pane.addEventListener('pointercancel', stopDragging);
     document.addEventListener('pointerleave', stopDragging);
+
+    // Mouse-wheel zoom, centered on the cursor - preventDefault (and { passive: false }, without
+    // which some browsers ignore preventDefault entirely on wheel listeners for scroll-performance
+    // reasons) replaces the pane's native wheel-scroll with zoom instead, matching the request:
+    // panning is already drag-based, so repurposing plain wheel for zoom doesn't remove any
+    // existing way to move around. The exponential factor gives smooth, proportional zoom for
+    // both discrete mouse wheels (large deltaY per notch) and fine-grained trackpad scrolling.
+    pane.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      const factor = Math.exp(-e.deltaY * 0.0015);
+      self._zoomTreeGraph(factor, e.clientX, e.clientY);
+    }, { passive: false });
   },
 
   drawTreeArrows() {

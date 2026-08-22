@@ -638,8 +638,12 @@ export function renderApp(
       style="width: 21rem"
       data-preserve-attr="style"
       data-init="sk.initTreePaneResize()">
-      <div class="flex-1 min-w-0 bg-base-200 border-r border-base-300">
+      <div class="flex-1 min-w-0 bg-base-200 border-r border-base-300 relative">
         ${renderTreePane(tree, graphMenuId, markerFilter)}
+        <div class="absolute bottom-6 right-4 join join-vertical shadow-md">
+          <button type="button" class="btn btn-sm btn-square join-item" aria-label="Zoom in" title="Zoom in (scroll up also zooms, centered on the cursor)" data-on:click="sk.zoomTreeGraphIn()">+</button>
+          <button type="button" class="btn btn-sm btn-square join-item" aria-label="Zoom out" title="Zoom out (scroll down also zooms, centered on the cursor)" data-on:click="sk.zoomTreeGraphOut()">&minus;</button>
+        </div>
       </div>
       <div id="tree-pane-handle" class="w-1 shrink-0 cursor-col-resize bg-base-300 hover:bg-primary transition-colors"></div>
     </div>

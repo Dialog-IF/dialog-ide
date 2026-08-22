@@ -230,7 +230,15 @@ ${children.map((child) => `<div class="flex flex-col items-center">${renderSubtr
   // resisting flex-shrink from those siblings, not fill-vs-content sizing), so isRoot deliberately
   // only affects this one wrapper, not the whole shared template.
   const widthClass = isRoot ? ' w-max' : '';
-  return `<div class="flex flex-col items-center gap-10 min-w-max${widthClass}">
+  // id/data-preserve-attr/origin-top-left are only meaningful on the root wrapper - main.js's
+  // zoom (_zoomTreeGraph) scales this one element via an inline transform. data-preserve-attr
+  // keeps Datastar's morph from resetting that inline style back to nothing on every full-app
+  // re-render (every session action triggers one - see service.ts's broadcast), the same
+  // technique render.ts's #tree-pane-outer already uses for its own client-set inline width.
+  // origin-top-left matches _zoomTreeGraph's own math, which assumes content scales from (0,0).
+  const rootAttrs = isRoot ? ' id="tree-pane-content" data-preserve-attr="style"' : '';
+  const originClass = isRoot ? ' origin-top-left' : '';
+  return `<div class="flex flex-col items-center gap-10 min-w-max${widthClass}${originClass}"${rootAttrs}>
 ${renderTreeNode(tree, knot, spine, activeKnotId, graphMenuId)}
 ${childrenHtml}
 </div>`;
@@ -240,6 +248,18 @@ ${childrenHtml}
  * The full tree pane. data-init runs main.js's ported initTreeGraph() once on mount, which draws
  * the SVG connector lines (and keeps them redrawn on DOM/size changes) and enables drag-to-pan -
  * see main.js for why a separate window-resize binding isn't needed on top of that.
+ *
+ * overflow-x-scroll, not the more natural-looking overflow-x-auto: with auto, the horizontal
+ * scrollbar only claims height once a tree is wide enough to need it, so a tree that fit
+ * vertically without one could tip into needing a vertical scrollbar too the moment it grew wide
+ * enough to need a horizontal one - not because the tree got any taller, just because the
+ * horizontal scrollbar's own height ate into what was available (scrollbar-gutter: stable was
+ * tried first as a less intrusive fix, but had no effect here). scroll reserves that height
+ * unconditionally, so vertical overflow is decided purely by the tree's own height, never by
+ * whether it happens to be wide enough to scroll horizontally too - at the cost of the horizontal
+ * scrollbar's track always being visible, even for a narrow tree that doesn't need it. Chosen over
+ * doing the reverse (always-visible vertical scrollbar) since this pane is usually narrower than
+ * it is tall, where a permanent vertical scrollbar would eat into already-scarce width.
  */
 export function renderTreePane(tree: SkeinTree, graphMenuId: number | null = null, markerFilter: Marker | null = null): string {
   const activeKnotId = tree.getActiveKnotId();
@@ -248,7 +268,7 @@ export function renderTreePane(tree: SkeinTree, graphMenuId: number | null = nul
   // just the root pill as an anchor/empty-state rather than going blank.
   const visibleIds = markerFilter !== null ? tree.visibleKnotIdsForMarkerFilter(markerFilter) : null;
   return `<div id="tree-pane"
-  class="overflow-x-auto overflow-y-auto p-4 relative bg-base-200 h-full cursor-grab"
+  class="overflow-x-scroll overflow-y-auto p-4 relative bg-base-200 h-full cursor-grab"
   data-active-knot="${activeKnotId ?? ''}"
   data-init="sk.initTreeGraph()">
 ${renderSubtree(tree, 0, spineIds(tree), activeKnotId, graphMenuId, visibleIds, true)}
