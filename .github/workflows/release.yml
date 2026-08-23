@@ -68,8 +68,17 @@ jobs:
       # anything it supplied beyond what the changelog itself says) into the annotated tag's own
       # message at `git tag -a vX.Y.Z -m "..."` time - reading it back here means this workflow
       # never has to re-derive or re-parse CHANGELOG.md itself.
+      #
+      # actions/checkout's fetch-depth: 0 does NOT reliably fetch tags as real annotated objects
+      # (a known upstream issue - https://github.com/actions/checkout/issues/1781, #2095) - it can
+      # leave the local v0.4.0 ref resolving straight to the commit, so `%(contents)` silently
+      # returns the commit message instead of the tag's own (v0.4.0 shipped with an empty-looking
+      # GitHub Release body this way). Force-fetching the exact tag ref here guarantees the real
+      # annotated object is what gets read, regardless of what checkout did with it.
       - name: Extract release notes from the tag
-        run: git tag -l --format='%(contents)' "$GITHUB_REF_NAME" > release-notes.md
+        run: |
+          git fetch origin "+refs/tags/$GITHUB_REF_NAME:refs/tags/$GITHUB_REF_NAME" --force
+          git tag -l --format='%(contents)' "$GITHUB_REF_NAME" > release-notes.md
 
       - name: Create GitHub Release
         env:
