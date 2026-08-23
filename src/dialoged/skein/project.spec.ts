@@ -28,6 +28,43 @@ describe('readProject', () => {
     expect(() => readProject(path.join(FIXTURES_DIR, 'does-not-exist'))).toThrow('does not exist');
   });
 
+  describe('binDir resolution', () => {
+    let tmpDir: string;
+
+    beforeEach(() => {
+      tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dialog-ide-project-bindir-'));
+    });
+
+    afterEach(() => {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    });
+
+    it('resolves a relative binDir against rootDir', () => {
+      fs.writeFileSync(
+        path.join(tmpDir, 'dialog.json'),
+        JSON.stringify({ name: 'Test', binDir: 'bin', sources: { main: ['src'] } }, null, 2)
+      );
+      expect(readProject(tmpDir).binDir).toBe(path.join(tmpDir, 'bin'));
+    });
+
+    it('leaves an absolute binDir unchanged', () => {
+      const absoluteBinDir = path.join(tmpDir, 'somewhere-else', 'bin');
+      fs.writeFileSync(
+        path.join(tmpDir, 'dialog.json'),
+        JSON.stringify({ name: 'Test', binDir: absoluteBinDir, sources: { main: ['src'] } }, null, 2)
+      );
+      expect(readProject(tmpDir).binDir).toBe(absoluteBinDir);
+    });
+
+    it('leaves binDir undefined when absent', () => {
+      fs.writeFileSync(
+        path.join(tmpDir, 'dialog.json'),
+        JSON.stringify({ name: 'Test', sources: { main: ['src'] } }, null, 2)
+      );
+      expect(readProject(tmpDir).binDir).toBeUndefined();
+    });
+  });
+
   describe('exports parsing', () => {
     let tmpDir: string;
 

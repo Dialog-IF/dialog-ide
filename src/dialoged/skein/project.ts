@@ -58,6 +58,20 @@ export interface DialogProject {
 }
 
 /**
+ * Resolves dialog.json's binDir the same way expandSourceEntry resolves a source entry: relative
+ * to rootDir, absolute paths passed through unchanged. Without this, a relative binDir (the
+ * common case - e.g. "bin") would join against the extension host process's cwd instead of the
+ * project folder, silently missing the binaries and surfacing as the generic "not found on PATH"
+ * message.
+ */
+function resolveBinDir(rootDir: string, binDir: string | undefined): string | undefined {
+  if (!binDir) {
+    return undefined;
+  }
+  return path.isAbsolute(binDir) ? binDir : path.join(rootDir, binDir);
+}
+
+/**
  * Reads and parses <rootDir>/dialog.json. Throws if the file is missing or isn't valid JSON -
  * there's no sensible fallback for a project the caller explicitly asked to open.
  */
@@ -83,7 +97,7 @@ export function readProject(rootDir: string): DialogProject {
 
   return {
     name: parsed.name ?? '',
-    binDir: parsed.binDir,
+    binDir: resolveBinDir(rootDir, parsed.binDir),
     sources: { main: [], ...parsed.sources },
     exports: normalizeExports(parsed.exports),
     dialogcOptions: normalizeDialogcOptions(parsed.dialogcOptions),
