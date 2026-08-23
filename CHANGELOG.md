@@ -3,6 +3,7 @@
 ## 0.4.1 - Unreleased
 
 - Fix `dialog.json`'s `binDir` being ignored when set to a relative path (e.g. `"bin"`) - it's now resolved against the project root like source entries, instead of the extension host's own working directory
+- Fix a script-load race that could break the Skein/Trace webview on startup ("sk is not defined") - each page now loads a single `skein-loader.js`/`trace-loader.js` entry point whose static imports guarantee `main.js`/`trace.js` finish before `datastar.js` runs, instead of relying on `<script>` tag order
 
 ## 0.4.0 - 21 Aug 2026
 

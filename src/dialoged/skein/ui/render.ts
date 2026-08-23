@@ -676,8 +676,7 @@ export function renderPage(
 <meta charset="UTF-8" />
 <title>Dialog Skein</title>
 <link rel="stylesheet" href="/style.css" />
-<script type="module" src="/js/datastar.js"></script>
-<script type="module" src="/js/main.js"></script>
+<script type="module" src="/js/skein-loader.js"></script>
 </head>
 <body data-init="@get('/events', {openWhenHidden: true})">
 ${body}

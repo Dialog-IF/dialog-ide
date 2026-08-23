@@ -146,8 +146,7 @@ export function renderTracePage(state: CurrentTraceState | null, loading: boolea
 <meta charset="UTF-8" />
 <title>Trace</title>
 <link rel="stylesheet" href="/style.css" />
-<script type="module" src="/js/datastar.js"></script>
-<script type="module" src="/js/trace.js"></script>
+<script type="module" src="/js/trace-loader.js"></script>
 </head>
 <body data-init="@get('/trace/events', {openWhenHidden: true})" class="h-screen">
 ${renderTraceApp(state, loading)}

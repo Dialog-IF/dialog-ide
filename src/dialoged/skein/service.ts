@@ -586,6 +586,19 @@ export class SkeinService implements ProgressHost {
       return;
     }
 
+    // Entry points renderPage/renderTracePage's single <script type="module"> tag loads - see
+    // skein-loader.js's own comment for why a loader (rather than separate <script> tags per
+    // script) is what enforces main.js/trace.js finishing before datastar.js runs.
+    if (url.pathname === '/js/skein-loader.js') {
+      await this.serveStaticFile(res, path.join(this.config.mediaRoot, 'js', 'skein-loader.js'));
+      return;
+    }
+
+    if (url.pathname === '/js/trace-loader.js') {
+      await this.serveStaticFile(res, path.join(this.config.mediaRoot, 'js', 'trace-loader.js'));
+      return;
+    }
+
     if (url.pathname.startsWith('/icons/')) {
       // path.basename strips any directory traversal from the requested name.
       const name = path.basename(url.pathname.slice('/icons/'.length));

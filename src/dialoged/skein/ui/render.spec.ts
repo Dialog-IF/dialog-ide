@@ -805,8 +805,9 @@ describe('renderPage', () => {
     const html = renderPage(INFO, tree);
     expect(html).toContain(`data-init="@get('/events', {openWhenHidden: true})"`);
     expect(html).toContain('<link rel="stylesheet" href="/style.css" />');
-    expect(html).toContain('<script type="module" src="/js/datastar.js"></script>');
-    expect(html).toContain('<script type="module" src="/js/main.js"></script>');
+    // skein-loader.js (not separate main.js/datastar.js tags) is what enforces main.js finishing
+    // before datastar.js runs - see skein-loader.js's own comment for why that order matters.
+    expect(html).toContain('<script type="module" src="/js/skein-loader.js"></script>');
   });
 
   it('shows a placeholder when no session is active', () => {

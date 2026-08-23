@@ -1944,6 +1944,20 @@ describe('SkeinService', () => {
       expect(res.body).toContain('openSource');
     });
 
+    it('serves the skein page\'s loader, which imports main.js before datastar.js', async () => {
+      const res = await get(`http://localhost:${service.getPort()}/js/skein-loader.js`);
+      expect(res.status).toBe(200);
+      expect(res.headers['content-type']).toContain('text/javascript');
+      expect(res.body.indexOf('./main.js')).toBeLessThan(res.body.indexOf('./datastar.js'));
+    });
+
+    it('serves the trace panel\'s loader, which imports trace.js before datastar.js', async () => {
+      const res = await get(`http://localhost:${service.getPort()}/js/trace-loader.js`);
+      expect(res.status).toBe(200);
+      expect(res.headers['content-type']).toContain('text/javascript');
+      expect(res.body.indexOf('./trace.js')).toBeLessThan(res.body.indexOf('./datastar.js'));
+    });
+
     it('serves a vendored icon by name', async () => {
       const res = await get(`http://localhost:${service.getPort()}/icons/exclamation-triangle.svg`);
       expect(res.status).toBe(200);
