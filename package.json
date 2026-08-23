@@ -17,6 +17,9 @@
     "Debuggers"
   ],
   "main": "./dist/extension.js",
+  "bin": {
+    "dgbuild": "./dist/cli.js"
+  },
   "activationEvents": [],
   "contributes": {
     "languages": [
@@ -165,6 +168,7 @@
   "scripts": {
     "vscode:prepublish": "npm run build",
     "build": "npm run build:css && tsc",
+    "postbuild": "node -e \"require('fs').chmodSync('dist/cli.js', 0o755)\"",
     "build:css": "tailwindcss -i styles/input.css -o media/style.css",
     "watch:css": "tailwindcss -i styles/input.css -o media/style.css --watch",
     "watch": "tsc -w",
@@ -211,9 +215,11 @@
     "node_modules/vscode-textmate/**/*",
     "node_modules/pngjs/**/*",
     "node_modules/yazl/**/*",
-    "node_modules/buffer-crc32/**/*"
+    "node_modules/buffer-crc32/**/*",
+    "node_modules/commander/**/*"
   ],
   "dependencies": {
+    "commander": "^12.1.0",
     "diff": "^9.0.0",
     "immutable": "^5.1.9",
     "jsonc-parser": "^3.3.1",

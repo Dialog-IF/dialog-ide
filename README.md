@@ -123,6 +123,20 @@ A status bar item on the left also shows the current session (or lets you start 
 
 **Feelies.** A feelie is any attachment linked from the exported page - traditionally a "how to play interactive fiction" PDF for newcomers, but any file works. **Initialize Dialog Project** seeds two starter PDFs (`introduction-to-if.pdf`, `play-if-card.pdf`) and wires them into `dialog.json`'s `feelies` array automatically. Right-click a file in the Explorer and choose **Add Feelie** to attach it directly (or run **Dialog IDE: Add Feelie...** from the Command Palette, which prompts you to pick a file instead), then give it a display name; **Dialog IDE: Remove Feelie...** takes one out again. Unlike the cover image, a configured feelie whose file has gone missing is an error at export time, not a silent omission - fix the path in `dialog.json` or remove the feelie.
 
+## Command-Line Interface
+
+`dgbuild` runs project checks headlessly - no VS Code, no extension host - for scripts and CI (e.g. gating a release on a GitHub Action). Install it with `npm install -g dgbuild` (or use `npx dgbuild ...` without installing), then run it from your project root or pass `--project <dir>`:
+
+- **`dgbuild test`** - runs the project's unit tests (`dgdebug --unit-test`) and exits non-zero on any failure, *or if `dialog.json` declares no `test` sources at all* (nothing to run is treated as a failure, not a silent pass). `--no-debug` excludes debug sources (included by default, matching **Dialog IDE: Run Tests**); extra arguments after the options are passed through to `dgdebug`.
+- **`dgbuild run-skein [names...]`** - replays one or more saved skeins (default: `default`, matching `default.skein`) against a fresh `dgdebug` process each, exits non-zero if any knot's live response no longer matches its blessed response across any of them, and prints a `valid/new/error` count summary per skein plus a `total` line when running more than one, e.g. `default: 200/0/1 (valid/new/error)`. Errored knots are printed above the summary. Add `-v/--verbose` to see the underlying `dgdebug` process commands/lifecycle logging (suppressed by default - busy otherwise, especially with multiple skeins).
+- **`dgbuild sources`** - prints the project's expanded source file list (`-d/--debug`, `-t/--test` to include those categories, `-T/--target <suffix>` to filter by target suffix, `-1/--single-line` for a colon-joined line instead of one path per line).
+
+A minimal release-gating step in a GitHub Action:
+
+```yaml
+- run: npx dgbuild test && npx dgbuild run-skein
+```
+
 ## Using the Skein
 
 The Skein panel opens beside your editor, split into a **nav graph** (left) and a **transcript** (right), with a command field at the bottom.

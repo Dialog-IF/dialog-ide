@@ -1,0 +1,8 @@
+{
+  "name": "CLI unit-test fixture",
+  "sources": {
+    "main": [],
+    "test": ["pass.dg", "unit.dg"],
+    "library": ["lib"]
+  }
+}

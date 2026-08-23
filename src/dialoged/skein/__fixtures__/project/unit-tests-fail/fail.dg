@@ -1,0 +1,5 @@
+%% Minimal always-failing unit test, for CLI "test" command integration tests.
+
+#intentionally-fail-this-test
+(test *)
+(run *)	(fail)

@@ -1,0 +1,5 @@
+%% Minimal always-passing unit test, for CLI "test" command integration tests.
+
+#pass-this-test
+(test *)
+(run *)

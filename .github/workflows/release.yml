@@ -28,6 +28,10 @@ jobs:
         with:
           node-version: 20
           cache: npm
+          # registry-url makes `npm publish` below pick up NODE_AUTH_TOKEN automatically - needed
+          # for the npm registry publish (dgbuild), a separate distribution channel from the
+          # VSCE_PAT-authenticated VS Code Marketplace publish below.
+          registry-url: "https://registry.npmjs.org"
 
       - run: npm ci
 
@@ -63,6 +67,16 @@ jobs:
           node scripts/fetch-dialog-binaries.js --target none
           npx vsce publish --allow-unused-files-pattern
           npx vsce package --allow-unused-files-pattern
+
+      # Publishes dgbuild (dist/cli.js, via package.json's "bin") to npm - a separate registry
+      # and distribution channel from the VS Code Marketplace publishes above, so any repo's CI
+      # can `npx dgbuild ...` without checking out dialog-ide itself. Runs against the same
+      # "universal" (no bundled binaries) build state the step above just left in place, matching
+      # dgdebug/dialogc resolution falling back to PATH/dialog.json's binDir for npm installs.
+      - name: Publish dgbuild to npm
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish
 
       # The release-to-marketplace skill puts the full release notes (changelog bullets, plus
       # anything it supplied beyond what the changelog itself says) into the annotated tag's own

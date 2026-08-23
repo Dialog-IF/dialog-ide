@@ -17,6 +17,7 @@ The codebase follows a clear separation of concerns:
 2. **IDE Integration**: `src/` - Provides IDE-specific functionality:
    - `extension.ts` - VS Code extension host entry point: owns the `SkeinService` lifecycle, the skein webview panel, the Trace panel view, and run-configuration commands
    - `session-runner.ts` - Pure logic behind those run-configuration commands, deliberately free of any `vscode` import so it's unit-testable without mocking the extension host
+   - `cli.ts`/`cli/` - `dgbuild`, a headless CLI entry point (published to npm separately from the VS Code Marketplace extension) for running project checks (`test`, `run-skein`, `sources`) from scripts/CI with no extension host at all. Reuses the same VS Code-free core as `session-runner.ts` and `dialoged/skein/` - no logic is duplicated between the interactive and headless paths. `cli/context.ts` holds the CLI-specific equivalents of what the extension host gets for free (`extensionPath` -> `cliPackageRoot()`, computed from `dist/cli/context.js`'s own `__dirname`)
 
 ## Development Commands and Workflows
 
@@ -55,7 +56,9 @@ Produces a `.vsix` installable via `code --install-extension` or the Extensions 
 
 `win32-x64`/`darwin-arm64`/`linux-x64` builds also bundle the `dgdebug`/`dialogc` binaries under `bin/<target>/`, so those platforms work without a separately installed Dialog toolchain (see `resolveBundledBinDir`/`resolveCommandPath` in `project.ts`). `bin/` is gitignored and populated on demand by `scripts/fetch-dialog-binaries.js` from the upstream release pinned in `scripts/dialog-toolchain-version.json` - it's normal for `bin/` to be absent during ordinary local development (`npm test`/`npm run build` don't need it), and every other platform/target (including the universal no-target package) keeps relying on `PATH`/`dialog.json`'s `binDir` exactly as before. See `THIRD_PARTY_LICENSES.md` for the bundled binaries' upstream license.
 
-Published to the VS Code Marketplace as `hlship.dialog-ide`. See the `release-to-marketplace` skill (`.claude/skills/release-to-marketplace/SKILL.md`) for confirming the version/release notes and pushing the release tag; `.github/workflows/release.yml`, triggered by that tag push, does the actual build/publish (all four targets, staging bundled binaries per target) and creates the GitHub Release.
+`dist/cli.js` (the `dgbuild` CLI, see "Key Files" above) is a second, separate distribution channel on top of the `.vsix`: `package.json`'s `bin` field points at it, and it's published to npm in addition to the VS Code Marketplace, so the same `files`-allowlist discipline this section describes now matters for two different registries, not just one.
+
+Published to the VS Code Marketplace as `hlship.dialog-ide`, and to npm as `dialog-ide` (for `dgbuild`). See the `release-to-marketplace` skill (`.claude/skills/release-to-marketplace/SKILL.md`) for confirming the version/release notes and pushing the release tag; `.github/workflows/release.yml`, triggered by that tag push, does the actual build/publish (all four `.vsix` targets plus `npm publish`, staging bundled binaries per target) and creates the GitHub Release.
 
 ## Key Files
 

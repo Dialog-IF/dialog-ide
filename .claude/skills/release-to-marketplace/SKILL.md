@@ -21,7 +21,8 @@ approved.
   changelog date, tag, push. Nothing here talks to the Marketplace or GitHub Releases directly.
 - **`.github/workflows/release.yml` (triggered by the tag push)**: `npm run build` + `npm test` as
   a last gate, then for each of `win32-x64`/`darwin-arm64`/`linux-x64`/universal: fetch that
-  target's bundled binaries, `vsce publish`, `vsce package`. Finally reads the annotated tag's own
+  target's bundled binaries, `vsce publish`, `vsce package`. Then `npm publish` (dgbuild, to the
+  npm registry - a separate channel from the Marketplace). Finally reads the annotated tag's own
   message back out as release notes and creates the GitHub Release with all four `.vsix`s
   attached. Watch it at `gh run list --workflow=release.yml` or the Actions tab.
 
@@ -33,9 +34,11 @@ publish the way there used to be.
 
 - **One-time setup, if not already done**: the workflow needs a `VSCE_PAT` repository secret (a
   Marketplace personal access token for publisher `hlship`) - `Settings > Secrets and variables >
-  Actions` on GitHub, or `gh secret set VSCE_PAT`. If a release run fails with a publish auth
-  error, that's almost certainly a missing/expired secret - tell the user to refresh it; don't try
-  to source or create a PAT yourself.
+  Actions` on GitHub, or `gh secret set VSCE_PAT`. It also needs an `NPM_TOKEN` repository secret
+  (an npm automation token, for the `npm publish` step) - same place, `gh secret set NPM_TOKEN`.
+  If a release run fails with a publish auth error, that's almost certainly a missing/expired
+  secret (check which step failed to know which one) - tell the user to refresh it; don't try to
+  source or create a token yourself.
 - This project bumps `package.json`'s version and opens a new `CHANGELOG.md` heading *proactively*
   while work lands on `main`, ahead of actually releasing - e.g. `package.json` may already read
   `0.0.2` while the Marketplace still has `0.0.1` live. That means **the version to release is
@@ -95,6 +98,10 @@ message and the GitHub Release body, verbatim.
   touched the `files` allowlist. `vsce ls` has no `--target` flag - the allowlist is the same
   regardless of target, so a plain `vsce ls` is enough (`node scripts/fetch-dialog-binaries.js
   --target <any-target>` first if `bin/` is currently empty, so `bin/**/*` has something to list).
+- `npm pack --dry-run` - same sanity check as `vsce ls`, for the npm publish channel (`dgbuild`).
+  In particular confirms `dist/cli.js` and its `dist/cli/**` dependencies are actually included -
+  a change under `src/cli/` that isn't covered by the existing `dist/**/*` files-allowlist entry
+  would otherwise only surface as a broken `npx dgbuild` for end users.
 
 If anything here fails, stop and fix it (or hand it back to the user) rather than proceeding past
 a red step - remember, there's no human checkpoint after step 5 anymore.

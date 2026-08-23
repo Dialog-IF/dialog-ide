@@ -1,0 +1,8 @@
+{
+  "name": "CLI unit-test fixture (failing)",
+  "sources": {
+    "main": [],
+    "test": ["fail.dg", "unit.dg"],
+    "library": ["lib"]
+  }
+}
