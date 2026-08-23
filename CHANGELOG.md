@@ -1,5 +1,7 @@
 # Changelog
 
+## 0.4.2 - Unreleased
+
 ## 0.4.1 - 22 Aug 2026
 
 - Fix `dialog.json`'s `binDir` being ignored when set to a relative path (e.g. `"bin"`) - it's now resolved against the project root like source entries, instead of the extension host's own working directory
