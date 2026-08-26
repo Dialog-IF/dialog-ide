@@ -70,7 +70,9 @@ jobs:
 
       # Publishes dgbuild (dist/cli.js, via package.json's "bin") to npm - a separate registry
       # and distribution channel from the VS Code Marketplace publishes above, so any repo's CI
-      # can `npx dgbuild ...` without checking out dialog-ide itself. Runs against the same
+      # can `npx -p dialog-ide dgbuild ...` without checking out dialog-ide itself (plain
+      # `npx dgbuild ...` resolves to an unrelated, older "dgbuild" package already on npm - not
+      # this one). Runs against the same
       # "universal" (no bundled binaries) build state the step above just left in place, matching
       # dgdebug/dialogc resolution falling back to PATH/dialog.json's binDir for npm installs.
       - name: Publish dgbuild to npm

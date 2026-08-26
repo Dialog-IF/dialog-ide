@@ -101,7 +101,7 @@ message and the GitHub Release body, verbatim.
 - `npm pack --dry-run` - same sanity check as `vsce ls`, for the npm publish channel (`dgbuild`).
   In particular confirms `dist/cli.js` and its `dist/cli/**` dependencies are actually included -
   a change under `src/cli/` that isn't covered by the existing `dist/**/*` files-allowlist entry
-  would otherwise only surface as a broken `npx dgbuild` for end users.
+  would otherwise only surface as a broken `npx -p dialog-ide dgbuild` for end users.
 
 If anything here fails, stop and fix it (or hand it back to the user) rather than proceeding past
 a red step - remember, there's no human checkpoint after step 5 anymore.

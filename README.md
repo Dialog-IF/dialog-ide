@@ -125,7 +125,7 @@ A status bar item on the left also shows the current session (or lets you start 
 
 ## Command-Line Interface
 
-`dgbuild` runs project checks headlessly - no VS Code, no extension host - for scripts and CI (e.g. gating a release on a GitHub Action). Install it with `npm install -g dgbuild` (or use `npx dgbuild ...` without installing), then run it from your project root or pass `--project <dir>`:
+`dgbuild` runs project checks headlessly - no VS Code, no extension host - for scripts and CI (e.g. gating a release on a GitHub Action). It ships as part of the `dialog-ide` npm package (there's an unrelated, older `dgbuild` package already on npm - not this one), so install it with `npm install -g dialog-ide`, or run it without installing via `npx -p dialog-ide dgbuild ...` (plain `npx dgbuild ...` will resolve to that other, unrelated package). Once installed, run it from your project root or pass `--project <dir>`:
 
 - **`dgbuild test`** - runs the project's unit tests (`dgdebug --unit-test`) and exits non-zero on any failure, *or if `dialog.json` declares no `test` sources at all* (nothing to run is treated as a failure, not a silent pass). `--no-debug` excludes debug sources (included by default, matching **Dialog IDE: Run Tests**); extra arguments after the options are passed through to `dgdebug`.
 - **`dgbuild run-skein [names...]`** - replays one or more saved skeins (default: `default`, matching `default.skein`) against a fresh `dgdebug` process each, exits non-zero if any knot's live response no longer matches its blessed response across any of them, and prints a `valid/new/error` count summary per skein plus a `total` line when running more than one, e.g. `default: 200/0/1 (valid/new/error)`. Errored knots are printed above the summary. Add `-v/--verbose` to see the underlying `dgdebug` process commands/lifecycle logging (suppressed by default - busy otherwise, especially with multiple skeins).
@@ -134,7 +134,7 @@ A status bar item on the left also shows the current session (or lets you start 
 A minimal release-gating step in a GitHub Action:
 
 ```yaml
-- run: npx dgbuild test && npx dgbuild run-skein
+- run: npx -p dialog-ide dgbuild test && npx -p dialog-ide dgbuild run-skein
 ```
 
 ## Using the Skein
