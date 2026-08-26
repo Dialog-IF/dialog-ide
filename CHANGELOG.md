@@ -1,5 +1,7 @@
 # Changelog
 
+## 0.5.1 - Unreleased
+
 ## 0.5.0 - 25 Aug 2026
 
 - Add `dgbuild`, a headless CLI (`test`, `run-skein`, `sources`) for running project checks from scripts/CI without the VS Code extension host
