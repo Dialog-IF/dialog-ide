@@ -232,11 +232,22 @@ export function renderKnotMenu(
   </ul>`
     : '';
 
-  return `<details class="dropdown ${directionClass} font-sans"${isOpen ? ' open' : ''} style="anchor-name: ${anchorName}">
-  <summary tabindex="0" role="button" class="${triggerButtonClass}"
+  // No whitespace directly between <details>/<summary>/${menuContent}/</details> below - unlike
+  // a closed <details>, which hides non-summary content via `display:none` on the element itself,
+  // an *open* one only suppresses element children that way (`details:not([open]) > :not(summary)
+  // {display:none}`, a selector that can't match bare text); this element itself is fine either
+  // way, but the transcript nests it inside a knot's response container, which is whitespace-pre-
+  // wrap (needed to preserve the game's real newlines - see render.ts) and inherited into every
+  // descendant. A naive multi-line template's own indentation/newlines, sitting as plain text
+  // directly inside <details>, would inherit that pre-wrap and render as real forced line breaks
+  // the moment the menu opens - confirmed with a headless-browser check: a <details> containing
+  // only whitespace + a fixed-size <summary> grew ~70px taller on open purely from that inherited
+  // whitespace, with zero change once the stray text nodes were stripped. (Whitespace *inside*
+  // <summary> itself doesn't have this problem - it's always rendered, open or closed, and its own
+  // flex layout - see TRIGGER_SIZE_CLASSES's btn class - doesn't force a line break the way a bare
+  // block-level text node does.)
+  return `<details class="dropdown ${directionClass} font-sans"${isOpen ? ' open' : ''} style="anchor-name: ${anchorName}"><summary tabindex="0" role="button" class="${triggerButtonClass}"
     data-on:click__prevent__stop="$knotId = ${id}; @post('${openRoute}')" aria-label="Knot actions">
     <div class="${triggerIconClass}" aria-hidden="true"></div>
-  </summary>
-  ${menuContent}
-</details>`;
+  </summary>${menuContent}</details>`;
 }
