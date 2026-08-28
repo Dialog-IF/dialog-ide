@@ -61,9 +61,17 @@
  * lets the browser flip sides on its own if the chosen one would still overflow the viewport,
  * without needing per-pane hardcoding to be exactly right in every scroll position.
  *
- * Each trigger's anchor-name has to be unique among everything simultaneously in the DOM (every
- * knot's menu exists in the markup at once, just hidden when closed) - id + pane keeps a graph-
- * pane and transcript menu for the *same* knot from colliding.
+ * Each trigger's anchor-name has to be unique among everything simultaneously in the DOM - id +
+ * pane keeps a graph-pane and transcript menu for the *same* knot from colliding. The anchor-name
+ * lives on the <details> itself (always rendered, so every knot has one), but the <ul> popover
+ * content that references it via position-anchor is only ever emitted for the one knot whose menu
+ * is actually open (see isOpen below) - with hundreds of knots on screen, always rendering all of
+ * them (eleven menu items apiece, 553 of which nobody could ever see) was most of the HTML on
+ * every single SSE patch. Safe to render lazily like this only because open/close is never a pure
+ * client-side transition: openGraphMenu/openTranscriptMenu/closeAllMenus all round-trip through
+ * the server and re-render, so the <ul> for a newly-opened knot is always freshly present in the
+ * very patch that sets `open` - there's no state where a menu is "open" on the client without the
+ * server (and thus this render) already knowing about it.
  *
  * Opening the menu (its "..." trigger, nothing else - there is no right-click affordance) posts
  * to openRoute - /actions/open-graph-menu or /actions/open-transcript-menu - every time it's
@@ -180,20 +188,18 @@ export function renderKnotMenu(
     : '';
   const { button: triggerButtonClass, icon: triggerIconClass } = TRIGGER_SIZE_CLASSES[triggerSize];
 
-  return `<details class="dropdown ${directionClass} font-sans"${isOpen ? ' open' : ''} style="anchor-name: ${anchorName}">
-  <summary tabindex="0" role="button" class="${triggerButtonClass}"
-    data-on:click__prevent__stop="$knotId = ${id}; @post('${openRoute}')" aria-label="Knot actions">
-    <div class="${triggerIconClass}" aria-hidden="true"></div>
-  </summary>
-  <ul id="${popoverId}" popover="manual" tabindex="0" role="menu" class="dropdown-content knot-menu-popover menu bg-base-100 rounded-box p-2 w-52 shadow-xl z-10"
+  // Only ever built for the one knot whose menu is actually open (see this file's own doc
+  // comment) - togglePopover is unconditionally true here since a closed knot has no <ul> at all
+  // for the effect to run against. el.isConnected still guards it: the marker filter (tree-pane.ts)
+  // can prune this very knot from the DOM in the same patch that opens its menu, and Datastar still
+  // re-invokes the effect against the now-detached node afterward - the native Popover API throws
+  // "Invalid on disconnected popover elements" unconditionally for that, an uncaught error that
+  // aborts the rest of Datastar's patch/effect processing (breaking every other knot's menu, not
+  // just this one) until the page is reloaded.
+  const menuContent = isOpen
+    ? `<ul id="${popoverId}" popover="manual" tabindex="0" role="menu" class="dropdown-content knot-menu-popover menu bg-base-100 rounded-box p-2 w-52 shadow-xl z-10"
     style="position-anchor: ${anchorName}"
-    // el.isConnected guards against the marker filter (tree-pane.ts) pruning a knot whose menu is
-    // currently open: the popover element gets removed from the DOM in that same patch, and
-    // Datastar still re-invokes this effect against the now-detached node afterward - the native
-    // Popover API throws "Invalid on disconnected popover elements" unconditionally for that,
-    // an uncaught error that aborts the rest of Datastar's patch/effect processing (breaking every
-    // other knot's menu, not just this one) until the page is reloaded.
-    data-effect="if (el.isConnected) el.togglePopover(${isOpen})"
+    data-effect="if (el.isConnected) el.togglePopover(true)"
     data-on:click__stop="void 0">
     <li${menuItemClass(!hasUnblessed)}><button type="button" role="menuitem"${hint('Bless Knot', '⌥B')}${menuItemAttrs(!hasUnblessed)} data-on:click="$knotId = ${id}; @post('/actions/bless-knot')">Bless Knot</button></li>
     <li><button type="button" role="menuitem"${hint('New Child', '⌥A')} data-on:click="$knotId = ${id}; @post('/actions/new-child')">New Child</button></li>
@@ -223,6 +229,14 @@ export function renderKnotMenu(
     <li${menuItemClass(insertParentDisabled)}><button type="button" role="menuitem"${insertParentHint}${menuItemAttrs(insertParentDisabled)} data-on:click="sk.showInsertParentModal(${id})">Insert Parent&hellip;</button></li>
     <li${menuItemClass(isRoot)}><button type="button" role="menuitem"${menuItemAttrs(isRoot)} data-on:click="$knotId = ${id}; @post('/actions/splice-knot')">Splice Out</button></li>
     <li${menuItemClass(isRoot)}><button type="button" role="menuitem"${hint('Delete', '⌥D')}${menuItemAttrs(isRoot)} data-on:click="$knotId = ${id}; @post('/actions/delete-knot')">Delete</button></li>
-  </ul>
+  </ul>`
+    : '';
+
+  return `<details class="dropdown ${directionClass} font-sans"${isOpen ? ' open' : ''} style="anchor-name: ${anchorName}">
+  <summary tabindex="0" role="button" class="${triggerButtonClass}"
+    data-on:click__prevent__stop="$knotId = ${id}; @post('${openRoute}')" aria-label="Knot actions">
+    <div class="${triggerIconClass}" aria-hidden="true"></div>
+  </summary>
+  ${menuContent}
 </details>`;
 }

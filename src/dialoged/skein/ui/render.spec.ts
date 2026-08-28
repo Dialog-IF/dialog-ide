@@ -390,17 +390,22 @@ describe('renderKnotList', () => {
       .addChild(0, 'look', { text: 'a', inputType: 'line' })
       .addChild(0, 'inventory', { text: 'b', inputType: 'line' })
       .selectKnot(1);
-    const html = renderKnotList(tree);
 
     // '<div class="flex flex-row" id="knot-' (the exact per-row wrapper render.ts emits), not the
     // bare 'id="knot-' boundary other tests in this file use - that shorter form also matches the
     // menu popover's own id="knot-menu-transcript-N" and would truncate the section before any of
     // its menu items.
     const rowBoundary = '<div class="flex flex-row" id="knot-';
-    const knot1Section = html.split('id="knot-1"')[1].split(rowBoundary)[0];
+
+    // Menu content only renders for whichever knot's menu is open (see knot-menu.ts) - open knot
+    // 1's own menu to confirm it gets the hint, then knot 0's to confirm it doesn't despite being
+    // open (it's just not the active knot).
+    const knot1OpenHtml = renderKnotList(tree, 1);
+    const knot1Section = knot1OpenHtml.split('id="knot-1"')[1].split(rowBoundary)[0];
     expect(knot1Section).toContain('title="Delete (⌥D)"');
 
-    const knot0Section = html.split('id="knot-0"')[1].split(rowBoundary)[0];
+    const knot0OpenHtml = renderKnotList(tree, 0);
+    const knot0Section = knot0OpenHtml.split('id="knot-0"')[1].split(rowBoundary)[0];
     expect(knot0Section).not.toContain('title=');
   });
 
@@ -418,7 +423,7 @@ describe('renderKnotList', () => {
 
   it("wires the menu's New Child item to its own route, distinct from plain select-knot navigation", () => {
     const tree = SkeinTree.newTree('dgdebug', 1).addChild(0, 'look', { text: 'a', inputType: 'line' });
-    const html = renderKnotList(tree);
+    const html = renderKnotList(tree, 1);
     const knot1Section = html.split('id="knot-1"')[1].split('<div class="flex flex-row" id="knot-')[0];
     expect(knot1Section).toContain(`data-on:click="$knotId = 1; @post('/actions/new-child')"`);
   });
@@ -431,7 +436,7 @@ describe('renderKnotList', () => {
     const tree = SkeinTree.newTree('dgdebug', 1)
       .addChild(0, 'look', { text: 'a', inputType: 'line' })
       .setLabel(1, 'checkpoint');
-    const html = renderKnotList(tree);
+    const html = renderKnotList(tree, 1);
     const knot1Section = html.split('id="knot-1"')[1].split('<div class="flex flex-row" id="knot-')[0];
     expect(knot1Section).not.toContain('prompt(');
     expect(knot1Section).toContain('data-current-label="checkpoint"');
@@ -440,7 +445,7 @@ describe('renderKnotList', () => {
 
   it("wires Edit Command to the modal, carrying the knot's current command", () => {
     const tree = SkeinTree.newTree('dgdebug', 1).addChild(0, 'look', { text: 'a', inputType: 'line' });
-    const html = renderKnotList(tree);
+    const html = renderKnotList(tree, 1);
     const knot1Section = html.split('id="knot-1"')[1].split('<div class="flex flex-row" id="knot-')[0];
     expect(knot1Section).toContain('data-current-command="look"');
     expect(knot1Section).toContain('data-on:click="sk.showCommandModal(1, el.dataset.currentCommand)"');
@@ -820,7 +825,9 @@ describe('renderPage', () => {
   // for exactly this reason), so relying on either here would look like a dead button in the
   // real extension even though it'd work fine in a plain browser tab.
   it('renders each knot\'s actions menu inline, declaratively wired, with no confirm()/prompt() gates anywhere', () => {
-    const html = renderPage(INFO, SkeinTree.newTree('dgdebug', 1));
+    // Menu content only renders for whichever knot's menu is open (see knot-menu.ts) - open root's
+    // own menu (id 0, the only knot here) to inspect its item wiring.
+    const html = renderPage(INFO, SkeinTree.newTree('dgdebug', 1), 0);
     expect(html).toContain('class="dropdown dropdown-right font-sans"');
     expect(html).toContain(`data-on:click="$knotId = 0; @post('/actions/bless-knot')"`);
     expect(html).toContain(`data-on:click="$knotId = 0; @post('/actions/toggle-lock')"`);

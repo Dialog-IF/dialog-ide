@@ -91,15 +91,18 @@ describe('renderTreePane', () => {
     const tree = SkeinTree.newTree('dgdebug', 1)
       .addChild(0, 'look', { text: 'a', inputType: 'line' }) // never blessed - hasUnblessed
       .blessKnot(1);
-    const html = renderTreePane(tree);
 
-    const root = html.split('data-tree-node-id="0"')[1].split('data-tree-node-id="1"')[0];
+    // Menu content is only ever rendered for the one knot whose menu is open (see knot-menu.ts),
+    // so root and knot 1 each need their own render with that knot passed as the open menuKnotId.
+    const rootOpenHtml = renderTreePane(tree, 0);
+    const root = rootOpenHtml.split('data-tree-node-id="0"')[1].split('data-tree-node-id="1"')[0];
     // Root: Toggle Lock (a root-only item) is disabled; nothing is pending on root either, so
     // Bless Knot is also disabled.
     expect(root).toContain(`disabled data-on:click="$knotId = 0; @post('/actions/toggle-lock')"`);
     expect(root).toContain(`disabled data-on:click="$knotId = 0; @post('/actions/bless-knot')"`);
 
-    const knot1 = html.split('data-tree-node-id="1"')[1];
+    const knot1OpenHtml = renderTreePane(tree, 1);
+    const knot1 = knot1OpenHtml.split('data-tree-node-id="1"')[1];
     // Knot 1 has just been blessed, nothing pending - Bless Knot is disabled; it's not root, so
     // the root-only items (e.g. Toggle Lock) are enabled.
     expect(knot1).toContain(`disabled data-on:click="$knotId = 1; @post('/actions/bless-knot')"`);
@@ -124,7 +127,7 @@ describe('renderTreePane', () => {
     const tree = SkeinTree.newTree('dgdebug', 1)
       .addChild(0, 'look', { text: 'a', inputType: 'line' })
       .setLabel(1, 'checkpoint');
-    const html = renderTreePane(tree);
+    const html = renderTreePane(tree, 1);
     const knot1 = html.split('data-tree-node-id="1"')[1];
 
     expect(knot1).toContain(`data-on:click="$knotId = 1; @post('/actions/new-child')"`);
@@ -135,7 +138,7 @@ describe('renderTreePane', () => {
 
   it("wires the menu's Edit Command item to the modal, carrying the knot's current command", () => {
     const tree = SkeinTree.newTree('dgdebug', 1).addChild(0, 'look', { text: 'a', inputType: 'line' });
-    const html = renderTreePane(tree);
+    const html = renderTreePane(tree, 1);
     const knot1 = html.split('data-tree-node-id="1"')[1];
 
     expect(knot1).toContain('data-current-command="look"');
@@ -146,12 +149,15 @@ describe('renderTreePane', () => {
   // equivalent test on the transcript side for the full rationale.
   it("shows keyboard-shortcut hints only on the active node's own menu items", () => {
     const tree = SkeinTree.newTree('dgdebug', 1).addChild(0, 'look', { text: 'a', inputType: 'line' }).setActiveKnotId(1);
-    const html = renderTreePane(tree);
 
-    const root = html.split('data-tree-node-id="0"')[1].split('data-tree-node-id="1"')[0];
+    // Menu content only renders for whichever knot's menu is open (see knot-menu.ts) - open
+    // root's own menu to confirm it gets no hints despite that, then knot 1's to confirm it does.
+    const rootOpenHtml = renderTreePane(tree, 0);
+    const root = rootOpenHtml.split('data-tree-node-id="0"')[1].split('data-tree-node-id="1"')[0];
     expect(root).not.toContain('title=');
 
-    const knot1 = html.split('data-tree-node-id="1"')[1];
+    const knot1OpenHtml = renderTreePane(tree, 1);
+    const knot1 = knot1OpenHtml.split('data-tree-node-id="1"')[1];
     expect(knot1).toContain('title="Delete (⌥D)"');
   });
 

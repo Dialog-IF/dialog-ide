@@ -4,6 +4,7 @@
 
 - Fix nav graph connector arrows staying a fixed size when zoomed out instead of shrinking with the nodes
 - Fix the Dynamic State toggle and nav graph marker-filter buttons only showing their button outline on hover instead of always looking like buttons
+- Nav graph: each knot's actions menu is now only rendered when actually open, instead of every knot's full (invisible) menu on every patch - cut SSE patch size roughly 3x on a large tree (~554 knots: 3.4MB to 1.2MB), fixing sluggishness on trees of that size
 
 ## 0.5.0 - 25 Aug 2026
 
