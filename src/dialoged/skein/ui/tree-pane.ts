@@ -163,19 +163,21 @@ function renderTreeNode(tree: SkeinTree, knot: DerivedKnot, spine: Set<number>, 
   // Inline SVG rather than the shared .icon mask-image system (used by statusIcon/lockIcon
   // above) purely to avoid a second image request for an icon that already needs its own markup
   // swap per toggle. The rect's own fill (rather than a background on the button) opaques just the
-  // box's interior, leaving the button transparent outside it. Both that fill and `relative z-10`
-  // on the button are required: main.js's drawTreeArrows() appends its connector SVG as
-  // #tree-pane's last child, and an absolutely-positioned element always paints above
-  // statically-positioned siblings regardless of DOM order - without `relative z-10` the
-  // connector's line (which runs directly through this button's position, immediately below the
-  // pill) paints over the rect's fill and shows through as a faint stroke bisecting the icon.
-  const toggleIconSvg = `<svg viewBox="0 0 16 16" width="16" height="16" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true">
+  // box's interior, leaving the button transparent outside it; main.js's drawTreeArrows() now pins
+  // its connector-line svg to z-index:-1 so it always paints behind #tree-pane's normal content
+  // (see that file for why a per-button z-index can't achieve this on its own), so the rect's fill
+  // is all that's needed here to occlude the line passing directly behind this button. width/height
+  // (24, matching the button's own h-6/w-6) rather than the viewBox's native 16 matters too: a
+  // 16x16 svg centered by the button's flex-center would leave a 4px transparent ring of *button*
+  // (not svg) around the icon that the rect's fill never reaches, letting the connector line bleed
+  // through above/below the box despite it painting behind everything else.
+  const toggleIconSvg = `<svg viewBox="0 0 16 16" width="24" height="24" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true">
     <rect x="1.5" y="1.5" width="13" height="13" rx="2" fill="var(--color-base-200)"/>
     ${collapsed ? '<line x1="8" y1="5" x2="8" y2="11"/>' : ''}
     <line x1="5" y1="8" x2="11" y2="8"/>
   </svg>`;
   const toggleButton = hasChildren
-    ? `<button type="button" class="relative z-10 flex items-center justify-center h-6 w-6 min-h-0 p-0 cursor-pointer"
+    ? `<button type="button" class="flex items-center justify-center h-6 w-6 min-h-0 p-0 cursor-pointer"
     aria-label="${collapsed ? 'Expand' : 'Collapse'}" aria-expanded="${!collapsed}"
     data-on:click="$knotId = ${knot.id}; @post('/actions/toggle-tree-node')">${toggleIconSvg}</button>`
     : '';
@@ -267,8 +269,13 @@ export function renderTreePane(tree: SkeinTree, graphMenuId: number | null = nul
   // get pruned by visibleIds - so when the filter matches nothing anywhere, the pane still shows
   // just the root pill as an anchor/empty-state rather than going blank.
   const visibleIds = markerFilter !== null ? tree.visibleKnotIdsForMarkerFilter(markerFilter) : null;
+  // z-0 (not just relative) is required for #tree-pane to establish its own stacking context -
+  // position:relative alone doesn't (only combined with a non-auto z-index does), so without this
+  // the connector svg's z-index:-1 (see main.js's drawTreeArrows) would be compared against
+  // ancestors further up the page instead of scoped to this pane's own children, and disappear
+  // behind whatever opaque content sits at that outer level instead of just #tree-pane's own bg.
   return `<div id="tree-pane"
-  class="overflow-x-scroll overflow-y-auto p-4 relative bg-base-200 h-full cursor-grab"
+  class="overflow-x-scroll overflow-y-auto p-4 relative z-0 bg-base-200 h-full cursor-grab"
   data-active-knot="${activeKnotId ?? ''}"
   data-init="sk.initTreeGraph()">
 ${renderSubtree(tree, 0, spineIds(tree), activeKnotId, graphMenuId, visibleIds, true)}

@@ -739,7 +739,16 @@ window.sk = {
       width: pane.scrollWidth + 'px',
       height: pane.scrollHeight + 'px',
       overflow: 'visible',
-      pointerEvents: 'none'
+      pointerEvents: 'none',
+      // #tree-pane-content (zoomTreeGraph's inline transform target) creates its own stacking
+      // context at the implicit stack level of a transformed element, which sits at the same
+      // level as this svg's own default (position:absolute, z-index:auto) - as later DOM-order
+      // siblings at that shared level, this svg would otherwise paint on top of the entire tree,
+      // and no z-index on any individual node (e.g. tree-pane.ts's toggle-icon button) can out-rank
+      // it from inside that separate stacking context. Pinning this to a negative stack level
+      // instead paints it behind all of #tree-pane's normal content unconditionally, so every
+      // node/button's own background naturally occludes the connector line passing under it.
+      zIndex: '-1'
     });
 
     const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
@@ -796,7 +805,6 @@ window.sk = {
         );
       }
       path.setAttribute('stroke', 'currentColor');
-      path.setAttribute('stroke-opacity', '0.35');
       path.setAttribute('stroke-width', String(1.5 * zoom));
       path.setAttribute('fill', 'none');
       path.setAttribute('marker-end', 'url(#tree-arrow)');
