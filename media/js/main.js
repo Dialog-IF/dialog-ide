@@ -723,6 +723,14 @@ window.sk = {
     this._arrowSvg?.remove();
     this._arrowSvg = null;
 
+    // The svg is appended straight to #tree-pane, not the #tree-pane-content wrapper that
+    // _zoomTreeGraph actually scales, so it never inherits that transform - node positions still
+    // land correctly (they're read post-transform via getBoundingClientRect), but stroke-width has
+    // to be scaled by hand here or the lines/arrowheads stay a constant screen size while the nodes
+    // around them shrink, looking oversized when zoomed out. The marker's default
+    // markerUnits="strokeWidth" means the arrowhead scales for free once the stroke-width does.
+    const zoom = this._treeGraphZoom;
+
     const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
     Object.assign(svg.style, {
       position: 'absolute',
@@ -780,7 +788,7 @@ window.sk = {
       } else {
         const ymid = (y1 + y2) / 2;
         const dir = x2 > x1 ? 1 : -1;
-        const r = Math.min(10, Math.abs(x2 - x1) / 2, Math.max(0, y2 - ymid));
+        const r = Math.min(10 * zoom, Math.abs(x2 - x1) / 2, Math.max(0, y2 - ymid));
         const xTurn = x2 - dir * r;
         path.setAttribute(
           'd',
@@ -789,7 +797,7 @@ window.sk = {
       }
       path.setAttribute('stroke', 'currentColor');
       path.setAttribute('stroke-opacity', '0.35');
-      path.setAttribute('stroke-width', '1.5');
+      path.setAttribute('stroke-width', String(1.5 * zoom));
       path.setAttribute('fill', 'none');
       path.setAttribute('marker-end', 'url(#tree-arrow)');
       svg.appendChild(path);

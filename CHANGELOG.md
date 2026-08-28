@@ -2,6 +2,8 @@
 
 ## 0.5.1 - Unreleased
 
+- Fix nav graph connector arrows staying a fixed size when zoomed out instead of shrinking with the nodes
+
 ## 0.5.0 - 25 Aug 2026
 
 - Add `dgbuild`, a headless CLI (`test`, `run-skein`, `sources`) for running project checks from scripts/CI without the VS Code extension host
