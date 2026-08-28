@@ -565,7 +565,7 @@ export function renderNavbar(
         title="${t.error === 0 ? 'No error knots' : 'Jump to the next error knot, cycling through all of them'}">${t.error}</button>
     </div>
     ${renderSearchBox(searchQuery, searchResults)}
-    <button type="button" class="btn btn-sm ${showDynamicState ? 'btn-primary' : 'btn-ghost'}" ${dgdebug ? '' : 'disabled'}
+    <button type="button" class="btn btn-sm ${showDynamicState ? 'btn-primary' : 'btn-ghost bg-base-content/10'}" ${dgdebug ? '' : 'disabled'}
       aria-pressed="${showDynamicState}"
       data-on:click="@post('/actions/toggle-dynamic-state')"
       title="${dgdebug ? 'Show which dynamic properties (flags/variables) changed after each knot' : 'Dynamic state requires the dgdebug engine'}">
@@ -573,7 +573,7 @@ export function renderNavbar(
     </button>
     <div class="join shrink-0" role="group" aria-label="Filter by marker">
       ${ALL_MARKERS.map((marker) => `
-      <button type="button" class="btn btn-sm btn-square join-item ${markerFilter === marker ? 'btn-primary' : 'btn-ghost'}"
+      <button type="button" class="btn btn-sm btn-square join-item ${markerFilter === marker ? 'btn-primary' : 'btn-ghost bg-base-content/10'}"
         aria-pressed="${markerFilter === marker}" aria-label="Filter to knots marked ${MARKER_LABEL[marker]}"
         data-on:click="$marker = ${marker}; @post('/actions/set-marker-filter')"
         title="Show only knots marked ${MARKER_LABEL[marker]} (or with a descendant marked ${MARKER_LABEL[marker]}) - click again to clear">

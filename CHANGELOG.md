@@ -3,6 +3,7 @@
 ## 0.5.1 - Unreleased
 
 - Fix nav graph connector arrows staying a fixed size when zoomed out instead of shrinking with the nodes
+- Fix the Dynamic State toggle and nav graph marker-filter buttons only showing their button outline on hover instead of always looking like buttons
 
 ## 0.5.0 - 25 Aug 2026
 
