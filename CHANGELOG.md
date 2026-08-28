@@ -2,6 +2,7 @@
 
 ## 0.5.1 - Unreleased
 
+- Fix the Skein and Trace views staying in light mode when VS Code is in a dark theme
 - Fix opening a transcript knot's actions menu adding extra vertical space to that knot's response
 - Fix nav graph connector lines showing through the collapse/expand toggle icon instead of being hidden behind it
 - Fix nav graph connector arrows staying a fixed size when zoomed out instead of shrinking with the nodes

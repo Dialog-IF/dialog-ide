@@ -311,6 +311,20 @@ describe('SkeinService', () => {
       const res = await get(`http://localhost:${service.getPort()}/`);
       expect(res.body).toContain('id="knot-0"');
     });
+
+    // extension.ts bakes VS Code's active color theme into this iframe's own src as ?theme= (see
+    // render.ts's renderPage doc comment for why a query param, not a live SSE push) - defaulting
+    // unrecognized/missing values to light keeps this route working even for a plain browser tab
+    // with no theme param at all.
+    it('defaults <html data-theme> to light with no ?theme= param', async () => {
+      const res = await get(`http://localhost:${service.getPort()}/`);
+      expect(res.body).toContain('<html lang="en" data-theme="light">');
+    });
+
+    it('honors ?theme=dark', async () => {
+      const res = await get(`http://localhost:${service.getPort()}/?theme=dark`);
+      expect(res.body).toContain('<html lang="en" data-theme="dark">');
+    });
   });
 
   describe('GET /events', () => {
@@ -1640,6 +1654,14 @@ describe('SkeinService', () => {
         const res = await get(`http://localhost:${service.getPort()}/trace`);
         expect(res.status).toBe(200);
         expect(res.body).toContain('No trace yet');
+      });
+
+      it('honors ?theme=dark, defaulting to light otherwise - see the GET / theme tests above', async () => {
+        const lightRes = await get(`http://localhost:${service.getPort()}/trace`);
+        expect(lightRes.body).toContain('<html lang="en" data-theme="light">');
+
+        const darkRes = await get(`http://localhost:${service.getPort()}/trace?theme=dark`);
+        expect(darkRes.body).toContain('<html lang="en" data-theme="dark">');
       });
     });
 

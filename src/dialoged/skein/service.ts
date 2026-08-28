@@ -152,6 +152,17 @@ function parseNodeId(payload: Record<string, unknown>): number | null {
 }
 
 /**
+ * The ?theme= query param extension.ts's getWebviewHtml/getTraceWebviewHtml bake into this
+ * iframe's own src, computed there from vscode.window.activeColorTheme - see renderPage/
+ * renderTracePage's own doc comments for why this has to travel as a query param on navigation
+ * rather than a live SSE-pushed value. Anything else (missing, a stale/foreign value) falls back
+ * to 'light' rather than throwing - this service has no other source of truth for theme.
+ */
+function themeFromQuery(url: URL): 'light' | 'dark' {
+  return url.searchParams.get('theme') === 'dark' ? 'dark' : 'light';
+}
+
+/**
  * Class for managing the web service interface
  */
 export class SkeinService implements ProgressHost {
@@ -358,7 +369,8 @@ export class SkeinService implements ProgressHost {
           this.activeSession?.getShowDynamicState() ?? false,
           this.searchQuery,
           this.currentSearchResults(),
-          this.activeSession?.getMarkerFilter() ?? null
+          this.activeSession?.getMarkerFilter() ?? null,
+          themeFromQuery(url)
         )
       );
       return;
@@ -371,7 +383,7 @@ export class SkeinService implements ProgressHost {
 
     if (url.pathname === '/trace') {
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-      res.end(renderTracePage(this.currentTrace, this.traceLoading));
+      res.end(renderTracePage(this.currentTrace, this.traceLoading, themeFromQuery(url)));
       return;
     }
 

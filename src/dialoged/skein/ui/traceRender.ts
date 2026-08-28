@@ -139,9 +139,16 @@ export function renderTraceApp(state: CurrentTraceState | null, loading: boolean
 </div>`;
 }
 
-export function renderTracePage(state: CurrentTraceState | null, loading: boolean = false): string {
+// theme: see render.ts's renderPage's own doc comment on the same parameter - baked into <html> at
+// navigation time rather than pushed live over SSE, for the same reason (data-theme lives outside
+// any element the trace SSE stream ever patches).
+export function renderTracePage(
+  state: CurrentTraceState | null,
+  loading: boolean = false,
+  theme: 'light' | 'dark' = 'light'
+): string {
   return `<!doctype html>
-<html lang="en">
+<html lang="en" data-theme="${theme}">
 <head>
 <meta charset="UTF-8" />
 <title>Trace</title>

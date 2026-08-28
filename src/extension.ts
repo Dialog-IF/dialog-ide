@@ -62,6 +62,10 @@ const EXPORT_FORMATS: ReadonlyArray<ExportConfig['format']> = ['zblorb', 'z8', '
 
 let skeinService: SkeinService | undefined;
 let skeinPanel: vscode.WebviewPanel | undefined;
+// Held only so onDidChangeActiveColorTheme can re-render this webview's html (see
+// refreshWebviewThemes) - resolveWebviewView otherwise never needs to be reached again after the
+// view is first created, unlike skeinPanel above (already held for reveal/dispose).
+let traceWebviewView: vscode.WebviewView | undefined;
 let statusBarItem: vscode.StatusBarItem;
 
 let activeSession: SkeinSession | undefined;
@@ -177,6 +181,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       webviewOptions: { retainContextWhenHidden: true }
     })
   );
+
+  context.subscriptions.push(vscode.window.onDidChangeActiveColorTheme(refreshWebviewThemes));
 
   context.subscriptions.push(
     vscode.languages.registerDocumentSymbolProvider(
@@ -1326,7 +1332,7 @@ function panelTitle(active: ActiveSessionDisplay | undefined): string {
  * `activeWebviewPanelId == 'dialogIdeSkein'`.
  */
 function getWebviewHtml(active: ActiveSessionDisplay | undefined): string {
-  const serviceUrl = skeinService ? `http://localhost:${skeinService.getPort()}/` : undefined;
+  const serviceUrl = skeinService ? `http://localhost:${skeinService.getPort()}/?theme=${currentThemeName()}` : undefined;
   const body = serviceUrl
     ? `<iframe src="${serviceUrl}"></iframe>`
     : `<p>Skein service is not running.</p>`;
@@ -1449,6 +1455,10 @@ class TraceViewProvider implements vscode.WebviewViewProvider {
   public resolveWebviewView(webviewView: vscode.WebviewView): void {
     webviewView.webview.options = { enableScripts: true };
     webviewView.webview.html = getTraceWebviewHtml();
+    traceWebviewView = webviewView;
+    webviewView.onDidDispose(() => {
+      traceWebviewView = undefined;
+    });
 
     webviewView.webview.onDidReceiveMessage((message: unknown) => {
       const msg = message as { type?: string; file?: string; line?: number };
@@ -1461,8 +1471,36 @@ class TraceViewProvider implements vscode.WebviewViewProvider {
   }
 }
 
+/**
+ * 'dark' also for the two high-contrast kinds, matching VS Code's own light/dark grouping of them
+ * (HighContrast pairs with Dark, HighContrastLight with Light) - daisyUI only has the two themes
+ * this project defines (see styles/input.css), not a separate high-contrast one.
+ */
+function currentThemeName(): 'light' | 'dark' {
+  return vscode.window.activeColorTheme.kind === vscode.ColorThemeKind.Light ||
+    vscode.window.activeColorTheme.kind === vscode.ColorThemeKind.HighContrastLight
+    ? 'light'
+    : 'dark';
+}
+
+/**
+ * Re-renders both webviews' outer html (see getWebviewHtml/getTraceWebviewHtml) so their iframes
+ * re-navigate to GET /(/trace)?theme=<new> - see renderPage/renderTracePage's own doc comments for
+ * why a real navigation, not a live SSE push, is how this project updates data-theme at all.
+ * Reassigning .webview.html only affects this outer shell; SkeinService's own session state (the
+ * thing a reload might otherwise seem to risk) lives server-side and is untouched by it.
+ */
+function refreshWebviewThemes(): void {
+  if (skeinPanel) {
+    skeinPanel.webview.html = getWebviewHtml(currentSessionDisplay());
+  }
+  if (traceWebviewView) {
+    traceWebviewView.webview.html = getTraceWebviewHtml();
+  }
+}
+
 function getTraceWebviewHtml(): string {
-  const serviceUrl = skeinService ? `http://localhost:${skeinService.getPort()}/trace` : undefined;
+  const serviceUrl = skeinService ? `http://localhost:${skeinService.getPort()}/trace?theme=${currentThemeName()}` : undefined;
   const body = serviceUrl ? `<iframe src="${serviceUrl}"></iframe>` : `<p>Skein service is not running.</p>`;
   const nonce = createNonce();
 

@@ -663,7 +663,17 @@ export function renderPage(
   showDynamicState: boolean = false,
   searchQuery: string = '',
   searchResults: SearchResults = EMPTY_SEARCH_RESULTS,
-  markerFilter: Marker | null = null
+  markerFilter: Marker | null = null,
+  // Baked into <html> at the one point this page is actually navigated (this iframe's initial
+  // load, or a forced reload - see extension.ts's getWebviewHtml/refreshWebviewThemes) rather than
+  // pushed live over the /events SSE stream: unlike everything else on this page, data-theme lives
+  // on <html> itself, outside #skein-app (the one element every SSE patch actually targets - see
+  // service.ts's broadcast), so there's no existing patch target to update it through. extension.ts
+  // reruns the whole outer webview.html (and thus this iframe's navigation) on
+  // vscode.window.onDidChangeActiveColorTheme instead, which re-hits this same route with the new
+  // theme - server-side session state is untouched by that, since it lives in SkeinService, not
+  // this document.
+  theme: 'light' | 'dark' = 'light'
 ): string {
   const body =
     info && tree
@@ -671,7 +681,7 @@ export function renderPage(
       : '<div id="skein-app" class="p-4">No skein session running.</div>';
 
   return `<!doctype html>
-<html lang="en">
+<html lang="en" data-theme="${theme}">
 <head>
 <meta charset="UTF-8" />
 <title>Dialog Skein</title>

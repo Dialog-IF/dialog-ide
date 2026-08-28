@@ -842,4 +842,26 @@ describe('renderPage', () => {
     const html = renderPage(INFO, tree, 1);
     expect(html).toContain('<details class="dropdown dropdown-right font-sans" open style="anchor-name: --knot-menu-graph-1">');
   });
+
+  describe('theme', () => {
+    it('defaults <html data-theme> to light when unspecified', () => {
+      const html = renderPage(INFO, SkeinTree.newTree('dgdebug', 1));
+      expect(html).toContain('<html lang="en" data-theme="light">');
+    });
+
+    it('honors an explicit dark theme', () => {
+      const html = renderPage(
+        INFO,
+        SkeinTree.newTree('dgdebug', 1),
+        null,
+        null,
+        false,
+        '',
+        undefined,
+        null,
+        'dark'
+      );
+      expect(html).toContain('<html lang="en" data-theme="dark">');
+    });
+  });
 });
