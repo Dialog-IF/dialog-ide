@@ -1,5 +1,4 @@
-// Reused by installing-the-extension.adoc and referenced from index.adoc.
-// OUTLINE-stage content — verify exact platform strings against README.md at flesh-out.
+// Reused by installing-the-extension.adoc.
 
 [cols="1,3",options="header"]
 |===

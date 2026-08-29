@@ -1,98 +1,108 @@
 = Building and Releasing Your Project
 :navtitle: Building and Releasing
 
-// OUTLINE ONLY — bullets are coverage notes for a later prose pass, not final text.
-
-_Named export configurations, compiling a story file, the cover image, the downloadable web page,
-and feelies._
+Building turns your source into a story file a player can run: a `.zblorb`, a bare `.z8`, or an
+AAmachine `.aastory`. Dialog IDE organises this around *named export configurations* stored in
+`dialog.json`, plus a separate command that wraps a build into a complete downloadable web page.
 
 == Export configurations
 
-* *Dialog IDE: Configure Exports...* — a looping wizard that maintains the `exports` array in
-  `dialog.json`. Each configuration has:
-** `name`
-** `format` — `zblorb`, `z8`, or `aa` (the file extensions are `.zblorb`, `.z8`, `.aastory`).
-** `includeDebug` — usually *no* for a release build.
-** `output` — the path to write (relative to the project root).
-** optional `dialogcOptions` — extra `dialogc` flags for this export only.
-* The same wizard sets a project-wide *default* `dialogcOptions` (top-level `dialog.json` key), used
-  by any export that does not set its own, and by *Export Web Page*. Typical: `--heap 2000 --aux 1000`
-  for a project that needs a bigger heap.
-* An existing configuration cannot be edited in place through the wizard yet — remove it and add it
-  again.
-+
+Run *Dialog IDE: Configure Exports...*. It is a small wizard that maintains the `exports` array in
+`dialog.json`. Each configuration has:
+
+`name`:: What you call it in the picker.
+`format`:: `zblorb`, `z8`, or `aa`. The resulting files are `.zblorb`, `.z8`, and `.aastory`
+respectively.
+`includeDebug`:: Whether to compile the `debug` sources in. Usually *no* for a release build.
+`output`:: The path to write the story file to, relative to the project root.
+`dialogcOptions`:: Optional. Extra `dialogc` flags for this configuration alone.
+
+The same wizard also sets a project-wide *default* set of `dialogc` options, stored as the
+top-level `dialogcOptions` key. Any configuration without its own options uses these, and so does
+*Export Web Page*. A common use is raising limits — `--heap 2000 --aux 1000` — for a project that
+has outgrown the defaults.
+
+The wizard cannot yet edit an existing configuration in place; to change one, remove it and add it
+again.
+
 [NOTE]
 ====
-Export configurations are just the `exports` array in `dialog.json` (with the project-wide default
-in the top-level `dialogcOptions`). You can edit them there directly in the editor — change an
-`output` path, tweak `dialogcOptions`, reorder — instead of going through the wizard. The wizard is
-a convenience, not the only way in.
+Export configurations are just data in `dialog.json` — the `exports` array, plus the top-level
+`dialogcOptions`. You can edit them directly in the editor: change an `output` path, adjust the
+options, reorder the list. The wizard is a convenience, not the only way in.
 ====
-+
+
 // SHOT: configure-exports-wizard — the format QuickPick (zblorb / z8 / aa) in the wizard.
 
-== Compiling a story file
+== Building a story file
 
-* *Dialog IDE: Export Dialog Project...* — pick a configuration; it runs `dialogc` and, on success,
-  offers *Reveal in Finder / File Explorer*.
-* The command line is roughly:
-  `dialogc -t <format> -o <output> [--cover cover.png --cover-alt <name>] [<dialogcOptions>] <sources>`
-* Sources are expanded with that configuration's `includeDebug` and `format` (so `foo.zblorb.dg`
-  files come in only for a `zblorb` build — xref:project-sources.adoc[]).
-* Compile errors are reported with `file:line`.
-+
+Run *Dialog IDE: Export Dialog Project...*, pick a configuration, and it compiles with `dialogc`.
+On success it offers to reveal the output file in Finder or File Explorer. A compilation error is
+reported with its `file:line`, so you can jump straight to it.
+
+The sources handed to the compiler are expanded using that configuration's `includeDebug` setting
+and its `format`, so a file named `something.zblorb.dg` is included in a `zblorb` build and left
+out of the others (see xref:project-sources.adoc[]).
+
 // SHOT: export-success-toast — the "Exported ... to ..." notification with the Reveal button.
 
 == Cover image
 
-* If `cover.png` exists at the project root, a `zblorb` export bakes it in automatically via
-  `dialogc`'s `--cover` / `--cover-alt` flags. No configuration needed.
-* *Initialize Dialog Project* seeds a placeholder `cover.png`; replace it with your own.
-* Unlike a feelie, a missing `cover.png` is silently skipped, not an error.
+If a file named `cover.png` exists at the project root, a `zblorb` build embeds it automatically —
+there is nothing to configure. *Initialize Dialog Project* seeds a placeholder `cover.png`; replace
+it with your own artwork. Unlike a feelie, a missing `cover.png` is simply skipped rather than
+treated as an error.
 
 == The downloadable web page
 
-* *Dialog IDE: Export Web Page...* — pick which export configuration builds the story file, then it
-  produces a complete web page in `out/web/` plus a zip at `out/<name>-<release>.zip`. Contents:
-** the story file, compiled fresh with that configuration's settings.
-** an in-browser player powered by https://github.com/dialog-if/aamachine[AAmachine] (built
-   separately as `aa`, unless the chosen configuration is itself `aa`).
-** the cover image, plus a resized thumbnail.
-** the project's configured feelies (below).
-** if `default.skein` has a knot labeled `WALKTHROUGH`, a walkthrough transcript from the root to
-   that knot (commands beginning with `*` are skipped).
-* Title / author / blurb / release / IFID on the page come from the project's own `(story ...)`
-  directives, queried live via `dgdebug`.
-* Requires `aambundle` on `PATH` / `binDir` in addition to `dgdebug` / `dialogc`.
-+
+Run *Dialog IDE: Export Web Page...*. It asks which export configuration should build the story
+file, then assembles a complete web page in `out/web/`, with a matching `.zip` in `out/`. The page
+includes:
+
+* the story file, compiled fresh with the chosen configuration's settings;
+* an in-browser player powered by https://github.com/dialog-if/aamachine[AAmachine];
+* the cover image, plus a generated thumbnail;
+* the project's feelies (below);
+* if `default.skein` contains a knot labelled `WALKTHROUGH`, a walkthrough transcript running from
+the root to that knot, with any command beginning with `*` omitted.
+
+The title, author, blurb, release number, and IFID shown on the page are read live from your
+project's own `(story $)` directives via `dgdebug`.
+
+This command needs `aambundle`, from AAmachine, in addition to `dgdebug` and `dialogc` — see
+xref:installing-the-extension.adoc[].
+
 // SHOT: web-export-in-browser — out/web/index.html open in a browser: cover, bibliography, Play
 // button, feelie links.
 
 == Feelies
 
-* A *feelie* is any file linked from the exported web page — traditionally a "how to play
-  interactive fiction" PDF for newcomers, but any file works. Feelies appear only in the web export;
-  they are not bundled into a blorb.
-* Stored in `dialog.json`'s `feelies` array as `{ "path": ..., "name": ... }` (path relative to the
-  project root; name is the link text).
-* *Initialize Dialog Project* seeds two PDFs (`introduction-to-if.pdf`, `play-if-card.pdf`) and
-  wires them in.
-* *Dialog IDE: Add Feelie...* — from the Command Palette (prompts for a file), or right-click a file
-  in the Explorer. Then give it a display name.
-* *Dialog IDE: Remove Feelie...* — pick one to remove.
-* A configured feelie whose file is missing is a *hard error* at export time — fix the path or
-  remove the entry.
-+
+A *feelie* is any file linked from the exported web page. The tradition is a "how to play
+interactive fiction" PDF for newcomers, but it can be anything — a map, a manual, an in-world
+document. Feelies appear only in the web export; they are not part of a `.zblorb`.
+
+Feelies are stored in `dialog.json` as a `feelies` array, each entry a `path` (relative to the
+project root) and a `name` (the link text on the page). *Initialize Dialog Project* seeds two PDFs
+and wires them in.
+
+To add one, run *Dialog IDE: Add Feelie...* and choose a file, or right-click a file in the
+Explorer and choose *Dialog IDE: Add Feelie*; either way you are then asked for a display name.
+*Dialog IDE: Remove Feelie...* takes one out again. A configured feelie whose file is missing is a
+*hard error* when you export — fix the path in `dialog.json`, or remove the entry.
+
 // SHOT: add-feelie-flow — the Explorer right-click menu with "Dialog IDE: Add Feelie" highlighted.
 
 == Story metadata
 
-* Lives in your source as `(story title ...)`, `(story author ...)`, `(story blurb ...)`,
-  `(story noun ...)`, `(story release N)`, `(story ifid ...)`.
-* An IFID is *mandatory* for the `zblorb` format; *Initialize Dialog Project* generates one.
-* Surfaces in: the `.zblorb`'s bibliographic record, and the exported web page's title / author /
-  description / "created with Dialog, IFID ..." line.
+The project's bibliographic details live in your source as `(story $)` directives — `(story title
+$)`, `(story author $)`, `(story blurb $)`, `(story noun $)`, `(story release $)`, and `(story ifid
+$)`. *Initialize Dialog Project* writes a starter set into `main/meta.dg`, including a generated
+IFID, which the `zblorb` format requires.
+
+This metadata surfaces in the compiled story file's bibliographic record and, for the web export,
+in the page's title, author line, description, and its closing "created with Dialog, IFID ..."
+note.
 
 == What's next
 
-* xref:command-line-dgbuild.adoc[] — run tests and skein checks from a terminal or CI.
+xref:command-line-dgbuild.adoc[] — running tests and skein checks from a terminal or CI.

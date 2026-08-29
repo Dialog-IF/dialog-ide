@@ -1,57 +1,76 @@
 = Installing Visual Studio Code
 :navtitle: Installing VS Code
 
-// OUTLINE ONLY — bullets are coverage notes for a later prose pass, not final text.
+Visual Studio Code — usually shortened to *VS Code* — is a free, open-source code editor from
+Microsoft that runs on macOS, Windows, and Linux. It is not the same product as "Visual Studio",
+and you do not need a Microsoft account to use it. If you already have it installed, skip to
+xref:installing-the-extension.adoc[].
 
-_Get Visual Studio Code installed and learn the three UI pieces this manual leans on._
+== Download and install
 
-== What Visual Studio Code is
-
-* A free, open-source code editor from Microsoft; runs on macOS, Windows, and Linux.
-* Often shortened to "VS Code". Not the same as "Visual Studio".
-* You do not need a Microsoft account to use it.
-
-== Downloading and installing
-
-* Go to https://code.visualstudio.com and download the build for your operating system.
-* macOS: unzip, drag *Visual Studio Code* to Applications, launch it.
+. Open https://code.visualstudio.com in a browser. The site detects your operating system and
+offers the matching download.
 +
 // SHOT: vscode-download-page — code.visualstudio.com with the platform download buttons visible.
-* Windows: run the `.exe` installer; accept defaults. The "Add to PATH" option (checked by default)
-  is what makes the `code` command work later.
-* Linux: `.deb` / `.rpm` packages or the Snap; distro-specific notes on the download page.
-* Optional: the `code` shell command.
-** Windows: added by the installer.
-** macOS: open the Command Palette (below) and run *Shell Command: Install 'code' command in PATH*.
-** Used later for `code --install-extension ...` and for opening a folder from a terminal.
-
-== First launch and the "open a folder" model
-
-* VS Code always works against a *folder* (it calls this a "workspace"). There is no "new file, save
-  anywhere" habit here — you open the folder your project lives in, and everything is relative to
-  it.
-* *File > Open Folder...* (macOS: *File > Open...*) — this is how you will open a Dialog project.
-* The Explorer (top icon in the Activity Bar, or `Cmd/Ctrl+Shift+E`) shows that folder's files.
+. Install it the usual way for your platform:
 +
+--
+*macOS* — the download is a `.zip`. Open it, then drag *Visual Studio Code* into your Applications
+folder and launch it from there.
+
+*Windows* — run the `.exe` installer and accept the defaults. Leave *Add to PATH* checked; that is
+what lets you type `code` in a terminal later.
+
+*Linux* — use the `.deb` or `.rpm` package, or the Snap, as described on the download page for your
+distribution.
+--
+
+[[the-code-command]]
+=== The `code` command (optional)
+
+A few steps later in this manual use a `code` command in a terminal — for example
+`code --install-extension`. It is optional, but convenient to set up now.
+
+* *Windows*: already done by the installer.
+* *macOS*: launch VS Code, open the <<the-command-palette,Command Palette>>, and run
+*Shell Command: Install 'code' command in PATH*.
+* *Linux*: the package installs it automatically.
+
+== VS Code works on a folder
+
+VS Code always works against a *folder*, which it calls a *workspace*. There is no habit here of
+creating a loose file and saving it anywhere on disk; instead you open the folder your project
+lives in, and everything — the file list, search, the Dialog IDE commands — is relative to that
+folder.
+
+To open one, use menu:File[Open Folder...] (on macOS, menu:File[Open...]). The *Explorer* on the
+left — the top icon in the Activity Bar, or kbd:[Cmd+Shift+E] / kbd:[Ctrl+Shift+E] — shows the
+folder's contents. You will open a Dialog project this way in xref:initializing-a-project.adoc[].
+
 // SHOT: vscode-first-window — a fresh VS Code window, Welcome tab, Activity Bar on the left labeled.
 
+[[the-command-palette]]
 == The Command Palette
 
-* `Cmd+Shift+P` on macOS, `Ctrl+Shift+P` on Windows/Linux.
-* A searchable list of *every* command. This manual runs almost everything from here — every Dialog
-  IDE action is a command named *Dialog IDE: ...*.
-* Start typing to filter; press Enter to run the highlighted command; Esc to dismiss.
-+
+The *Command Palette* is a searchable list of every command VS Code and its extensions provide.
+Open it with kbd:[Cmd+Shift+P] on macOS, or kbd:[Ctrl+Shift+P] on Windows and Linux.
+
+This manual runs almost everything from the Command Palette. Every action the extension adds is a
+command whose name begins with *Dialog IDE:* — for example *Dialog IDE: Initialize Dialog Project*.
+Start typing any part of a command's name to filter the list, press kbd:[Enter] to run the
+highlighted one, or kbd:[Esc] to dismiss the palette without running anything.
+
 // SHOT: command-palette — palette open, "Dialog IDE" typed, the extension's commands listed.
 
 == The Extensions view
 
-* Activity Bar icon that looks like stacked squares, or `Cmd/Ctrl+Shift+X`.
-* Search the Marketplace, install / disable / uninstall extensions, see what is already installed.
-* The next chapter uses this to install Dialog IDE.
-+
+The *Extensions view* is where you find, install, and manage extensions. Open it from the Activity
+Bar icon that looks like stacked squares, or with kbd:[Cmd+Shift+X] / kbd:[Ctrl+Shift+X]. From here
+you can search the marketplace, install or uninstall an extension, and disable one without removing
+it. The next chapter uses this view to install Dialog IDE.
+
 // SHOT: extensions-view — Extensions sidebar open with the search box focused.
 
 == What's next
 
-* xref:installing-the-extension.adoc[] — install the Dialog IDE extension.
+xref:installing-the-extension.adoc[] — install the Dialog IDE extension.

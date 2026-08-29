@@ -1,100 +1,129 @@
 = Organizing Your Sources
 :navtitle: Organizing Your Sources
 
-// OUTLINE ONLY — bullets are coverage notes for a later prose pass, not final text.
+`dialog.json` sits at the root of your project folder and tells the extension which files make up
+the project. This chapter covers the parts of it you touch most: the `name`, the `sources` object,
+and `binDir`. The `exports`, `dialogcOptions`, and `feelies` fields are covered in
+xref:building-and-exporting.adoc[].
 
-_The `dialog.json` descriptor: the four source categories, directory vs file entries, ordering, and
-the per-format suffix trick._
-
-== dialog.json at a glance
-
-* Lives at the workspace root. Plain JSON (no comments when read; the extension preserves your
-  formatting when it edits the file).
-* Fields covered here: `name`, `sources`, `binDir`. `exports`, `dialogcOptions`, and `feelies` are
-  covered in xref:building-and-exporting.adoc[].
+The file is plain JSON. When the extension edits it for you — adding a source, adding a feelie — it
+preserves your existing formatting and key order.
 
 == The four source categories
 
-`sources` is an object with up to four keys. Each is a list of directories and/or files.
+`sources` is an object with up to four keys. Each key's value is a list, and each item in that list
+is either a directory or a single file.
 
 [cols="1,3,2",options="header"]
 |===
-| Category | What it is | When it is compiled / loaded
-| `main` | Your story sources — the default category | Always
-| `library` | Shared library code, including the Dialog standard library | Always
-| `debug` | Sources for use under the interactive debugger | Skein sessions, *Debug in Terminal*, *Run Tests*
-| `test` | Unit-test sources | *Run Tests* and `dgbuild test` only — never in a running Skein
+| Category | What it holds | When it is compiled
+
+| `main`
+| Your story sources. This is the default category and the only one that is required.
+| Always.
+
+| `library`
+| Shared library code, including the Dialog standard library.
+| Always.
+
+| `debug`
+| Extra sources for use under the interactive debugger — debugging helpers, layout tweaks.
+| Skein sessions, *Debug in Terminal*, and *Run Tests*.
+
+| `test`
+| Unit-test sources: the objects that drive `(test $)` / `(assert $)` checks.
+| *Run Tests* and `dgbuild test` only. A running Skein never loads them.
 |===
 
-* Only `main` is required.
-* The "Add File to dialog.json..." picker shows these same one-line descriptions.
+The *Dialog IDE: Add File to dialog.json...* command shows these same one-line descriptions when it
+asks which category a file belongs in.
 
-== Directory entries vs file entries
+== Directory entries and file entries
 
-* A *directory* entry contributes every `.dg` file that is a *direct child* of that directory
-  (not recursive), in *lexical (sorted) order*.
-* A *file* entry contributes exactly that one file, wherever you place it in the list.
-* Order within a single directory is therefore not something you control precisely — if order
-  matters between two files, list them individually in the order you need.
-* A missing path is skipped with a log line, not an error.
+A *directory* entry contributes every `.dg` file that sits *directly* inside that directory. It
+does not descend into subdirectories, and the files come in *sorted* (lexical) order.
+
+A *file* entry contributes exactly that one file, in the position you list it.
+
+Because a directory's files arrive in sorted order, you do not have fine control over their
+sequence. When the order between two files matters — and in Dialog it often does — list those
+files individually, in the order you need them, rather than relying on a directory entry.
+
+A path that does not exist on disk is skipped quietly; it is not an error.
+
+// SHOT: dialog-json-with-categories — a realistic dialog.json with several files across the four
+// categories.
 
 == Why order matters
 
-* The extension concatenates categories in a fixed order: `main` -> `test` -> `debug` -> `library`.
-* Dialog resolves rules *top to bottom*, first match wins. So put *exceptions before default
-  rules*, and put files that must override library behavior *before* the library.
+The extension hands the compiler one flat list of files, built by concatenating the categories in a
+fixed order: `main`, then `test`, then `debug`, then `library`.
 
+Dialog resolves rules from the top of that list down, and the first matching rule wins. So put your
+*exceptions before the default rules* they override, and put any file that needs to override
+library behaviour *before* the library itself.
+
+[[live-source-tracking]]
 == Live source tracking
 
-* *Emphasize:* the IDE watches the project's files continuously. Editing a `.dg` file, *adding* a
-  new one, *deleting* one, or renaming — the change is picked up automatically. There is no "refresh
-  sources" or "reload project" step.
-* A directory entry in `dialog.json` re-expands every time, so a file dropped into (or removed from)
-  a `main/` / `debug/` / etc. directory is in (or out of) the next build with no edit to
-  `dialog.json`.
-* The running Skein always compiles against the *current* files: the next command you send, or the
-  next *Replay* / *Replay All*, uses the latest source on disk. You do not need to stop and restart
-  the session after a source change.
-* The uncovered-source and duplicate-source warnings below re-evaluate live as files and
-  `dialog.json` change.
+The extension watches your project's files the whole time it is running. Editing a `.dg` file,
+adding a new one, deleting one, or renaming one is picked up automatically — there is no "refresh
+sources" or "reload project" action, and you never need to restart a Skein session because the
+source changed.
+
+Because a directory entry in `dialog.json` is re-expanded every time the project is compiled, a
+file you drop into `main/` (or `debug/`, or any watched directory) is part of the very next build,
+and a file you delete is gone from it, with no edit to `dialog.json`.
+
+A running Skein always compiles against the *current* files on disk. The next command you send, and
+the next *Replay* or *Replay All*, use the latest source. The uncovered-source and duplicate-source
+warnings described below also re-evaluate live as files and `dialog.json` change.
 
 == Per-format source suffixes
 
-* A file named `<name>.<format>.dg` is included *only* when building for that format.
-** `colors.zblorb.dg` — only in a `.zblorb` export.
-** `layout.dgdebug.dg` — only when running against `dgdebug` (Skein session, *Debug in Terminal*,
-   *Run Tests*).
-** Recognized suffixes: `zblorb`, `z8`, `aa`, `dgdebug`.
-* A file with no suffix, or a suffix that matches no format the IDE builds for, is always included.
-* Use this to tune colors / layout / debug helpers per target without leaking them into other
-  builds.
+A file whose name ends `.<format>.dg` is included *only* when building for that format:
 
-== Uncovered-source warning
+* `colors.zblorb.dg` is compiled into a `.zblorb` export and nowhere else.
+* `layout.dgdebug.dg` is loaded only when running against `dgdebug` — a Skein session,
+*Debug in Terminal*, or *Run Tests*.
 
-* Create a `.dg` file that no category covers and the extension flags it: a dismissible
-  notification *and* a persistent Explorer badge, both with a one-click *"Add to dialog.json"* fix.
-* Toggle with the `dialog-ide.warnOnUncoveredSource` setting.
-+
-// SHOT: uncovered-source-badge-quickfix — Explorer showing the badge on an uncovered .dg file, with
-// the quick-fix action visible.
+The recognised formats are `zblorb`, `z8`, `aa`, and `dgdebug`. A file with no such suffix, or with
+a suffix that does not match any format the extension builds for, is always included.
 
-== Duplicate-source warning
+Use this to keep per-target tweaks — colours, screen layout, debugging shortcuts — from leaking
+into builds where they do not belong.
 
-* A file listed in more than one category (or twice in one, via overlapping directory entries) is
-  flagged — Dialog would compile it twice, and because order matters that is rarely harmless.
-* Toggle with the `dialog-ide.warnOnDuplicateSource` setting.
+== The uncovered-source warning
 
-== Adding files from the palette
+If you create a `.dg` file that no category covers, the extension flags it two ways: a dismissible
+notification, and a badge on the file in the Explorer. Both offer a one-click *Add to dialog.json*
+fix that prompts for a category and edits the file for you.
 
-* *Dialog IDE: Add File to dialog.json...* — pick the current or a browsed `.dg` file, then choose
-  the category. Edits `dialog.json` in place.
-+
-// SHOT: add-file-picker — the category QuickPick with the four categories and their descriptions.
+Turn this off with the `dialog-ide.warnOnUncoveredSource` setting if it gets in your way.
 
+// SHOT: uncovered-source-badge-quickfix — Explorer showing the badge on an uncovered .dg file,
+// with the quick-fix action visible.
+
+== The duplicate-source warning
+
+If a file appears in more than one category — or twice in one category, through overlapping
+directory entries — the extension flags it. Because order matters, a file compiled twice is rarely
+harmless. Turn this off with `dialog-ide.warnOnDuplicateSource`.
+
+== Adding a file from the Command Palette
+
+Run *Dialog IDE: Add File to dialog.json...*. It offers the file currently open in the editor, or
+lets you browse for one, then asks which category to add it to and edits `dialog.json` in place.
+
+// SHOT: add-file-picker — the category QuickPick showing the four categories and their
+// descriptions.
+
+[[pointing-at-a-specific-toolchain-bindir]]
 == Pointing at a specific toolchain (binDir)
 
-* Add a `binDir` field with a directory that contains `dgdebug` / `dialogc` / `aambundle`:
-+
+Add a `binDir` field whose value is a directory containing `dgdebug`, `dialogc`, and (if you use
+the web export) `aambundle`:
+
 [source,json]
 ----
 {
@@ -103,12 +132,12 @@ the per-format suffix trick._
   "sources": { "main": ["src"] }
 }
 ----
-* Relative paths resolve against the project root; absolute paths are used as-is.
-* `binDir` wins over the extension's bundled toolchain *and* anything on `PATH`. Use it for a
-  locally built `dgdebug`, or on a platform the extension does not bundle for.
 
-// SHOT: dialog-json-with-categories — a realistic dialog.json with several files per category.
+A relative path is resolved against the project root; an absolute path is used as-is. `binDir` takes
+priority over everything else — the extension's bundled toolchain and anything on your `PATH`. Use
+it for a locally built `dgdebug`, or on a platform the extension does not bundle a toolchain for
+(see xref:installing-the-extension.adoc[]).
 
 == What's next
 
-* xref:skein-concepts.adoc[] — the ideas behind the Skein before you use it.
+xref:skein-concepts.adoc[] — the ideas behind the Skein, before you start using it.

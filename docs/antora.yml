@@ -4,3 +4,8 @@ version: ~
 start_page: ROOT:index.adoc
 nav:
   - modules/ROOT/nav.adoc
+asciidoc:
+  attributes:
+    experimental: ''
+    idprefix: ''
+    idseparator: '-'

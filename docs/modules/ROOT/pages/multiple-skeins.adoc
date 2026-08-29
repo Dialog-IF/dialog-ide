@@ -1,38 +1,41 @@
 = When to Use More Than One Skein
 :navtitle: Multiple Skeins
 
-// OUTLINE ONLY — bullets are coverage notes for a later prose pass, not final text.
+A project can hold as many `.skein` files as you like. Each is an independent tree with its own
+engine and seed. Most projects are fine with just `default.skein`, but a few situations call for
+more.
 
-_A project can hold any number of `.skein` files. Why and when you would want that._
+== How it works
 
-== The mechanics
+Every `.skein` file at the project root is a separate skein. *Dialog IDE: Run Skein...* lists them
+all for you to choose from, and *Dialog IDE: New Skein...* creates a new one. Only one session runs
+at a time, so opening a second skein prompts you to stop the first. The name of the active skein
+appears in the panel's tab.
 
-* Every `*.skein` file in the project root is a separate skein. *Dialog IDE: Run Skein...* lists
-  them all.
-* Only one session is active at a time; opening another prompts to stop the current one.
-* *Dialog IDE: New Skein...* creates one (engine, seed, file name). The active file name shows in
-  the panel tab.
-+
 // SHOT: run-skein-picker — the Run Skein... QuickPick listing several .skein files.
 
 == Reasons to keep more than one
 
-* *A clean canonical playthrough.* Keep `default.skein` as the tidy, fully-blessed walkthrough —
-  including the knot labeled `WALKTHROUGH` that *Export Web Page* embeds — and do messy exploratory
-  testing in a separate skein.
-* *A different seed or engine.* Engine and seed are fixed when a skein is created. Testing another
-  random seed, or comparing `frotz` against `frotz-release`, requires its own skein.
-* *Focused regression suites.* One skein per feature or area (`combat.skein`, `parser.skein`,
-  `endings.skein`), each small enough to review in a diff, all validated together in CI with
-  `dgbuild run-skein combat parser endings` (xref:command-line-dgbuild.adoc[]).
+A clean canonical playthrough.:: Keep `default.skein` as the tidy, fully blessed walkthrough of the
+project — including the knot labelled `WALKTHROUGH` that *Export Web Page* turns into an embedded
+transcript — and do rough, exploratory testing somewhere else. That keeps the file the web export
+depends on from filling up with dead ends.
+
+A different seed or engine.:: A skein's engine and random seed are fixed when it is created. To
+test your project under a different random seed, or to compare the `frotz` and `frotz-release`
+engines against `dgdebug`, you need a separate skein for each.
+
+Focused regression suites.:: One skein per feature or area — `combat.skein`, `parser.skein`,
+`endings.skein` — keeps each tree small enough to review in a diff, and `dgbuild run-skein` can
+replay them all together in a single continuous-integration step (see
+xref:command-line-dgbuild.adoc[]).
 
 == Keeping them tidy
 
-* Name them for what they cover.
-* Commit every `.skein` you care about — they diff cleanly and are meant to live in version control
-  next to the source.
-* A skein you only used for a throwaway experiment does not need to be committed.
+Name a skein for what it covers. Commit the skeins you care about — they diff cleanly and belong in
+version control next to the source. A skein you only spun up for a throwaway experiment does not
+need to be committed.
 
 == What's next
 
-* xref:building-and-exporting.adoc[] — producing a distributable file.
+xref:building-and-exporting.adoc[] — turning the project into something you can distribute.
