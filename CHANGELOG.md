@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.5.1 - Unreleased
+## 0.5.1 - 28 Aug 2026
 
 - Fix the Skein and Trace views staying in light mode when VS Code is in a dark theme
 - Fix opening a transcript knot's actions menu adding extra vertical space to that knot's response
