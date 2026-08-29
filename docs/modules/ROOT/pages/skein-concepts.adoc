@@ -1,0 +1,109 @@
+= How the Skein Works: Time Travel and the Tree of Timelines
+:navtitle: How the Skein Works
+
+// OUTLINE ONLY — bullets are coverage notes for a later prose pass, not final text.
+
+_The mental model: a persistent, branching record of every command you have tried, and the ability
+to move your viewpoint anywhere in it._
+
+== The core idea
+
+* A running IF project is a read-eval loop: you type a command, it prints a response, the world
+  changes, repeat.
+* Normally that history is ephemeral. The Skein makes it *permanent and branching*: every
+  command/response pair you have ever tried is kept forever, in a tree.
+* The Skein is that tree plus a live interpreter process; this chapter is about the tree.
+
+== Knots
+
+* A *knot* is one command and the response it produced.
+* The same command text can appear as many different knots, because the same input means different
+  things depending on what came before (`take lamp` in the cave vs. in the shop).
+* Each knot also carries: an optional *label*, an optional *marker* color, a *locked* flag, and —
+  once you bless it — a *blessed* response distinct from its current one.
+
+== The tree
+
+* There is always a synthetic *root* knot, shown as `START`. Its "response" is the interpreter's
+  startup banner.
+* A knot's children are the commands you have tried from that point.
+* The tree only ever grows. Branching adds children; it never discards anything.
+
+// SHOT: navgraph-annotated-spine-vs-branches — a nav-graph screenshot annotated to point out the
+// root, the current spine, the active knot, and an off-spine branch.
+
+== The spine and the active knot
+
+* The *spine* is the single path from the root down to one leaf. The transcript on the right always
+  shows the spine.
+* Each knot remembers which child is "selected"; the spine is just those pointers followed from the
+  root.
+* The *active knot* is where your viewpoint is — the last knot you clicked or navigated to. It can
+  sit anywhere along or above the spine without shortening it.
+* Clicking a knot re-points the spine through it, then auto-extends down through any run of
+  single-child knots to the next branch or leaf.
+
+== Siblings
+
+* Siblings are children of the same parent.
+* They are ordered *alphabetically by command text*, not by when you created them. This is the order
+  the keyboard "previous / next sibling" keys follow, and the left-to-right order in the nav graph.
+* Two siblings can never share the same command — re-running a command just re-selects the existing
+  child.
+
+== Time travel (the "multiverse")
+
+* Move the active knot to any earlier point, then start a new command from there. The path you were
+  on is still in the tree; it is just no longer the displayed spine.
+* Every branch is a coexisting timeline. Selecting a different branch only changes which "selected
+  child" pointers the spine follows.
+* Under the hood: the interpreter (`dgdebug`) cannot rewind, so when you act from an earlier knot
+  the extension silently kills and restarts the process and replays from the root to that point,
+  then sends your command. This is normal, everyday use — not a special mode, and not something you
+  confirm.
+
+== Blessing
+
+* *Blessing* a knot means "this response is correct."
+* After that, if a source change ever makes the same command produce different text, the knot flips
+  to *error* and the Skein shows you a word-level diff.
+* *Bless Knot* blesses one knot. *Bless Transcript* blesses every not-yet-valid knot from the root
+  down through the visible transcript.
+* Mechanically: the pending response replaces the blessed one, and the knot becomes *valid*.
+
+== Knot status and tree status
+
+* Each knot has a status:
+** *new* (yellow) — no blessed response yet.
+** *valid* (grey) — the latest response matches what is blessed.
+** *error* (red) — the latest response differs from what is blessed.
+* Separately, every knot has an aggregated *tree status* — the worst status among it and all its
+  descendants (`error` beats `new` beats `valid`). The nav graph uses this to tint the ancestors of
+  a problem knot, so you can spot trouble without expanding every branch.
+
+== Undo and redo
+
+* Unlimited, and always instant.
+* Covers *structural* edits only: running a new command, bless / unbless, delete / splice, edit
+  command, insert parent, label, lock, marker.
+* Does *not* cover pure navigation (moving the active knot, expand / collapse, replay). Undo never
+  re-runs anything — a "snapshot" is just a reference to the previous tree.
+
+== Labels, locking, and markers
+
+* A *label* is a short, tree-unique name for a knot. Used as an anchor — e.g. a knot labeled
+  `WALKTHROUGH` drives the walkthrough embedded by *Export Web Page* (xref:building-and-exporting.adoc[]).
+* *Locking* protects a knot from deletion. A labeled knot is treated as locked for deletion too.
+  Deleting a knot is refused if it or any descendant is locked or labeled.
+* A *marker* is one of four colors (or none), purely cosmetic — "this needs more work." Persisted in
+  the `.skein` file. The navbar has a filter to show only marked branches.
+
+== Fixed for the life of a skein
+
+* The *engine* (`dgdebug`, `frotz`, or `frotz-release`) and the *random seed* are chosen when the
+  skein is created and can never change. Testing a different seed, or `frotz` vs `frotz-release`,
+  means a second skein — see xref:multiple-skeins.adoc[].
+
+== What's next
+
+* xref:creating-and-using-a-skein.adoc[] — create one and tour every control.

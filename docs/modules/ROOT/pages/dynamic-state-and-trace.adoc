@@ -1,0 +1,83 @@
+= Dynamic State and Trace
+:navtitle: Dynamic State and Trace
+
+// OUTLINE ONLY — bullets are coverage notes for a later prose pass, not final text.
+
+_Two inspection tools for understanding why a command did what it did. Both require the `dgdebug`
+engine._
+
+== Dynamic State
+
+* *What it answers:* "what changed in the world as a result of this command?"
+* *Turn it on:* the *Dynamic State* toggle in the navbar. It is a display toggle only — the data is
+  captured either way. Disabled for non-`dgdebug` engines.
+* *What you see:* after each transcript knot, a row of chips:
+** `+name` on a green chip — a flag / variable that became true or appeared.
+** `-name` on a yellow chip — one that became false or disappeared.
+** `name = value` on a blue chip — a variable whose value changed.
+* *Baseline for the diff:* the nearest ancestor knot that has a captured snapshot (not always the
+  immediate parent — freshly loaded skeins and keystroke-reached knots have none).
++
+// SHOT: dynamic-state-chips — a transcript with the toggle on, showing +/-/changed chips under a
+// couple of knots.
+
+=== Where the data comes from
+
+* After every command the extension sends `dgdebug`'s `@dynamic` query and parses four sections:
+** *global flags* — global predicates currently true.
+** *per-object flags* — per-object predicates, with the objects they hold for.
+** *global variables* — global predicate -> value.
+** *per-object variables* — per-object predicate -> (object, value).
+* `(has parent)` + `(has relation)` are merged into one synthesized `($ is $ $)` *location*
+  predicate per object.
+* Snapshots are session-only — never written to the `.skein` file — but they do ride along with
+  undo / redo.
+
+=== Limitations
+
+* `dgdebug` only.
+* Not captured for a command that ends on a single-keystroke prompt (the debugger cannot be
+  interrupted mid-keystroke to run the query).
+
+== Trace
+
+* *What it answers:* "which predicates were tried for this command, in what order, and where are
+  they defined?"
+* *Open it:* a knot's "..." menu -> *Trace*, or `Option/Alt+T`. On the root knot this traces *game
+  startup* instead. The Trace panel auto-reveals (panel area, alongside Terminal / Output / Debug
+  Console).
+* Tracing does not move the active knot and never changes the skein — the trace tree is regenerated
+  from scratch each time.
+
+=== Reading the trace
+
+* A tree of predicate calls. Each row: an expand chevron (if it has children), a *type badge*, the
+  predicate expression, and a `file:line` source location (relativized to the project root).
+* Type badges: *ENTER* (blue), *QUERY* (grey), *FOUND* (green), *NOW* (yellow).
+* *Expand All* / *Collapse All* buttons in the header.
++
+// SHOT: trace-panel-with-source-preview — the Trace panel with an expanded call tree and a
+// syntax-highlighted source-preview popover hovering over one row.
+
+=== Filtering and source preview
+
+* *Filter* box (debounced): marks matching rows and auto-expands their ancestors. Press *Enter* to
+  jump to the next match, cycling.
+* *Hover* a row for ~150 ms to get a syntax-highlighted source snippet in a popover that follows the
+  cursor.
+* *Click* a row to open that source file at that line in the editor.
+
+=== How the trace is produced
+
+* The extension replays the process to the knot's *parent*, sends `(trace on)`, sends the knot's
+  command, captures the output, then `(trace off)`. Startup traces relaunch `dgdebug` with
+  `--trace`.
+
+=== Limitations
+
+* `dgdebug` only, and unavailable for a knot reached via a keystroke prompt — the menu item is
+  disabled in those cases.
+
+== What's next
+
+* xref:multiple-skeins.adoc[] — when one skein is not enough.

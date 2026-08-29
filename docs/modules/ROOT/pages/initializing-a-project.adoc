@@ -1,0 +1,87 @@
+= Starting a New Project
+:navtitle: Starting a New Project
+
+// OUTLINE ONLY — bullets are coverage notes for a later prose pass, not final text.
+
+_Scaffold a new Dialog project, understand what was created, and run it for the first time._
+
+== Create and open a folder
+
+* Make an empty folder for the project (Finder / Explorer / `mkdir`).
+* In VS Code: *File > Open Folder...* and select it. The Explorer now shows an empty workspace.
+* A Dialog project is just "a folder with a `dialog.json` in it" — the next step creates that file.
+
+== Run "Initialize Dialog Project"
+
+* Command Palette -> *Dialog IDE: Initialize Dialog Project*.
+* One prompt: the *project name* (defaults to the folder name). Used for the `name` field and as the
+  cover-image alt text.
+* It refuses to run if a `dialog.json` already exists.
++
+// SHOT: init-command-palette — Command Palette with "Dialog IDE: Initialize Dialog Project"
+// highlighted.
+
+== What gets scaffolded
+
+* Directories, named 1:1 with the source categories (xref:project-sources.adoc[]):
+** `main/` — your story sources
+** `lib/` — the Dialog standard library and shared code
+** `debug/` — sources loaded only under the debugger
+** `test/` — sources loaded only when running tests
+* `main/meta.dg` — starter `(story ...)` directives (title, author, blurb, noun, release), plus a
+  freshly generated `(story ifid)` UUID. An IFID is mandatory for the `.zblorb` build format.
+* `main/story.dg` — a minimal room + player pair, enough to start an interactive read loop.
+* `lib/stdlib.dg`, `lib/stddebug.dg`, `lib/unit.dg` — copied from the bundled Dialog library;
+  each wired into just the category that needs it.
+* `cover.png` — a placeholder cover image at the project root (replace with your own).
+* `introduction-to-if.pdf`, `play-if-card.pdf` — the two "how to play IF" feelies, wired into
+  `dialog.json`'s `feelies` array (xref:building-and-exporting.adoc[]).
+* `dialog.json` — the generated descriptor (below).
+* When it finishes, `main/story.dg` opens in the editor.
++
+// SHOT: scaffolded-explorer-tree — Explorer showing main/ lib/ debug/ test/, dialog.json,
+// cover.png, and the two PDFs.
+
+== Reading the generated dialog.json
+
+* Show and annotate the generated file:
++
+[source,json]
+----
+{
+  "name": "my-project",
+  "sources": {
+    "main": ["main"],
+    "test": ["test", "lib/unit.dg"],
+    "debug": ["debug", "lib/stddebug.dg"],
+    "library": ["lib/stdlib.dg"]
+  },
+  "feelies": [
+    { "path": "introduction-to-if.pdf", "name": "Introduction to IF" },
+    { "path": "play-if-card.pdf", "name": "IF in One Page" }
+  ]
+}
+----
+* Each `sources` entry is a list of directories or individual files; full rules in
+  xref:project-sources.adoc[].
++
+// SHOT: generated-dialog-json — the file open in the editor with syntax coloring.
+
+== First run
+
+* Click the status-bar *Dialog Skein* item, or run *Dialog IDE: Run Default Skein*.
+* The Skein panel opens; the transcript shows the interpreter's startup banner (the root knot).
+* Type a command in the box at the bottom, press Enter, watch the response appear as a new knot.
+* Full tour in xref:creating-and-using-a-skein.adoc[].
++
+// SHOT: first-skein-session — Skein panel just after one command, root + one child knot.
+
+== Opening an existing project
+
+* Nothing special: *File > Open Folder...* on any folder that contains a `dialog.json`.
+* If the folder has a `.dg` file that no category covers, the extension flags it — see the
+  uncovered-source warning in xref:project-sources.adoc[].
+
+== What's next
+
+* xref:project-sources.adoc[] — how `dialog.json` organizes sources.

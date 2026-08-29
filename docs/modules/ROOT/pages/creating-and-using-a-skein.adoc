@@ -1,0 +1,156 @@
+= Creating a Skein and Touring the Panel
+:navtitle: Creating and Using a Skein
+
+// OUTLINE ONLY — bullets are coverage notes for a later prose pass, not final text.
+
+_Create a skein, then a control-by-control tour of the panel: transcript, nav graph, command input,
+the per-knot menu, the navbar, replaying, search, and keyboard shortcuts._
+
+== Creating and opening a skein
+
+* *Dialog IDE: New Skein...* — prompts for the engine (`dgdebug` / `frotz` / `frotz-release`), a
+  random seed, and a file name (defaults to `default.skein`). Creates the file and starts the
+  session.
+* *Dialog IDE: Run Default Skein* — runs `default.skein` if it already exists.
+* *Dialog IDE: Run Skein...* — pick from every `*.skein` file in the project.
+* *Dialog IDE: Open Skein* — reveal the panel for the running session.
+* *Dialog IDE: Save Skein* — write the tree back to its `.skein` file (the only action that writes
+  to disk).
+* *Dialog IDE: Stop Skein* — stop the session. Stopping never auto-saves.
+* Status-bar item: shows the running session, or starts the default one on click.
+* Only one session runs at a time; switching prompts to stop the current one.
+* `default.skein` is special: it is the default new-skein name, the only file *Run Default Skein*
+  touches, and the file *Export Web Page* reads for a `WALKTHROUGH` knot. See
+  xref:multiple-skeins.adoc[].
+
+== Panel layout
+
+* A fixed-height column: *navbar* on top (never scrolls), then a row of *nav graph* (left,
+  resizable) and *transcript* (right), then the *command input* at the bottom.
++
+// SHOT: skein-panel-annotated — the whole panel with each region labeled: navbar, nav graph,
+// transcript, command input.
+
+== The transcript
+
+* Renders the spine, root to selected leaf, one row per knot: the command, then its response.
+* The *active knot* has a blue left border. Every knot has a status-colored left border:
+** grey = *valid*, yellow = *new*, red = *error*.
+* *valid* rows render the response with real ANSI styling (bold, color).
+* *new* / *error* rows switch to a fixed-width font with *visible whitespace* (dots for spaces, a
+  glyph for newlines) and a *word-level diff* — removed text struck through in red, added text in
+  blue.
+* Top-right of each row: lock icon (if locked), marker dot (if marked), label chip (if labeled), and
+  always the *"..." actions-menu trigger*.
+* A small command pill appears on rows reached via a single-keystroke prompt.
+* Clicking a row (anywhere but the menu) makes that knot active.
+* There is no right-click menu — the "..." trigger is the only way in.
++
+// SHOT: diff-rendering — a transcript row in the error state showing a red/blue word-level diff.
+
+== The command input
+
+* *Line prompt* (normal): a text field prefixed `>`; submit with Enter. Auto-focuses after each
+  command and scrolls into view.
+* *Keystroke prompt* (the knot's response ended on a "press any key" style prompt): a one-character
+  field labeled *Key:* plus *Enter*, *Space*, and *Backspace* buttons. Any single printable key
+  submits immediately.
++
+// SHOT: keystroke-input — the keystroke variant of the command input with its three buttons.
+
+== The nav graph
+
+* Shows the *entire tree*, not just the spine, color-coded like the transcript, with a faded tint on
+  ancestors that have a new / errored descendant.
+* Each node pill: status icon, lock / marker / label, command text, and a compact "..." trigger.
+* *Click a pill* (or focus it and press Enter) to make that knot active; the transcript updates to
+  the path down to it.
+* *Expand / collapse* chevron below any pill with children; `Option/Alt+X` toggles it for the active
+  knot. Default is fully expanded.
+* *Connector lines* are drawn behind the pills and redrawn on any change.
+* *Drag* the pane background to pan. *Mouse wheel* zooms centered on the cursor; a *`+` / `-`* button
+  pair bottom-right zooms centered on the middle.
+* Drag the divider between the graph and the transcript to resize; the width is remembered.
++
+// SHOT: navgraph-closeup — a branching nav graph with an active node, a collapsed node, and a
+// tinted ancestor.
+
+== The per-knot actions menu
+
+* Opened only by a knot's "..." trigger, in either pane. Opening it does not change the active knot.
+* Items, top to bottom (the `Option/Alt+key` hint shows only on the active knot):
+
+[cols="2,4,2",options="header"]
+|===
+| Item | Effect | Key
+| Bless Knot | Accept this knot's current response (disabled if nothing is pending) | `⌥B`
+| New Child | Branch a new command from here (time travel) | `⌥A`
+| Replay to Here | Re-run root -> this knot, checking each response against what is blessed | `⌥R`
+| Trace | Open the Trace panel for this knot (root traces game startup) | `⌥T`
+| Edit Label... | Set / change / clear the knot's label | `⌥L`
+| Marker swatches | Set one of four colors, or Clear | —
+| Edit Command... | Change this knot's command text | `⌥E`
+| Toggle Lock | Protect / unprotect from deletion | `⌥K`
+| Insert Parent... | Splice a new knot in above this one | —
+| Splice Out | Remove this knot, reparenting its children | —
+| Delete | Delete this knot and its descendants | `⌥D`
+|===
+
+* On the *root* knot, everything except Trace (which becomes "trace startup") is disabled.
+* Trace, Insert Parent, and Dynamic State are unavailable on a knot reached via a keystroke prompt.
+* Delete flashes an error and refuses if the knot or any descendant is locked or labeled.
++
+// SHOT: knot-menu-open — the actions menu open on a knot in the transcript.
+
+== The navbar
+
+Left to right:
+
+* *Status badges* — a green *ok* count (plain), plus clickable yellow *new* and red *error* counts.
+  Clicking new / error jumps to the next matching knot anywhere in the tree, cycling with
+  wraparound and remembering position per status.
+* *Search box* — see below.
+* *Dynamic State* toggle — an inline summary of what changed after each knot; `dgdebug` only. See
+  xref:dynamic-state-and-trace.adoc[].
+* *Marker filter* — four color swatches; each shows only branches containing that marker. Click the
+  active one again to clear.
+* *Save* (`⌘S`), *Replay All* (`⌥⇧R`), *Bless Transcript* (`⌥⇧B`).
+
+== Replaying
+
+* *Replay to Here* / *Replay to active knot* (`⌥R`) — re-runs the project from the root through the
+  active knot and checks each response against what is blessed. The fast way to confirm a source
+  change did what you intended on the path you are looking at.
+* *Replay All* (`⌥⇧R`) — does that for *every* leaf in the tree, in parallel, with a cancellable
+  progress notification. Confirms the whole skein still holds together.
+* Replay always compiles against the *current* files on disk — including any `.dg` files you have
+  added or deleted since the session started. No restart needed; see
+  xref:project-sources.adoc#_live_source_tracking[Live source tracking].
++
+// SHOT: replay-all-progress — the Replay All progress notification with its Cancel button.
+
+== Search
+
+* Box in the navbar; `Option/Alt+F` focuses it.
+* Debounced; every whitespace-separated term must match (AND), against each knot's *label and
+  response text*.
+* Results dropdown shows the command, a label chip, and a snippet with matched terms highlighted.
+* Arrow keys move between results; Enter opens one (and scrolls the transcript to it); Esc clears.
++
+// SHOT: search-results — the search dropdown with a few results and highlighted matches.
+
+== Keyboard shortcuts
+
+include::partial$keyboard-reference.adoc[]
+
+== Saving and version control
+
+* `.skein` files are plain, line-oriented text at the project root, designed to diff cleanly.
+  *Commit them alongside your source.*
+* Saving is *explicit only* — nothing else ever writes the file. Stopping or switching sessions does
+  not save.
+* If the active `.skein` changes on disk outside the IDE, you are prompted to reload it.
+
+== What's next
+
+* xref:dynamic-state-and-trace.adoc[] — the two `dgdebug`-only inspection tools.

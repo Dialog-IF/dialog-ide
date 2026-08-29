@@ -1,0 +1,49 @@
+= Troubleshooting and Known Limitations
+:navtitle: Troubleshooting
+
+// OUTLINE ONLY — bullets are coverage notes for a later prose pass, not final text.
+
+_Current limitations, the usual "it won't run" causes, and where files end up._
+
+== Known limitations
+
+* `frotz` / `frotz-release` need `dfrotz` on `PATH` or `binDir` — unlike `dgdebug` / `dialogc`, it
+  is not bundled yet.
+* No full "reload from disk" for a `.skein` changed outside the IDE beyond the change prompt.
+* Dynamic State and Trace require the `dgdebug` engine, and are unavailable for a command that ends
+  on a single-keystroke prompt.
+* *Export Web Page* needs `aambundle` (from AAmachine) in addition to `dgdebug` / `dialogc`.
+* An export configuration cannot be edited in place — remove it and add it again.
+* Intel Macs and Linux ARM have no bundled toolchain — install Dialog yourself (see
+  xref:installing-the-extension.adoc[]).
+
+== "dgdebug not found" / "command not found"
+
+* You are on a platform without a bundled toolchain, or the bundled one did not resolve.
+* Fix: put `dgdebug` / `dialogc` on your `PATH`, or add `"binDir": "/path/to/bin"` to `dialog.json`
+  (xref:project-sources.adoc[]). `binDir` wins over everything else.
+* `aambundle` is only needed for *Export Web Page*; `dfrotz` only for the frotz engines.
+
+== A .dg file "isn't being compiled"
+
+* Check it is covered by a `sources` category — the extension shows an Explorer badge and a
+  notification for uncovered files, with a one-click fix.
+* Check its name: a `<name>.<format>.dg` suffix restricts it to that one build target.
+* Check ordering — `main` -> `test` -> `debug` -> `library`, first matching rule wins.
+
+== The Skein and something on disk disagree
+
+* Saving is explicit only. If you edited the `.skein` externally, accept the reload prompt; if you
+  changed source, use *Replay* / *Replay All* to re-check blessed responses.
+
+== Where files live
+
+* `*.skein` — the project root. Commit them.
+* Compiled story files — wherever each export configuration's `output` points.
+* Web export — `out/web/` plus a zip in `out/`.
+* Frotz session builds — a temp directory, rebuilt on every session start.
+
+== Getting help
+
+* The Interactive Fiction Community Forum thread for Dialog IDE:
+  https://intfiction.org/t/dialog-ide-0-0-1/81465

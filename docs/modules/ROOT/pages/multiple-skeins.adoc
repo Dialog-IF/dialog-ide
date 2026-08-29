@@ -1,0 +1,38 @@
+= When to Use More Than One Skein
+:navtitle: Multiple Skeins
+
+// OUTLINE ONLY — bullets are coverage notes for a later prose pass, not final text.
+
+_A project can hold any number of `.skein` files. Why and when you would want that._
+
+== The mechanics
+
+* Every `*.skein` file in the project root is a separate skein. *Dialog IDE: Run Skein...* lists
+  them all.
+* Only one session is active at a time; opening another prompts to stop the current one.
+* *Dialog IDE: New Skein...* creates one (engine, seed, file name). The active file name shows in
+  the panel tab.
++
+// SHOT: run-skein-picker — the Run Skein... QuickPick listing several .skein files.
+
+== Reasons to keep more than one
+
+* *A clean canonical playthrough.* Keep `default.skein` as the tidy, fully-blessed walkthrough —
+  including the knot labeled `WALKTHROUGH` that *Export Web Page* embeds — and do messy exploratory
+  testing in a separate skein.
+* *A different seed or engine.* Engine and seed are fixed when a skein is created. Testing another
+  random seed, or comparing `frotz` against `frotz-release`, requires its own skein.
+* *Focused regression suites.* One skein per feature or area (`combat.skein`, `parser.skein`,
+  `endings.skein`), each small enough to review in a diff, all validated together in CI with
+  `dgbuild run-skein combat parser endings` (xref:command-line-dgbuild.adoc[]).
+
+== Keeping them tidy
+
+* Name them for what they cover.
+* Commit every `.skein` you care about — they diff cleanly and are meant to live in version control
+  next to the source.
+* A skein you only used for a throwaway experiment does not need to be committed.
+
+== What's next
+
+* xref:building-and-exporting.adoc[] — producing a distributable file.

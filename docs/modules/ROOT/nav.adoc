@@ -1,0 +1,16 @@
+* xref:index.adoc[Introduction]
+* Getting set up
+** xref:installing-vscode.adoc[Installing Visual Studio Code]
+** xref:installing-the-extension.adoc[Installing the Dialog IDE Extension]
+** xref:initializing-a-project.adoc[Starting a New Project]
+** xref:project-sources.adoc[Organizing Your Sources]
+* The Skein
+** xref:skein-concepts.adoc[How the Skein Works]
+** xref:creating-and-using-a-skein.adoc[Creating a Skein and Touring the Panel]
+** xref:dynamic-state-and-trace.adoc[Dynamic State and Trace]
+** xref:multiple-skeins.adoc[When to Use More Than One Skein]
+* Shipping
+** xref:building-and-exporting.adoc[Building and Releasing Your Project]
+* Advanced
+** xref:command-line-dgbuild.adoc[Command-Line Testing with dgbuild]
+** xref:troubleshooting.adoc[Troubleshooting and Known Limitations]

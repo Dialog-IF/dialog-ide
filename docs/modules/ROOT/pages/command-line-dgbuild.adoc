@@ -1,0 +1,89 @@
+= Command-Line Testing with dgbuild
+:navtitle: Command-Line Testing with dgbuild
+
+// OUTLINE ONLY — bullets are coverage notes for a later prose pass, not final text.
+
+_`dgbuild` runs the same project checks as the extension, headlessly, for scripts and CI._
+
+== What dgbuild is
+
+* A command-line tool: no VS Code, no extension host. Three subcommands — `test`, `run-skein`,
+  `sources`.
+* Named to sit with the rest of the toolchain (`dgdebug`, `dialogc`, `aambundle`), not after the
+  extension.
+* Ships *inside* the `dialog-ide` npm package.
+
+== Installing
+
+* `npm install -g dialog-ide`, then run `dgbuild` anywhere.
+* Or without installing: `npx -p dialog-ide dgbuild ...`.
+* *Do not* run plain `npx dgbuild` — that resolves to an unrelated, older package.
+* The npm package ships *no binaries*: `dgdebug` (and `dialogc` where needed) must be on `PATH`, or
+  set `binDir` in `dialog.json`.
+* Run from the project root, or pass `-p <dir>` / `--project <dir>`.
+
+== dgbuild test
+
+* Runs the project's unit tests via `dgdebug --unit-test` and forwards its exit code.
+* Exits non-zero on any test failure — *and* if `dialog.json` declares no `test` sources at all
+  (nothing to run is a failure, not a silent pass).
+* Options:
+** `--no-debug` — exclude the `debug` sources (they are included by default, matching *Run Tests*).
+** anything after the options is passed straight through to `dgdebug`.
+* Writing the tests themselves (`(test *)` / `(assert ...)` objects) is covered in the Dialog
+  manual's "Testing and Debugging" chapter, not here.
+* In the IDE, the equivalent is *Dialog IDE: Run Tests*.
+
+[source,console]
+----
+$ dgbuild test
+$ dgbuild test --no-debug
+$ dgbuild test -p ./my-project -- --width 80
+----
+
+== dgbuild run-skein
+
+* Replays one or more saved skeins (default: `default`) against a fresh `dgdebug` process each,
+  comparing every knot's live response to its blessed response.
+* Prints a per-skein summary — `name: valid/new/error (valid/new/error)` — and a `total` line when
+  more than one skein is given. Errored knots are listed above the summary.
+* *Exit code:* non-zero only if some knot is in *error*. Unblessed *new* knots do *not* fail the
+  build — bless them first if you want CI to require them.
+* `-v` / `--verbose` shows the underlying `dgdebug` lifecycle logging (quiet by default).
+* In the IDE, the equivalent is *Replay All*.
+
+[source,console]
+----
+$ dgbuild run-skein
+default: 200/0/1 (valid/new/error)
+
+$ dgbuild run-skein combat parser endings
+----
+
+== dgbuild sources
+
+* Prints the project's fully expanded source file list (what the compiler would actually receive).
+* Options: `-d` / `--debug`, `-t` / `--test` to include those categories; `-T <suffix>` /
+  `--target <suffix>` to filter by target suffix; `-1` / `--single-line` for a colon-joined line.
+* Use it to feed a custom `dialogc` invocation in a script.
+
+[source,console]
+----
+$ dgbuild sources -d
+$ dgbuild sources -1 -T zblorb
+----
+
+== In CI
+
+* A minimal GitHub Actions release gate:
++
+[source,yaml]
+----
+- run: npx -p dialog-ide dgbuild test && npx -p dialog-ide dgbuild run-skein
+----
+* The runner also needs the Dialog toolchain (`dgdebug`) available — install it on `PATH`, or point
+  `dialog.json`'s `binDir` at it.
+
+== What's next
+
+* xref:troubleshooting.adoc[] — known limitations and common failures.

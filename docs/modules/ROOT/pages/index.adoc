@@ -1,0 +1,61 @@
+= Dialog IDE
+:navtitle: Introduction
+
+// OUTLINE ONLY — the bullets below are coverage notes for a later prose pass, not final text.
+
+_What Dialog IDE is, what the Skein gives you, and how to use this manual._
+
+== What Dialog IDE is
+
+* A Visual Studio Code extension for writing interactive fiction in the
+  https://github.com/dialog-if/dialog[Dialog] language.
+* Its centerpiece is the *Skein*: an interactive, web-style panel for running, testing, and
+  debugging a project without leaving the editor.
+* Terminology: the Dialog tooling says *project*, not *game* — not every work of IF is a game.
+
+// SHOT: hero-skein-beside-editor — VS Code with a .dg file open on the left and the Skein panel
+// (nav graph + transcript + command box) open beside it on the right. The reference "money shot".
+
+== What the Skein gives you
+
+One line each; each is expanded in its own chapter later.
+
+* *Time travel* — jump back to any earlier point in play and try a different command, without
+  losing the path you already explored. (xref:skein-concepts.adoc[])
+* *Blessing* — mark a response as correct, so you are warned if a later code change ever produces a
+  different response. (xref:skein-concepts.adoc[])
+* *Replay All* — re-run every path through the project in seconds to confirm a change broke nothing.
+  (xref:creating-and-using-a-skein.adoc[])
+* *Trace* — see exactly which predicates fired for a command, with clickable links into the source.
+  (xref:dynamic-state-and-trace.adoc[])
+* *Dynamic state* — inspect the flags, variables, and relations that changed as a result of a
+  command. (xref:dynamic-state-and-trace.adoc[])
+
+== Who this manual is for
+
+* Written for someone who has *never used Visual Studio Code*. The next chapter starts at
+  "download VS Code".
+* Existing VS Code users can skip to xref:installing-the-extension.adoc[].
+* Authors who want command-line / CI testing want xref:command-line-dgbuild.adoc[].
+
+== How to read it
+
+* Getting set up (install VS Code -> install the extension -> initialize a project -> understand
+  source layout) is meant to be read in order, once.
+* The Skein chapters are reference-shaped; dip in as needed.
+* xref:troubleshooting.adoc[] collects the known limitations and the common "it won't run" causes.
+
+== What Dialog IDE does not do
+
+* It does not replace the Dialog compiler or debugger — it drives the existing toolchain
+  (`dgdebug`, `dialogc`).
+* Source *editing* is mostly stock VS Code: the extension contributes `.dg` syntax highlighting,
+  folding, bracket/indent rules, an Outline view, and workspace "Go to Symbol", then gets out of
+  the way. Everything else in this manual is about *running* the project through the Skein.
+* It is not the Dialog language manual. For the language itself, and for writing
+  `(test *)` / `(assert ...)` objects, see the Dialog manual bundled with the
+  https://github.com/dialog-if/dialog[Dialog toolchain].
+
+== What's next
+
+* xref:installing-vscode.adoc[] — install Visual Studio Code.

@@ -1,0 +1,6 @@
+name: dialog-ide
+title: Dialog IDE
+version: ~
+start_page: ROOT:index.adoc
+nav:
+  - modules/ROOT/nav.adoc

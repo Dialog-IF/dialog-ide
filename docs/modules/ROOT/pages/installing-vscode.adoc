@@ -1,0 +1,57 @@
+= Installing Visual Studio Code
+:navtitle: Installing VS Code
+
+// OUTLINE ONLY — bullets are coverage notes for a later prose pass, not final text.
+
+_Get Visual Studio Code installed and learn the three UI pieces this manual leans on._
+
+== What Visual Studio Code is
+
+* A free, open-source code editor from Microsoft; runs on macOS, Windows, and Linux.
+* Often shortened to "VS Code". Not the same as "Visual Studio".
+* You do not need a Microsoft account to use it.
+
+== Downloading and installing
+
+* Go to https://code.visualstudio.com and download the build for your operating system.
+* macOS: unzip, drag *Visual Studio Code* to Applications, launch it.
++
+// SHOT: vscode-download-page — code.visualstudio.com with the platform download buttons visible.
+* Windows: run the `.exe` installer; accept defaults. The "Add to PATH" option (checked by default)
+  is what makes the `code` command work later.
+* Linux: `.deb` / `.rpm` packages or the Snap; distro-specific notes on the download page.
+* Optional: the `code` shell command.
+** Windows: added by the installer.
+** macOS: open the Command Palette (below) and run *Shell Command: Install 'code' command in PATH*.
+** Used later for `code --install-extension ...` and for opening a folder from a terminal.
+
+== First launch and the "open a folder" model
+
+* VS Code always works against a *folder* (it calls this a "workspace"). There is no "new file, save
+  anywhere" habit here — you open the folder your project lives in, and everything is relative to
+  it.
+* *File > Open Folder...* (macOS: *File > Open...*) — this is how you will open a Dialog project.
+* The Explorer (top icon in the Activity Bar, or `Cmd/Ctrl+Shift+E`) shows that folder's files.
++
+// SHOT: vscode-first-window — a fresh VS Code window, Welcome tab, Activity Bar on the left labeled.
+
+== The Command Palette
+
+* `Cmd+Shift+P` on macOS, `Ctrl+Shift+P` on Windows/Linux.
+* A searchable list of *every* command. This manual runs almost everything from here — every Dialog
+  IDE action is a command named *Dialog IDE: ...*.
+* Start typing to filter; press Enter to run the highlighted command; Esc to dismiss.
++
+// SHOT: command-palette — palette open, "Dialog IDE" typed, the extension's commands listed.
+
+== The Extensions view
+
+* Activity Bar icon that looks like stacked squares, or `Cmd/Ctrl+Shift+X`.
+* Search the Marketplace, install / disable / uninstall extensions, see what is already installed.
+* The next chapter uses this to install Dialog IDE.
++
+// SHOT: extensions-view — Extensions sidebar open with the search box focused.
+
+== What's next
+
+* xref:installing-the-extension.adoc[] — install the Dialog IDE extension.
