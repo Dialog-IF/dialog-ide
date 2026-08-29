@@ -1,0 +1,35 @@
+// Reused by creating-and-using-a-skein.adoc; can also be pulled into troubleshooting or an appendix.
+// Modifier is Option (⌥) on macOS, Alt on Windows/Linux. ⌘ = Ctrl on Windows/Linux.
+
+.Tree-wide
+[cols="1,3",options="header"]
+|===
+| Keys | Action
+| `⌘S` | Save skein
+| `⌘Z` / `⌘⇧Z` | Undo / Redo (structural edits only; instant)
+| `⌥⇧R` | Replay All
+| `⌥⇧B` | Bless Transcript
+| `⌥F` | Focus the search box
+| `⌥⇧↑` / `⌥⇧↓` | First knot (root) / last knot (leaf)
+| `⌘⇧A` | Open the Command Palette from inside the Skein / Trace panel
+|===
+
+.Active knot
+[cols="1,3",options="header"]
+|===
+| Keys | Action
+| `⌥↑` / `⌥↓` | Parent / child knot
+| `⌥←` / `⌥→` | Previous / next sibling (alphabetical)
+| `⌥B` | Bless Knot
+| `⌥R` | Replay to active knot
+| `⌥A` | New Child (time travel)
+| `⌥E` | Edit Command
+| `⌥L` | Edit Label
+| `⌥K` | Toggle Lock
+| `⌥D` | Delete
+| `⌥X` | Toggle expand / collapse in the nav graph
+| `⌥T` | Trace
+|===
+
+* *Insert Parent* and *Splice Out* are in the "..." menu with no accelerator.
+* The navbar new / error seek badges, zoom, pan, and pane resize are mouse-only.

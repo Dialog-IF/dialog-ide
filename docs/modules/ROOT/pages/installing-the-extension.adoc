@@ -1,0 +1,77 @@
+= Installing the Dialog IDE Extension
+:navtitle: Installing the Extension
+
+With VS Code installed, adding Dialog IDE takes a minute. This chapter also covers what the Dialog
+toolchain needs on your particular platform, since that varies, and how to confirm the extension is
+working.
+
+== Install from the Extensions view
+
+. Open the Extensions view with kbd:[Cmd+Shift+X] / kbd:[Ctrl+Shift+X].
+. Search for *Dialog IDE*. The entry you want is published by `hlship`; its marketplace identifier
+is `hlship.dialog-ide`.
+. Click *Install*.
+
+image::marketplace-extension-page.png["the Dialog IDE marketplace page inside VS Code's Extensions view, Install button visible; if the unverified-publisher note shows, include it in the crop"]
+
+During or after installing you may see a note that the publisher is *not verified* — the wording is
+along the lines of "hlship is not a verified publisher" or "This publisher has not verified
+ownership of a domain". This refers only to domain verification, a marketplace feature Dialog IDE
+has not set up. It is not a security warning and it does not affect how the extension works.
+Continue with the installation.
+
+// TODO(flesh-out): confirm VS Code's exact current wording for the unverified-publisher note and
+// quote it verbatim.
+
+== Other ways to install
+
+If you prefer the command line, and set up the `code` command in
+xref:installing-vscode.adoc#the-code-command[the previous chapter]:
+
+[source,console]
+----
+code --install-extension hlship.dialog-ide
+----
+
+On a machine with no marketplace access, or to install a pre-release build, use a `.vsix` file:
+open the *"..."* menu at the top of the Extensions view and choose *Install from VSIX...*, or run
+`code --install-extension dialog-ide-<version>.vsix`.
+
+== What the Dialog toolchain needs on your platform
+
+The extension does not interpret or compile Dialog itself. It runs external binaries: `dgdebug` to
+run a project, `dialogc` to build one, and — for a couple of features — `aambundle` and `dfrotz`.
+Whether you have to install those yourself depends on your platform.
+
+include::partial$requirements-matrix.adoc[]
+
+If your platform is not one of the bundled ones, or you want the extension to use a specific build
+of the toolchain, set a `binDir` in the project's `dialog.json` pointing at the directory that
+contains the binaries. `binDir` overrides both the bundled toolchain and anything on your `PATH`.
+This is covered in xref:project-sources.adoc#pointing-at-a-specific-toolchain-bindir[the next
+chapter].
+
+== If you had dialog-language-support installed
+
+If you previously installed the separate
+https://marketplace.visualstudio.com/items?itemName=sideburns3000.dialog-language-support[`dialog-language-support`]
+extension, Dialog IDE notices at startup and offers to help you disable or uninstall it. Do so.
+Running both leads to inconsistent `.dg` highlighting and a duplicated "Compile to..." entry in the
+editor's context menu. Dialog IDE now bundles the same grammar, so you lose nothing by removing the
+older extension.
+
+== Confirm it is working
+
+Open any `.dg` file. You should see syntax coloring, and pressing kbd:[Cmd+Shift+O] /
+kbd:[Ctrl+Shift+O] should list the file's symbols. At the bottom-left of the window, a status-bar
+item reading *Dialog Skein* appears; when no session is running it shows a play icon and starts the
+default skein if you click it.
+
+image::status-bar-item.png["bottom-left status bar showing the idle 'Dialog Skein' item"]
+
+If highlighting works but the *Dialog IDE:* commands fail when you run them, the cause is almost
+always a missing toolchain — check the table above, and see xref:troubleshooting.adoc[].
+
+== What's next
+
+xref:initializing-a-project.adoc[] — scaffold a new project.

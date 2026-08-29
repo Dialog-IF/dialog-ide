@@ -1,0 +1,139 @@
+= Screenshot shot-list
+:page-role: -toc
+
+// Not a published page (it lives outside modules/, so Antora ignores it) — a working checklist for
+// capturing the manual's screenshots. Each row is one `image::<slug>.png[]` macro in a chapter;
+// the current file is a generated placeholder. To do a real capture, follow the row and overwrite
+// modules/ROOT/images/<slug>.png.
+//
+// Surfaces:
+//   VS CODE   — VS Code window chrome (Explorer, Command Palette, notifications, status bar).
+//               Cannot be automated; capture by hand (macOS ⇧⌘4, Windows Snipping Tool).
+//   WEBVIEW   — the Skein or Trace panel. It is a localhost web page; can be captured by hand in
+//               VS Code, or driven headlessly against the `src/dialoged/skein/__fixtures__/project/
+//               dgsample` fixture (dgdebug is on PATH). See the plan's "open questions".
+//   BROWSER   — a plain web browser (the exported web page).
+//
+// Style: light theme, default VS Code UI, window ~1400px wide, no personal info on screen.
+// Annotations (arrows / labels) are added after capture; note them in "annotate".
+
+[cols="1,1,2,3,2",options="header"]
+|===
+| slug | surface | page / section | capture | annotate
+
+| hero-skein-beside-editor | WEBVIEW+VS CODE | index — What Dialog IDE is
+| A `.dg` file open in the editor, the Skein panel open beside it with a small populated tree.
+| none (clean hero)
+
+| vscode-download-page | BROWSER | installing-vscode — Downloading
+| code.visualstudio.com with the OS download buttons visible.
+| none
+
+| vscode-first-window | VS CODE | installing-vscode — First launch
+| A fresh VS Code window (Welcome tab), nothing opened.
+| label the Activity Bar and the Explorer icon
+
+| command-palette | VS CODE | installing-vscode — The Command Palette
+| Palette open with `Dialog IDE` typed, showing the extension's commands.
+| none
+
+| extensions-view | VS CODE | installing-vscode — The Extensions view
+| Extensions sidebar open, search box focused/empty.
+| none
+
+| marketplace-extension-page | VS CODE | installing-the-extension — Installing from the Extensions view
+| The Dialog IDE page in the Extensions view, Install button visible.
+| none
+
+| status-bar-item | VS CODE | installing-the-extension — Confirming it is active
+| Bottom-left status bar, idle "Dialog Skein" item.
+| circle/arrow the item
+
+| init-command-palette | VS CODE | initializing-a-project — Run "Initialize Dialog Project"
+| Palette with "Dialog IDE: Initialize Dialog Project" highlighted.
+| none
+
+| scaffolded-explorer-tree | VS CODE | initializing-a-project — What gets scaffolded
+| Explorer after init: `main/ lib/ debug/ test/`, `dialog.json`, `cover.png`, the two PDFs.
+| none
+
+| generated-dialog-json | VS CODE | initializing-a-project — Reading the generated dialog.json
+| The generated `dialog.json` open in the editor.
+| none
+
+| first-skein-session | WEBVIEW | initializing-a-project — First run
+| Skein panel right after one command: root + one child knot, response visible.
+| none
+
+| dialog-json-with-categories | VS CODE | project-sources — Pointing at a specific toolchain (end of page)
+| A realistic `dialog.json` with several files across `main` / `test` / `debug` / `library`.
+| none
+
+| uncovered-source-badge-quickfix | VS CODE | project-sources — Uncovered-source warning
+| Explorer with the warning badge on an uncovered `.dg` file; the "Add to dialog.json" action shown.
+| arrow to the badge
+
+| add-file-picker | VS CODE | project-sources — Adding files from the palette
+| The category QuickPick (four categories + descriptions).
+| none
+
+| navgraph-annotated-spine-vs-branches | WEBVIEW | skein-concepts — The tree
+| A nav graph with at least two branch points and a collapsed node.
+| label: root, current spine, active knot, off-spine branch
+
+| skein-panel-annotated | WEBVIEW | creating-and-using-a-skein — Panel layout
+| The whole Skein panel, tree of ~10-15 knots, transcript populated.
+| label: navbar, nav graph, transcript, command input
+
+| diff-rendering | WEBVIEW | creating-and-using-a-skein — The transcript
+| A transcript row in the error state with a red/blue word-level diff and visible whitespace.
+| none
+
+| keystroke-input | WEBVIEW | creating-and-using-a-skein — The command input
+| The keystroke variant of the input (Key: field + Enter / Space / Backspace).
+| none
+
+| navgraph-closeup | WEBVIEW | creating-and-using-a-skein — The nav graph
+| Close crop of a branching graph: active node, a collapsed node, a tinted ancestor.
+| none
+
+| knot-menu-open | WEBVIEW | creating-and-using-a-skein — The per-knot actions menu
+| The "..." menu open on a transcript knot, all items visible.
+| none
+
+| replay-all-progress | WEBVIEW | creating-and-using-a-skein — Replaying
+| The Replay All progress notification with the Cancel button.
+| none
+
+| search-results | WEBVIEW | creating-and-using-a-skein — Search
+| The search dropdown with a few results and highlighted matches.
+| none
+
+| dynamic-state-chips | WEBVIEW | dynamic-state-and-trace — Dynamic State
+| Transcript with the toggle on, +/-/changed chips under a couple of knots.
+| none
+
+| trace-panel-with-source-preview | WEBVIEW | dynamic-state-and-trace — Trace
+| Trace panel with an expanded call tree and a hovering syntax-highlighted source-preview popover.
+| none
+
+| run-skein-picker | VS CODE | multiple-skeins — The mechanics
+| The Run Skein... QuickPick listing several `.skein` files.
+| none
+
+| configure-exports-wizard | VS CODE | building-and-exporting — Export configurations
+| The format QuickPick (zblorb / z8 / aa) inside the wizard.
+| none
+
+| export-success-toast | VS CODE | building-and-exporting — Compiling a story file
+| The "Exported ... to ..." notification with the Reveal button.
+| none
+
+| web-export-in-browser | BROWSER | building-and-exporting — The downloadable web page
+| `out/web/index.html` in a browser: cover, bibliography, Play button, feelie links.
+| none
+
+| add-feelie-flow | VS CODE | building-and-exporting — Feelies
+| Explorer right-click menu with "Dialog IDE: Add Feelie" highlighted.
+| none
+|===

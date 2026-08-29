@@ -1,0 +1,18 @@
+// Reused by installing-the-extension.adoc.
+
+[cols="1,3",options="header"]
+|===
+| Your platform | What you need
+
+| Windows (x64), Apple Silicon Mac, Linux (x64)
+| Nothing extra. `dgdebug`, `dialogc`, and `aambundle` are bundled with the extension.
+
+| Intel Mac, Linux ARM, other platforms
+| Install the https://github.com/dialog-if/dialog[Dialog toolchain] yourself, with `dgdebug` /
+  `dialogc` on `PATH` (or set `binDir` in `dialog.json`). `aambundle` from
+  https://github.com/dialog-if/aamachine[AAmachine] is needed only for *Export Web Page*.
+
+| Any platform, `frotz` / `frotz-release` engine
+| Additionally needs `dfrotz` (from https://gitlab.com/DavidGriffith/frotz[frotz]) on `PATH` /
+  `binDir` — not bundled on any platform yet.
+|===

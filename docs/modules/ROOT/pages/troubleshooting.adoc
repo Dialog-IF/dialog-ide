@@ -1,0 +1,62 @@
+= Troubleshooting and Known Limitations
+:navtitle: Troubleshooting
+
+This chapter collects the extension's current limitations and the handful of problems that come up
+often, with their fixes.
+
+== Known limitations
+
+* The `frotz` and `frotz-release` engines need `dfrotz` on your `PATH` or in `binDir`. Unlike
+`dgdebug` and `dialogc`, it is not bundled on any platform yet.
+* When a `.skein` file changes on disk, the extension offers to reload it, but there is no finer
+"merge from disk" beyond that.
+* Dynamic State and Trace require the `dgdebug` engine, and neither works for a command that ends on
+a single-keystroke prompt.
+* *Export Web Page* needs `aambundle`, from AAmachine, in addition to `dgdebug` and `dialogc`.
+* An export configuration cannot be edited through the wizard — remove it and add it again, or edit
+`dialog.json` directly.
+* Intel Macs and Linux on ARM have no bundled toolchain; install Dialog yourself (see
+xref:installing-the-extension.adoc[]).
+
+== "dgdebug not found", or a command that does nothing
+
+The toolchain is missing or was not found. Either your platform has no bundled toolchain, or the
+bundled one did not resolve.
+
+Put `dgdebug` and `dialogc` on your `PATH`, or add a `binDir` to `dialog.json` pointing at the
+directory that holds them (see
+xref:project-sources.adoc#pointing-at-a-specific-toolchain-bindir[Pointing at a specific
+toolchain]). `binDir` wins over everything else. `aambundle` is only needed for *Export Web Page*,
+and `dfrotz` only for the `frotz` engines.
+
+== A `.dg` file "isn't being compiled"
+
+* Check that some `sources` category covers it. The extension shows an Explorer badge and a
+notification for any uncovered `.dg` file, with a one-click fix.
+* Check the file name. A `something.<format>.dg` suffix restricts the file to that one build target.
+* Check the ordering. Categories are concatenated `main`, `test`, `debug`, `library`, and the first
+matching rule wins — a rule you expected to fire may be shadowed by an earlier one.
+
+See xref:project-sources.adoc[] for all three.
+
+== The Skein and the files on disk disagree
+
+Saving a skein is always explicit, so the two can drift. If you edited the `.skein` file outside the
+editor, accept the reload prompt. If you changed *source*, run *Replay* or *Replay All* to
+re-check the blessed responses against the new code.
+
+== Where things are written
+
+[cols="1,2",options="header"]
+|===
+| What | Where
+| Skeins | `*.skein` at the project root. Commit them.
+| Compiled story files | Wherever each export configuration's `output` points.
+| Web export | `out/web/`, plus a `.zip` in `out/`.
+| Frotz session builds | A temporary directory, rebuilt each time a `frotz` session starts.
+|===
+
+== Getting help
+
+The Interactive Fiction Community Forum has a thread for Dialog IDE:
+https://intfiction.org/t/dialog-ide-0-0-1/81465.
