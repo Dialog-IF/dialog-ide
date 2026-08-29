@@ -18,8 +18,7 @@ Dialog Project*. It asks one question — the project name, which defaults to th
 then scaffolds the project. If a `dialog.json` already exists in the folder, the command stops
 without changing anything.
 
-// SHOT: init-command-palette — Command Palette with "Dialog IDE: Initialize Dialog Project"
-// highlighted.
+image::init-command-palette.png["Command Palette with 'Dialog IDE: Initialize Dialog Project' highlighted"]
 
 == What it creates
 
@@ -62,8 +61,7 @@ web export (see xref:building-and-exporting.adoc[]).
 When the command finishes, `main/story.dg` opens in the editor so you have somewhere to start
 writing.
 
-// SHOT: scaffolded-explorer-tree — Explorer showing main/ lib/ debug/ test/, dialog.json,
-// cover.png, and the two PDFs.
+image::scaffolded-explorer-tree.png["Explorer showing main/ lib/ debug/ test/, dialog.json, cover.png, and the two PDFs"]
 
 == The generated dialog.json
 
@@ -89,7 +87,7 @@ entry is either a directory (every `.dg` file directly inside it) or a single fi
 categories, the rules for ordering, and the rest of `dialog.json` are covered in
 xref:project-sources.adoc[].
 
-// SHOT: generated-dialog-json — the file open in the editor with syntax coloring.
+image::generated-dialog-json.png["the file open in the editor with syntax coloring"]
 
 == Run it for the first time
 
@@ -100,7 +98,7 @@ and the response comes back as a new knot below the root.
 
 That is the whole loop. xref:creating-and-using-a-skein.adoc[] tours every control in the panel.
 
-// SHOT: first-skein-session — Skein panel just after one command, root + one child knot.
+image::first-skein-session.png["Skein panel just after one command, root + one child knot"]
 
 == Opening an existing project
 

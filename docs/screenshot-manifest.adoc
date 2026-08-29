@@ -1,9 +1,10 @@
 = Screenshot shot-list
 :page-role: -toc
 
-// Not a published page — a working checklist for capturing the manual's screenshots.
-// Each `// SHOT: <slug>` comment in a page corresponds to one row here. At flesh-out, replace the
-// comment with `image::<slug>.png[caption]` and drop the file in this directory.
+// Not a published page (it lives outside modules/, so Antora ignores it) — a working checklist for
+// capturing the manual's screenshots. Each row is one `image::<slug>.png[]` macro in a chapter;
+// the current file is a generated placeholder. To do a real capture, follow the row and overwrite
+// modules/ROOT/images/<slug>.png.
 //
 // Surfaces:
 //   VS CODE   — VS Code window chrome (Explorer, Command Palette, notifications, status bar).

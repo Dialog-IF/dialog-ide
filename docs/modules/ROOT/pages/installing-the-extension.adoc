@@ -12,8 +12,7 @@ working.
 is `hlship.dialog-ide`.
 . Click *Install*.
 
-// SHOT: marketplace-extension-page — the Dialog IDE marketplace page inside VS Code's Extensions
-// view, Install button visible; if the unverified-publisher note shows, include it in the crop.
+image::marketplace-extension-page.png["the Dialog IDE marketplace page inside VS Code's Extensions view, Install button visible; if the unverified-publisher note shows, include it in the crop"]
 
 During or after installing you may see a note that the publisher is *not verified* — the wording is
 along the lines of "hlship is not a verified publisher" or "This publisher has not verified
@@ -68,7 +67,7 @@ kbd:[Ctrl+Shift+O] should list the file's symbols. At the bottom-left of the win
 item reading *Dialog Skein* appears; when no session is running it shows a play icon and starts the
 default skein if you click it.
 
-// SHOT: status-bar-item — bottom-left status bar showing the idle "Dialog Skein" item.
+image::status-bar-item.png["bottom-left status bar showing the idle 'Dialog Skein' item"]
 
 If highlighting works but the *Dialog IDE:* commands fail when you run them, the cause is almost
 always a missing toolchain — check the table above, and see xref:troubleshooting.adoc[].

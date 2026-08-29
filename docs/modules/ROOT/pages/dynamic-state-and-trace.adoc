@@ -19,8 +19,7 @@ With it on, each transcript knot gains a row of chips after its response:
 * a yellow chip, `-name`, for one that became false or went away;
 * a blue chip, `name = value`, for a variable whose value changed.
 
-// SHOT: dynamic-state-chips — a transcript with the toggle on, showing +/-/changed chips under a
-// couple of knots.
+image::dynamic-state-chips.png["a transcript with the toggle on, showing +/-/changed chips under a couple of knots"]
 
 The comparison is against the nearest ancestor knot that has a captured snapshot — usually the
 parent, but not always. A freshly loaded skein, or a knot reached through a keystroke prompt, has
@@ -55,8 +54,7 @@ A trace is a tree of predicate calls. Each row shows an expand control (if it ha
 project root. The badges are *ENTER* (blue), *QUERY* (grey), *FOUND* (green), and *NOW* (yellow).
 *Expand All* and *Collapse All* buttons sit in the panel's header.
 
-// SHOT: trace-panel-with-source-preview — the Trace panel with an expanded call tree and a
-// syntax-highlighted source-preview popover hovering over one row.
+image::trace-panel-with-source-preview.png["the Trace panel with an expanded call tree and a syntax-highlighted source-preview popover hovering over one row"]
 
 === Filtering and jumping to source
 

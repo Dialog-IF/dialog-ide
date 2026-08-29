@@ -37,8 +37,7 @@ interpreter's startup banner: the text your project prints before the first prom
 A knot's children are the commands you have tried from that point. The tree grows only downward and
 outward — trying a new command adds a child, and nothing is ever removed to make room for it.
 
-// SHOT: navgraph-annotated-spine-vs-branches — a nav-graph screenshot annotated to point out the
-// root, the current spine, the active knot, and an off-spine branch.
+image::navgraph-annotated-spine-vs-branches.png["a nav-graph screenshot annotated to point out the root, the current spine, the active knot, and an off-spine branch"]
 
 == The spine and the active knot
 

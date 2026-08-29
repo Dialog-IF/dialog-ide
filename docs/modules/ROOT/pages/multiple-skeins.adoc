@@ -12,7 +12,7 @@ all for you to choose from, and *Dialog IDE: New Skein...* creates a new one. On
 at a time, so opening a second skein prompts you to stop the first. The name of the active skein
 appears in the panel's tab.
 
-// SHOT: run-skein-picker — the Run Skein... QuickPick listing several .skein files.
+image::run-skein-picker.png["the Run Skein... QuickPick listing several .skein files"]
 
 == Reasons to keep more than one
 

@@ -11,7 +11,7 @@ xref:installing-the-extension.adoc[].
 . Open https://code.visualstudio.com in a browser. The site detects your operating system and
 offers the matching download.
 +
-// SHOT: vscode-download-page — code.visualstudio.com with the platform download buttons visible.
+image::vscode-download-page.png["code.visualstudio.com with the platform download buttons visible"]
 . Install it the usual way for your platform:
 +
 --
@@ -47,7 +47,7 @@ To open one, use menu:File[Open Folder...] (on macOS, menu:File[Open...]). The *
 left — the top icon in the Activity Bar, or kbd:[Cmd+Shift+E] / kbd:[Ctrl+Shift+E] — shows the
 folder's contents. You will open a Dialog project this way in xref:initializing-a-project.adoc[].
 
-// SHOT: vscode-first-window — a fresh VS Code window, Welcome tab, Activity Bar on the left labeled.
+image::vscode-first-window.png["a fresh VS Code window, Welcome tab, Activity Bar on the left labeled"]
 
 [[the-command-palette]]
 == The Command Palette
@@ -60,7 +60,7 @@ command whose name begins with *Dialog IDE:* — for example *Dialog IDE: Initia
 Start typing any part of a command's name to filter the list, press kbd:[Enter] to run the
 highlighted one, or kbd:[Esc] to dismiss the palette without running anything.
 
-// SHOT: command-palette — palette open, "Dialog IDE" typed, the extension's commands listed.
+image::command-palette.png["palette open, 'Dialog IDE' typed, the extension's commands listed"]
 
 == The Extensions view
 
@@ -69,7 +69,7 @@ Bar icon that looks like stacked squares, or with kbd:[Cmd+Shift+X] / kbd:[Ctrl+
 you can search the marketplace, install or uninstall an extension, and disable one without removing
 it. The next chapter uses this view to install Dialog IDE.
 
-// SHOT: extensions-view — Extensions sidebar open with the search box focused.
+image::extensions-view.png["Extensions sidebar open with the search box focused"]
 
 == What's next
 

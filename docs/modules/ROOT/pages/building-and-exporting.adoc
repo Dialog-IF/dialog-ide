@@ -32,7 +32,7 @@ Export configurations are just data in `dialog.json` — the `exports` array, pl
 options, reorder the list. The wizard is a convenience, not the only way in.
 ====
 
-// SHOT: configure-exports-wizard — the format QuickPick (zblorb / z8 / aa) in the wizard.
+image::configure-exports-wizard.png["the format QuickPick (zblorb / z8 / aa) in the wizard"]
 
 == Building a story file
 
@@ -44,7 +44,7 @@ The sources handed to the compiler are expanded using that configuration's `incl
 and its `format`, so a file named `something.zblorb.dg` is included in a `zblorb` build and left
 out of the others (see xref:project-sources.adoc[]).
 
-// SHOT: export-success-toast — the "Exported ... to ..." notification with the Reveal button.
+image::export-success-toast.png["the 'Exported ... to ...' notification with the Reveal button"]
 
 == Cover image
 
@@ -72,8 +72,7 @@ project's own `(story $)` directives via `dgdebug`.
 This command needs `aambundle`, from AAmachine, in addition to `dgdebug` and `dialogc` — see
 xref:installing-the-extension.adoc[].
 
-// SHOT: web-export-in-browser — out/web/index.html open in a browser: cover, bibliography, Play
-// button, feelie links.
+image::web-export-in-browser.png["out/web/index.html open in a browser: cover, bibliography, Play button, feelie links"]
 
 == Feelies
 
@@ -90,7 +89,7 @@ Explorer and choose *Dialog IDE: Add Feelie*; either way you are then asked for 
 *Dialog IDE: Remove Feelie...* takes one out again. A configured feelie whose file is missing is a
 *hard error* when you export — fix the path in `dialog.json`, or remove the entry.
 
-// SHOT: add-feelie-flow — the Explorer right-click menu with "Dialog IDE: Add Feelie" highlighted.
+image::add-feelie-flow.png["the Explorer right-click menu with 'Dialog IDE: Add Feelie' highlighted"]
 
 == Story metadata
 

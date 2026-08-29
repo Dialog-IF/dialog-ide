@@ -50,8 +50,7 @@ The panel is a fixed-height column. Across the top is the *navbar*, which never 
 row holds the *nav graph* on the left and the *transcript* on the right, each scrolling
 independently. Along the bottom is the *command input*.
 
-// SHOT: skein-panel-annotated — the whole panel with each region labelled: navbar, nav graph,
-// transcript, command input.
+image::skein-panel-annotated.png["the whole panel with each region labelled: navbar, nav graph, transcript, command input"]
 
 == The transcript
 
@@ -71,8 +70,7 @@ menu. A knot reached by answering a single-keystroke prompt shows its keystroke 
 Clicking anywhere on a row except the menu button makes that knot the active knot. There is no
 right-click menu; the "..." button is the only way into a knot's actions.
 
-// SHOT: diff-rendering — a transcript row in the error state showing a red/blue word-level diff
-// and visible whitespace.
+image::diff-rendering.png["a transcript row in the error state showing a red/blue word-level diff and visible whitespace"]
 
 == The command input
 
@@ -83,7 +81,7 @@ When a knot's response ends on a single-keystroke prompt — a "press any key" p
 menu — the input changes to a one-character field labelled *Key:*, with *Enter*, *Space*, and
 *Backspace* buttons beside it. Any single printable key you type is sent immediately.
 
-// SHOT: keystroke-input — the keystroke variant of the command input with its three buttons.
+image::keystroke-input.png["the keystroke variant of the command input with its three buttons"]
 
 == The nav graph
 
@@ -104,8 +102,7 @@ to zoom in and out centred on the pointer. A *+* / *−* button pair at the bott
 on the middle of the view. The divider between the nav graph and the transcript can be dragged to
 change their split, and the position is remembered.
 
-// SHOT: navgraph-closeup — a branching nav graph with an active node, a collapsed node, and a
-// tinted ancestor.
+image::navgraph-closeup.png["a branching nav graph with an active node, a collapsed node, and a tinted ancestor"]
 
 == The per-knot actions menu
 
@@ -133,7 +130,7 @@ On the root knot every item is disabled except Trace, which becomes "trace start
 Insert Parent are also unavailable on a knot reached through a keystroke prompt. Delete refuses,
 with a brief error, if the knot or any descendant is locked or labelled.
 
-// SHOT: knot-menu-open — the actions menu open on a knot in the transcript.
+image::knot-menu-open.png["the actions menu open on a knot in the transcript"]
 
 == The navbar
 
@@ -163,7 +160,7 @@ Replay always compiles against the *current* files on disk, including any `.dg` 
 or removed since the session started — you do not need to restart the session first. See
 xref:project-sources.adoc#live-source-tracking[Live source tracking].
 
-// SHOT: replay-all-progress — the Replay All progress notification with its Cancel button.
+image::replay-all-progress.png["the Replay All progress notification with its Cancel button"]
 
 == Search
 
@@ -175,7 +172,7 @@ Results appear in a dropdown, each showing the command, a label chip if there is
 with the matched terms highlighted. Arrow keys move through the results; kbd:[Enter] opens the
 selected one, scrolling the transcript to it; kbd:[Esc] clears the search.
 
-// SHOT: search-results — the search dropdown with a few results and highlighted matches.
+image::search-results.png["the search dropdown with a few results and highlighted matches"]
 
 == Keyboard shortcuts
 

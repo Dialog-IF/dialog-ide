@@ -51,8 +51,7 @@ files individually, in the order you need them, rather than relying on a directo
 
 A path that does not exist on disk is skipped quietly; it is not an error.
 
-// SHOT: dialog-json-with-categories — a realistic dialog.json with several files across the four
-// categories.
+image::dialog-json-with-categories.png["a realistic dialog.json with several files across the four categories"]
 
 == Why order matters
 
@@ -101,8 +100,7 @@ fix that prompts for a category and edits the file for you.
 
 Turn this off with the `dialog-ide.warnOnUncoveredSource` setting if it gets in your way.
 
-// SHOT: uncovered-source-badge-quickfix — Explorer showing the badge on an uncovered .dg file,
-// with the quick-fix action visible.
+image::uncovered-source-badge-quickfix.png["Explorer showing the badge on an uncovered .dg file, with the quick-fix action visible"]
 
 == The duplicate-source warning
 
@@ -115,8 +113,7 @@ harmless. Turn this off with `dialog-ide.warnOnDuplicateSource`.
 Run *Dialog IDE: Add File to dialog.json...*. It offers the file currently open in the editor, or
 lets you browse for one, then asks which category to add it to and edits `dialog.json` in place.
 
-// SHOT: add-file-picker — the category QuickPick showing the four categories and their
-// descriptions.
+image::add-file-picker.png["the category QuickPick showing the four categories and their descriptions"]
 
 [[pointing-at-a-specific-toolchain-bindir]]
 == Pointing at a specific toolchain (binDir)

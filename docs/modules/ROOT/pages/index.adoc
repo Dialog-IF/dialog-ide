@@ -10,8 +10,7 @@ time.
 A note on words: the Dialog tooling, and this manual, say *project* rather than *game*. Plenty of
 interactive fiction is not a game, and "project" covers all of it.
 
-// SHOT: hero-skein-beside-editor — VS Code with a .dg file open on the left and the Skein panel
-// (nav graph + transcript + command box) open beside it on the right. The reference "money shot".
+image::hero-skein-beside-editor.png["VS Code with a .dg file open on the left and the Skein panel (nav graph + transcript + command box) open beside it on the right. The reference 'money shot'"]
 
 == The Skein in one paragraph
 
