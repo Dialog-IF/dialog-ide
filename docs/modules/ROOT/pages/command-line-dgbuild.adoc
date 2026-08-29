@@ -37,7 +37,7 @@ elsewhere with `-p <dir>` / `--project <dir>`.
 
 == dgbuild test
 
-Runs the project's unit tests, by invoking `dgdebug --unit-test`, and exits with `dgdebug`'s own
+Runs the project's unit tests, by invoking `dgdebug --unit-test`, and exits with `dgdebug` 's own
 exit code. It exits non-zero on any test failure — and also if `dialog.json` declares no `test`
 sources at all, since having nothing to run is treated as a failure rather than a silent pass.
 
