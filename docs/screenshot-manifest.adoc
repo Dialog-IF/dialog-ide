@@ -16,6 +16,17 @@
 //
 // Style: light theme, default VS Code UI, window ~1400px wide, no personal info on screen.
 // Annotations (arrows / labels) are added after capture; note them in "annotate".
+//
+// STATUS (2026-08-30):
+//   CAPTURED (real, @2x, from the dgsample fixture via scratchpad/shot-harness.mjs + headless
+//   Chrome): skein-panel-annotated, navgraph-closeup, navgraph-annotated-spine-vs-branches
+//   (same image, still needs the spine/branch labels drawn on), diff-rendering, knot-menu-open,
+//   search-results, dynamic-state-chips, trace-panel-with-source-preview (no hover popover yet),
+//   first-skein-session (approximate — shows a full tree, not a one-command session).
+//   STILL PLACEHOLDER — need manual capture, can't be automated (VS Code is an Electron app):
+//   every VS CODE row below, plus hero-skein-beside-editor (needs the editor beside the panel)
+//   and web-export-in-browser (run Export Web Page, then screenshot out/web/index.html).
+//   vscode-download-page is a plain web page — screenshot code.visualstudio.com in any browser.
 
 [cols="1,1,2,3,2",options="header"]
 |===
