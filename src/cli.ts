@@ -9,6 +9,7 @@
 import { Command, CommanderError } from 'commander';
 import { DialogCompileError } from './dialoged/skein';
 import { CliError, cliVersion } from './cli/context';
+import { registerBundleCommand } from './cli/commands/bundle';
 import { registerRunSkeinCommand } from './cli/commands/run-skein';
 import { registerSourcesCommand } from './cli/commands/sources';
 import { registerTestCommand } from './cli/commands/test';
@@ -22,6 +23,7 @@ program
 registerTestCommand(program);
 registerRunSkeinCommand(program);
 registerSourcesCommand(program);
+registerBundleCommand(program);
 
 // Prevent commander's own process.exit() calls so the catch below is the single place that
 // decides the final exit code.

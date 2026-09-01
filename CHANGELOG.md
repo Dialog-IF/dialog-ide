@@ -2,6 +2,8 @@
 
 ## 0.5.2 - Unreleased
 
+- Add `dgbuild bundle [export-name]` - builds the web page (`out/web/` + zip) for a `dialog.json` export configuration headlessly, so a GitHub Action can publish a release
+
 ## 0.5.1 - 28 Aug 2026
 
 - Fix the Skein and Trace views staying in light mode when VS Code is in a dark theme
