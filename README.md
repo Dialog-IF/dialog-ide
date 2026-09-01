@@ -130,11 +130,21 @@ A status bar item on the left also shows the current session (or lets you start 
 - **`dgbuild test`** - runs the project's unit tests (`dgdebug --unit-test`) and exits non-zero on any failure, *or if `dialog.json` declares no `test` sources at all* (nothing to run is treated as a failure, not a silent pass). `--no-debug` excludes debug sources (included by default, matching **Dialog IDE: Run Tests**); extra arguments after the options are passed through to `dgdebug`.
 - **`dgbuild run-skein [names...]`** - replays one or more saved skeins (default: `default`, matching `default.skein`) against a fresh `dgdebug` process each, exits non-zero if any knot's live response no longer matches its blessed response across any of them, and prints a `valid/new/error` count summary per skein plus a `total` line when running more than one, e.g. `default: 200/0/1 (valid/new/error)`. Errored knots are printed above the summary. Add `-v/--verbose` to see the underlying `dgdebug` process commands/lifecycle logging (suppressed by default - busy otherwise, especially with multiple skeins).
 - **`dgbuild sources`** - prints the project's expanded source file list (`-d/--debug`, `-t/--test` to include those categories, `-T/--target <suffix>` to filter by target suffix, `-1/--single-line` for a colon-joined line instead of one path per line).
+- **`dgbuild bundle [export-name]`** - builds the web page (`out/web/` plus a zip at `out/<name>-<release>.zip`) for one of `dialog.json`'s named export configurations, the headless equivalent of **Dialog IDE: Export Web Page...** - so a GitHub Action can publish a release. Pass the configuration name, or omit it when exactly one is defined. Needs `dialogc`, `dgdebug` and `aambundle`. Add `-v/--verbose` for the underlying `dgdebug` lifecycle logging.
 
 A minimal release-gating step in a GitHub Action:
 
 ```yaml
 - run: npx -p dialog-ide dgbuild test && npx -p dialog-ide dgbuild run-skein
+```
+
+To also publish a web page (e.g. to GitHub Pages) once the checks pass:
+
+```yaml
+- run: npx -p dialog-ide dgbuild bundle
+- uses: actions/upload-pages-artifact@v3
+  with:
+    path: out/web
 ```
 
 ## Using the Skein

@@ -36,6 +36,16 @@ export function resolveCliPatchSourcePath(): string {
 }
 
 /**
+ * This package's vendored web-bundle assets directory (resources/bundle/ - style.css, play.css,
+ * default-cover.png, the "how to play IF" PDFs) - the headless equivalent of extension.ts passing
+ * `path.join(context.extensionPath, 'resources', 'bundle')` into bundleWebExport. Shipped to npm
+ * via package.json's `resources` files-allowlist glob, same as resolveCliPatchSourcePath's.
+ */
+export function resolveCliBundleAssetsDir(): string {
+  return path.join(cliPackageRoot(), 'resources', 'bundle');
+}
+
+/**
  * Temporarily silences console.log (but not console.error) for the duration of fn() - the
  * shared session/process/persistence layer (session.ts, process.ts, persistence.ts) logs its own
  * lifecycle events unconditionally via console.log ("Starting process: dgdebug --numbered...",

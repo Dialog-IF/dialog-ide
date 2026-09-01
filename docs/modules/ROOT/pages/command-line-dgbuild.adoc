@@ -1,9 +1,10 @@
 = Command-Line Testing with dgbuild
 :navtitle: Command-Line Testing with dgbuild
 
-`dgbuild` runs the same project checks the extension does — unit tests, skein replay, source
-listing — from a terminal, with no editor involved. Its purpose is scripting and continuous
-integration: gating a merge on a green test run, or rebuilding a release automatically.
+`dgbuild` runs the same project operations the extension does — unit tests, skein replay, source
+listing, web-page bundling — from a terminal, with no editor involved. Its purpose is scripting and
+continuous integration: gating a merge on a green test run, or building and publishing a release
+automatically.
 
 == What it is, and installing it
 
@@ -90,6 +91,28 @@ dgbuild sources -d
 dgbuild sources -1 -T zblorb
 ----
 
+== dgbuild bundle
+
+Builds a complete web page for one of `dialog.json` 's named export configurations into `out/web/`,
+plus a zip at `out/<name>-<release>.zip` — the command-line equivalent of the extension's *Export
+Web Page...*. The page carries the downloadable story file (compiled with that configuration's own
+format, debug and `dialogc`-option settings), an in-browser https://github.com/dialog-if/aamachine[AAmachine]
+player, the cover thumbnail, the project's configured feelies, and — if `default.skein` has a knot
+labeled `WALKTHROUGH` — a walkthrough transcript. Title, author, blurb, release and IFID come from
+the project's own `(story ...)` directives, queried live via `dgdebug`.
+
+Name the configuration to build, or omit the name when `dialog.json` defines exactly one:
+
+[source,console]
+----
+dgbuild bundle
+dgbuild bundle Web -p ./my-project
+----
+
+Unlike the other commands, `bundle` needs all three of `dialogc`, `dgdebug` and `aambundle`
+available. `-v` / `--verbose` adds the underlying `dgdebug` lifecycle logging. It exits non-zero if
+no matching export configuration is found, a required binary is missing, or any build step fails.
+
 == In continuous integration
 
 A minimal release gate in a GitHub Actions workflow:
@@ -99,8 +122,19 @@ A minimal release gate in a GitHub Actions workflow:
 - run: npx -p dialog-ide dgbuild test && npx -p dialog-ide dgbuild run-skein
 ----
 
+To build and publish the web page once the checks pass — here to GitHub Pages:
+
+[source,yaml]
+----
+- run: npx -p dialog-ide dgbuild bundle
+- uses: actions/upload-pages-artifact@v3
+  with:
+    path: out/web
+----
+
 The runner also needs the Dialog toolchain available — install `dgdebug` onto its `PATH`, or point
-`dialog.json`'s `binDir` at a copy you provide.
+`dialog.json` 's `binDir` at a copy you provide. `dgbuild bundle` additionally needs `dialogc` and
+`aambundle`.
 
 == What's next
 
