@@ -431,6 +431,13 @@ html {
   background-color: color-mix(in srgb, var(--color-warning, #fbbf24) 25%, transparent);
 }
 
+/* One fixed indent step per nesting level. traceRender.ts nests each child's .trace-node inside
+   its parent's, so this single margin on the children wrapper compounds naturally down the tree -
+   unlike a per-node `margin-left: depth * step`, which double-counts every ancestor's offset. */
+.trace-children {
+  margin-left: 1.25rem;
+}
+
 .trace-chevron {
   display: inline-flex;
   align-items: center;

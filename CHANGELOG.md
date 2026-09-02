@@ -3,6 +3,7 @@
 ## 0.5.2 - Unreleased
 
 - Add `dgbuild bundle [export-name]` - builds the web page (`out/web/` + zip) for a `dialog.json` export configuration headlessly, so a GitHub Action can publish a release
+- Add `dgbuild new-skein [name]` / `dgbuild open-skein [name]` - create or open a skein and drive its full interactive browser UI with no VS Code; auto-opens a browser (`--no-open` to skip), with an in-UI Quit button that prompts to save when there are unsaved changes
 
 ## 0.5.1 - 28 Aug 2026
 

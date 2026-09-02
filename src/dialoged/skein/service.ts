@@ -51,6 +51,16 @@ export interface ServiceConfig {
    *  has no vscode API access itself (see CLAUDE.md's engine/IDE-integration split), hence the
    *  callback. */
   onCompileError?: (error: DialogCompileError) => void;
+  /** True when the UI is served to a plain browser by `dgbuild new-skein`/`open-skein` rather than
+   *  embedded in a VS Code webview. Threaded onto SessionDisplayInfo so renderNavbar adds the Quit
+   *  button + dirty marker, and onto renderTracePage so trace.js opens source in a tab instead of
+   *  the extension-only postMessage bridge. Unset by the extension - its output is unchanged. */
+  standalone?: boolean;
+  /** Called after POST /actions/quit has decided to shut down (a clean skein, or the user picked
+   *  Save/Quit-anyway in the confirm modal) and the "you may close this window" screen has been
+   *  broadcast - the CLI tears its process down here. This class has no process control itself,
+   *  hence the callback; undefined in the extension, which never renders the Quit button. */
+  onQuit?: () => void;
 }
 
 /**
@@ -179,6 +189,13 @@ export class SkeinService implements ProgressHost {
   // has no knowledge of). Explicit-save-only: nothing in this class ever calls this on its own
   // initiative, only POST /actions/save. Undefined when no session is active.
   private saveHandler: (() => Promise<void>) | undefined;
+  // The active session's tree as of the last save (or of setActiveSession, for a just-loaded or
+  // just-created-and-saved skein). SkeinTree is immutable-persistent - every structural edit and
+  // every navigation swaps in a new instance - so a plain identity check against this is a
+  // sufficient "has unsaved changes" test (same coarseness as dialog-tool's dirty? flag, which its
+  // capture-undo sets on navigation too). Only surfaced in standalone mode (the Quit flow); null
+  // when no session is active.
+  private lastSavedTree: SkeinTree | null = null;
   private readonly sseClients = new Set<http.ServerResponse>();
   private readonly onActiveSessionChange = (): void => this.broadcast();
   // Set only while a withProgress() call (SkeinSession.replayAll's progressHost) is in flight -
@@ -278,6 +295,7 @@ export class SkeinService implements ProgressHost {
       this.activeSession.offChange(this.onActiveSessionChange);
       this.activeSession = undefined;
       this.activeSessionId = undefined;
+      this.lastSavedTree = null;
     }
 
     await new Promise<void>((resolve, reject) => {
@@ -318,6 +336,7 @@ export class SkeinService implements ProgressHost {
     this.activeSession = session;
     this.activeSessionId = sessionId;
     this.saveHandler = onSave;
+    this.lastSavedTree = session ? session.getTree() : null;
 
     if (this.activeSession) {
       this.activeSession.onChange(this.onActiveSessionChange);
@@ -342,7 +361,27 @@ export class SkeinService implements ProgressHost {
       return undefined;
     }
     const tree = this.activeSession.getTree();
-    return { sessionId: this.activeSessionId, engine: tree.getEngine(), seed: tree.getSeed() };
+    return {
+      sessionId: this.activeSessionId,
+      engine: tree.getEngine(),
+      seed: tree.getSeed(),
+      standalone: this.config.standalone ?? false,
+      dirty: this.isActiveSessionDirty()
+    };
+  }
+
+  /** Whether the active session's tree differs from its last-saved state - see lastSavedTree. O(1)
+   *  (a reference compare), safe to call on every render. Public wrapper for the CLI's Ctrl+C path. */
+  private isActiveSessionDirty(): boolean {
+    return (
+      this.activeSession != null &&
+      this.lastSavedTree != null &&
+      this.activeSession.getTree() !== this.lastSavedTree
+    );
+  }
+
+  public isDirty(): boolean {
+    return this.isActiveSessionDirty();
   }
 
   /**
@@ -383,7 +422,7 @@ export class SkeinService implements ProgressHost {
 
     if (url.pathname === '/trace') {
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-      res.end(renderTracePage(this.currentTrace, this.traceLoading, themeFromQuery(url)));
+      res.end(renderTracePage(this.currentTrace, this.traceLoading, themeFromQuery(url), this.config.standalone ?? false));
       return;
     }
 
@@ -535,6 +574,11 @@ export class SkeinService implements ProgressHost {
 
     if (req.method === 'POST' && url.pathname === '/actions/save') {
       await this.handleSave(req, res);
+      return;
+    }
+
+    if (req.method === 'POST' && url.pathname === '/actions/quit') {
+      await this.handleQuit(url, req, res);
       return;
     }
 
@@ -1158,8 +1202,57 @@ export class SkeinService implements ProgressHost {
       return;
     }
 
+    this.lastSavedTree = this.activeSession.getTree();
     res.writeHead(204);
     res.end();
+  }
+
+  /**
+   * POST /actions/quit - the standalone (`dgbuild new-skein`/`open-skein`) navbar's Quit button and
+   * its confirm modal. With no query params: if the skein has unsaved changes, broadcast
+   * sk.showQuitModal() and stop; otherwise fall through to shutdown. ?save=1 saves first (the
+   * modal's "Save and Quit"); ?force=1 skips the dirty check (the modal's "Quit Without Saving").
+   * Shutdown = broadcast the "you may close this window" screen to both the transcript and any
+   * open /trace tab, respond 204, then fire onQuit() once the SSE frame has had time to land (the
+   * CLI resolves its keep-alive promise there and tears the process down). Inert in the extension:
+   * the button is never rendered and onQuit is undefined.
+   */
+  private async handleQuit(url: URL, req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+    await readRequestBody(req);
+    const save = url.searchParams.get('save') === '1';
+    const force = url.searchParams.get('force') === '1';
+
+    if (this.isActiveSessionDirty() && !save && !force) {
+      this.broadcastScript('sk.showQuitModal()');
+      res.writeHead(204);
+      res.end();
+      return;
+    }
+
+    if (save) {
+      if (!this.activeSession || !this.saveHandler) {
+        res.writeHead(400);
+        res.end();
+        return;
+      }
+      try {
+        await this.saveHandler();
+        this.lastSavedTree = this.activeSession.getTree();
+      } catch (error) {
+        console.error('Failed to save before quit:', error);
+        res.writeHead(500);
+        res.end();
+        return;
+      }
+    }
+
+    this.broadcastScript('sk.showShutdownScreen()');
+    this.broadcastTraceScript('sk.showShutdownScreen()');
+    res.writeHead(204);
+    res.end();
+    // Let the datastar-patch-elements frame reach the browser before the server closes its
+    // sockets - dialog-tool's own shutdown-fn sleeps 500ms here for the same reason.
+    setTimeout(() => this.config.onQuit?.(), 400);
   }
 
   /**
@@ -1584,6 +1677,14 @@ export class SkeinService implements ProgressHost {
 
   private broadcastScript(js: string): void {
     for (const client of this.sseClients) {
+      this.sendScript(client, js);
+    }
+  }
+
+  /** broadcastScript's counterpart for the Trace panel's own SSE audience (/trace/events) - used
+   *  by handleQuit so an open /trace tab also gets the "you may close this window" screen. */
+  private broadcastTraceScript(js: string): void {
+    for (const client of this.traceSseClients) {
       this.sendScript(client, js);
     }
   }

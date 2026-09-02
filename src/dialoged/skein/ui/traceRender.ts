@@ -75,12 +75,18 @@ function renderRow(tree: TraceTree, node: TraceNode, projectRoot: string): strin
     : '';
   const rowClass = ['trace-row', node.match ? 'trace-row-match' : ''].filter(Boolean).join(' ');
 
+  // Indentation is one fixed step per nesting level, applied to the .trace-children wrapper in CSS
+  // (media/style.css) - NOT node.depth here: renderRow nests each child's .trace-node inside its
+  // parent's, so a per-node `margin-left: depth * step` compounds (each level adds its own
+  // absolute offset on top of the parent's already-shifted box), and node.depth is dgdebug's raw
+  // stack depth, which starts well above 0 - together that blew the indent out to hundreds of rem
+  // a few levels in.
   const childrenHtml =
     hasChildren && node.expanded
       ? `<div class="trace-children">${node.children.map((id) => renderRow(tree, getNode(tree, id)!, projectRoot)).join('')}</div>`
       : '';
 
-  return `<div class="trace-node" style="margin-left: ${node.depth * 1.25}rem;">
+  return `<div class="trace-node">
   <div class="${rowClass}"${sourceAttrs}>
     ${
       hasChildren
@@ -145,10 +151,14 @@ export function renderTraceApp(state: CurrentTraceState | null, loading: boolean
 export function renderTracePage(
   state: CurrentTraceState | null,
   loading: boolean = false,
-  theme: 'light' | 'dark' = 'light'
+  theme: 'light' | 'dark' = 'light',
+  // See render.ts's SessionDisplayInfo.standalone - true when served to a plain browser by
+  // `dgbuild new-skein`/`open-skein`; lets trace.js skip the extension-only postMessage source
+  // bridge and react to the quit shutdown broadcast. Unset by the extension.
+  standalone: boolean = false
 ): string {
   return `<!doctype html>
-<html lang="en" data-theme="${theme}">
+<html lang="en" data-theme="${theme}"${standalone ? ' data-standalone="true"' : ''}>
 <head>
 <meta charset="UTF-8" />
 <title>Trace</title>

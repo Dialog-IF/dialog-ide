@@ -562,6 +562,142 @@ window.sk = {
   },
 
   // ---------------------------------------------------------------------------
+  // Standalone (`dgbuild new-skein`/`open-skein`) mode: served to a plain browser, not a VS Code
+  // webview. `data-standalone="true"` on <html> (render.ts's renderPage / traceRender.ts) is the
+  // signal. Adds the Trace-in-a-second-tab behaviour and the Quit / shutdown flow that the
+  // extension handles natively.
+
+  isStandalone() {
+    return document.documentElement.dataset.standalone === 'true';
+  },
+
+  // Opens (or refocuses) the Trace page in a second browser tab. The named target means every
+  // Trace... (knot menu or ⌥T) reuses the one tab rather than piling up new ones; the /trace page
+  // live-updates over its own /trace/events SSE stream.
+  openTrace() {
+    const theme = document.documentElement.dataset.theme || 'light';
+    window.open('/trace?theme=' + encodeURIComponent(theme), 'skein-trace');
+  },
+
+  // Called first thing from the knot menu's Trace item and the ⌥T accelerator, synchronously in
+  // the click/keydown so window.open counts as a user gesture and isn't popup-blocked. A no-op
+  // outside standalone mode (the extension shows trace in a docked panel instead). It must live
+  // in the button's own data-on:click, not a bubbled document listener: the menu popover's
+  // data-on:click__stop (knot-menu.ts) stops the event before it reaches document.
+  maybeOpenTrace() {
+    if (this.isStandalone()) this.openTrace();
+  },
+
+  // The navbar Quit button POSTs /actions/quit; if the skein is dirty the server answers by
+  // broadcasting this instead of shutting down. Three choices, modelled on showLabelModal's shell.
+  showQuitModal() {
+    this.hideQuitModal();
+    closeAllDropdowns();
+
+    const overlay = document.createElement('div');
+    overlay.id = 'quit-modal';
+    overlay.className = 'fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-grayscale';
+
+    const panel = document.createElement('div');
+    panel.className = 'bg-base-100 rounded-lg shadow-xl max-w-full min-w-md mx-4';
+    panel.setAttribute('role', 'dialog');
+    panel.setAttribute('aria-modal', 'true');
+    panel.setAttribute('tabindex', '-1');
+
+    const header = document.createElement('div');
+    header.className = 'px-6 py-4 border-b border-base-200';
+    const heading = document.createElement('h3');
+    heading.className = 'text-lg font-medium text-base-content';
+    heading.textContent = 'Unsaved Changes';
+    header.appendChild(heading);
+
+    const body = document.createElement('div');
+    body.className = 'px-6 py-4';
+
+    const errorEl = document.createElement('div');
+    errorEl.className = 'alert alert-error text-sm mb-3 hidden';
+    errorEl.setAttribute('role', 'alert');
+    errorEl.setAttribute('aria-live', 'assertive');
+    body.appendChild(errorEl);
+
+    const prompt = document.createElement('p');
+    prompt.className = 'text-sm text-base-content mb-4';
+    prompt.textContent = 'You have unsaved changes. What would you like to do?';
+    body.appendChild(prompt);
+
+    const buttonCol = document.createElement('div');
+    buttonCol.className = 'flex flex-col gap-2';
+
+    const quitVia = async (query, failMsg) => {
+      errorEl.classList.add('hidden');
+      let res;
+      try {
+        res = await fetch('/actions/quit' + query, { method: 'POST' });
+      } catch {
+        errorEl.textContent = 'Failed to reach the server.';
+        errorEl.classList.remove('hidden');
+        return;
+      }
+      if (res.status === 204) {
+        // The server broadcasts sk.showShutdownScreen() over SSE; nothing more to do here.
+        return;
+      }
+      errorEl.textContent = failMsg;
+      errorEl.classList.remove('hidden');
+    };
+
+    const saveQuitBtn = document.createElement('button');
+    saveQuitBtn.type = 'button';
+    saveQuitBtn.className = 'btn btn-primary';
+    saveQuitBtn.textContent = 'Save and Quit';
+    saveQuitBtn.addEventListener('click', () => quitVia('?save=1', 'Failed to save - not quitting.'));
+
+    const forceQuitBtn = document.createElement('button');
+    forceQuitBtn.type = 'button';
+    forceQuitBtn.className = 'btn btn-warning';
+    forceQuitBtn.textContent = 'Quit Without Saving';
+    forceQuitBtn.addEventListener('click', () => quitVia('?force=1', 'Failed to quit.'));
+
+    const cancelBtn = document.createElement('button');
+    cancelBtn.type = 'button';
+    cancelBtn.className = 'btn btn-neutral';
+    cancelBtn.textContent = 'Cancel';
+    cancelBtn.addEventListener('click', () => this.hideQuitModal());
+
+    buttonCol.append(saveQuitBtn, forceQuitBtn, cancelBtn);
+    body.appendChild(buttonCol);
+
+    panel.append(header, body);
+    overlay.appendChild(panel);
+    document.body.appendChild(overlay);
+
+    panel.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        this.hideQuitModal();
+      }
+    });
+
+    panel.focus();
+  },
+
+  hideQuitModal() {
+    document.getElementById('quit-modal')?.remove();
+  },
+
+  // The server broadcasts this over both /events and /trace/events just before it tears the
+  // process down (POST /actions/quit). Browsers won't let a page close a user/OS-opened tab, so -
+  // like dialog-tool's #skein-shutdown screen - we just tell the user they can close it, and stop
+  // the now-pointless SSE reconnect churn against the port that's about to disappear.
+  showShutdownScreen() {
+    try { window.stop(); } catch (e) { /* not supported everywhere; harmless */ }
+    document.body.innerHTML =
+      '<div class="h-screen flex items-center justify-center text-center">' +
+      '<div><h2 class="text-2xl font-semibold text-base-content mb-4">Skein Shutdown</h2>' +
+      '<p class="text-base-content opacity-70">You may close this window now.</p></div></div>';
+  },
+
+  // ---------------------------------------------------------------------------
   // Tree/graph pane: SVG connector lines + drag-to-pan.
   // Ported from dialog-tool's own main.js (initTreeGraph/drawTreeArrows) - same element ids
   // (#tree-pane, [data-tree-node-id], [data-parent-id], [data-active-knot]) so this applies
@@ -940,6 +1076,16 @@ document.addEventListener('click', (evt) => {
   if (!evt.target.closest('#skein-search-box')) dismissSearch();
 });
 
+// Standalone mode only: warn before an accidental tab close drops unsaved work. renderNavbar
+// stamps data-dirty on <nav>; the server keeps running regardless (the CLI printed how to stop
+// it), so this only guards against losing tree edits, not against "leaving the server up".
+window.addEventListener('beforeunload', (evt) => {
+  if (window.sk.isStandalone() && document.querySelector('nav[data-dirty="true"]')) {
+    evt.preventDefault();
+    evt.returnValue = '';
+  }
+});
+
 // ---------------------------------------------------------------------------
 // Keyboard accelerators - mirrors dialog-tool's own Cmd/Option-based scheme (doc/skein.md),
 // adapted to dialog-ide's actual routes. One capturing document-level keydown listener,
@@ -988,7 +1134,8 @@ document.addEventListener('keydown', (evt) => {
     document.getElementById('progress-modal') ||
     document.getElementById('label-modal') ||
     document.getElementById('command-modal') ||
-    document.getElementById('insert-parent-modal')
+    document.getElementById('insert-parent-modal') ||
+    document.getElementById('quit-modal')
   ) return;
 
   const mod = evt.metaKey || evt.ctrlKey;
@@ -1083,6 +1230,9 @@ document.addEventListener('keydown', (evt) => {
       // ts's traceKnot itself already refuses that case safely, same as every other accelerator
       // here that doesn't pre-validate a knot's specific state before firing.
       evt.preventDefault();
+      // In standalone mode the trace result renders on the separate /trace page - open/refocus
+      // that tab now, on the keydown's own user gesture, so window.open isn't popup-blocked.
+      window.sk.maybeOpenTrace();
       if (knotId === 0) {
         postAction('/actions/trace-startup');
       } else {

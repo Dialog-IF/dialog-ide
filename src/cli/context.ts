@@ -46,6 +46,26 @@ export function resolveCliBundleAssetsDir(): string {
 }
 
 /**
+ * This package's vendored web UI assets (media/style.css, media/js/*, media/icons/*) - the
+ * headless equivalent of extension.ts passing `path.join(context.extensionPath, 'media')` into
+ * SkeinService's ServiceConfig.mediaRoot. Shipped to npm via package.json's `media` files-allowlist
+ * glob.
+ */
+export function resolveCliMediaRoot(): string {
+  return path.join(cliPackageRoot(), 'media');
+}
+
+/**
+ * This package's bundled Dialog TextMate grammar, used to syntax-colour the trace hover/source
+ * snippets - the headless equivalent of extension.ts's resolveDialogGrammarPath (which resolves
+ * the separately-installed language extension's copy instead). Shipped via the `syntaxes`
+ * files-allowlist glob.
+ */
+export function resolveCliGrammarPath(): string {
+  return path.join(cliPackageRoot(), 'syntaxes', 'dialog.tmLanguage.json');
+}
+
+/**
  * Temporarily silences console.log (but not console.error) for the duration of fn() - the
  * shared session/process/persistence layer (session.ts, process.ts, persistence.ts) logs its own
  * lifecycle events unconditionally via console.log ("Starting process: dgdebug --numbered...",
