@@ -2,9 +2,10 @@
 :navtitle: Command-Line Testing with dgbuild
 
 `dgbuild` runs the same project operations the extension does — unit tests, skein replay, source
-listing, web-page bundling — from a terminal, with no editor involved. Its purpose is scripting and
-continuous integration: gating a merge on a green test run, or building and publishing a release
-automatically.
+listing, web-page bundling, and the full interactive Skein UI — from a terminal, with no editor
+involved. Its purpose is scripting and continuous integration — gating a merge on a green test run,
+or building and publishing a release automatically — plus editing a skein on a machine that has no
+VS Code.
 
 == What it is, and installing it
 
@@ -77,6 +78,39 @@ $ dgbuild run-skein combat parser endings
 ----
 
 This is the command-line equivalent of the panel's *Replay All*.
+
+== dgbuild new-skein and open-skein
+
+These run the *full interactive Skein UI* — the same transcript, navigation graph, trace panel and
+keyboard shortcuts the extension's Skein panel provides — served as a local web page, with no editor
+involved. `dgbuild` starts an HTTP server on `localhost`, prints its URL, and opens your default
+browser at it (pass `--no-open` to just print the URL, e.g. on a headless box).
+
+`new-skein [name]` creates a new skein file (default `default.skein`) and refuses to overwrite an
+existing one. `open-skein [name]` opens an existing one, refuses a missing file, and replays every
+branch on load so live source edits are picked up — exactly as the extension does when it opens a
+skein. Only `dgdebug` skeins are supported for now.
+
+[source,console]
+----
+dgbuild new-skein
+dgbuild new-skein combat --seed 42
+dgbuild open-skein --port 8600 --theme dark
+----
+
+Options: `--seed <n>` (`new-skein` only; default a random seed), `--port <n>` (default an
+OS-assigned free port), `--theme <light|dark>`, `--no-open`, `-p` / `--project`, and `-v` /
+`--verbose`.
+
+*Stopping it.* The navigation bar carries a *Quit* button. If the skein has unsaved changes it opens
+a confirmation dialog offering *Save and Quit*, *Quit Without Saving*, or *Cancel*; a clean skein
+quits immediately. Either way the browser tab is left showing a "you may close this window" screen
+while `dgbuild` shuts the server and the `dgdebug` process down and exits. Pressing kbd:[Ctrl+C] in
+the terminal also shuts down cleanly, but cannot save — it warns if there are unsaved changes.
+
+*Tracing.* Choosing *Trace* on a knot opens the trace in a second browser tab (the extension shows
+it in a docked panel instead). Hovering a trace row still previews the source; clicking it does
+nothing here, since there is no editor to open.
 
 == dgbuild sources
 

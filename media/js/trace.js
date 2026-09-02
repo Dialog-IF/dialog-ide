@@ -4,10 +4,30 @@
 // rows, plus the postMessage bridge back to the extension host (only extension.ts has the
 // vscode API needed to actually open/focus an editor - see extension.ts's TraceViewProvider).
 window.sk = window.sk || {};
+
+function traceIsStandalone() {
+  return document.documentElement.dataset.standalone === 'true';
+}
+
 window.sk.trace = {
   openSource(file, line) {
+    // In standalone mode (`dgbuild new-skein`/`open-skein`) there's no extension host to receive
+    // this, and no editor to open - the row keeps its hover source-preview, but the click is a
+    // no-op rather than a message into the void.
+    if (traceIsStandalone()) return;
     window.parent.postMessage({ type: 'openSource', file, line }, '*');
   }
+};
+
+// The server broadcasts this over /trace/events just before it shuts the process down (POST
+// /actions/quit). This page loads trace.js, not main.js, so it needs its own copy - keep it in
+// step with main.js's showShutdownScreen.
+window.sk.showShutdownScreen = function () {
+  try { window.stop(); } catch (e) { /* not supported everywhere; harmless */ }
+  document.body.innerHTML =
+    '<div class="h-screen flex items-center justify-center text-center">' +
+    '<div><h2 class="text-2xl font-semibold text-base-content mb-4">Skein Shutdown</h2>' +
+    '<p class="text-base-content opacity-70">You may close this window now.</p></div></div>';
 };
 
 let hoverTimer = null;

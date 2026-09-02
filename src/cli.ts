@@ -10,6 +10,8 @@ import { Command, CommanderError } from 'commander';
 import { DialogCompileError } from './dialoged/skein';
 import { CliError, cliVersion } from './cli/context';
 import { registerBundleCommand } from './cli/commands/bundle';
+import { registerNewSkeinCommand } from './cli/commands/new-skein';
+import { registerOpenSkeinCommand } from './cli/commands/open-skein';
 import { registerRunSkeinCommand } from './cli/commands/run-skein';
 import { registerSourcesCommand } from './cli/commands/sources';
 import { registerTestCommand } from './cli/commands/test';
@@ -22,6 +24,8 @@ program
 
 registerTestCommand(program);
 registerRunSkeinCommand(program);
+registerNewSkeinCommand(program);
+registerOpenSkeinCommand(program);
 registerSourcesCommand(program);
 registerBundleCommand(program);
 

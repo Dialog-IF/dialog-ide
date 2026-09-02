@@ -21,6 +21,14 @@ export interface SessionDisplayInfo {
   sessionId: string;
   engine: EngineType;
   seed: number;
+  /** True when the UI is served to a plain browser by `dgbuild new-skein`/`open-skein` rather than
+   *  embedded in a VS Code webview. Adds the navbar Quit button and its dirty indicator, and lets
+   *  main.js/trace.js open the Trace tab with window.open instead of the extension-only postMessage
+   *  bridge. Left unset (falsy) by the extension, so its navbar output is unchanged. */
+  standalone?: boolean;
+  /** True when the tree has unsaved changes since the last save (service.ts's isActiveSessionDirty).
+   *  Only surfaced when `standalone` - drives the navbar's unsaved marker and the beforeunload guard. */
+  dirty?: boolean;
 }
 
 const STATUS_BORDER_CLASS: Record<KnotStatus, string> = {
@@ -552,8 +560,10 @@ export function renderNavbar(
   const t = totals(tree);
   const spineLeafId = tree.getSelectedLeafId();
   const dgdebug = info.engine === 'dgdebug';
+  const standalone = info.standalone === true;
+  const dirty = standalone && info.dirty === true;
   return `<nav class="bg-base-100 text-base-content border-base-200 divide-base-200 px-2 sm:px-4 py-2.5 w-full border-b shrink-0"
-  data-spine-leaf-id="${spineLeafId}">
+  data-spine-leaf-id="${spineLeafId}" data-dirty="${dirty}">
   <div class="w-full flex items-center gap-2">
     <div class="join shrink-0">
       <div class="bg-success text-success-content p-2 font-semibold rounded-l-lg" aria-label="${t.valid} ok knots">${t.valid}</div>
@@ -581,15 +591,22 @@ export function renderNavbar(
       </button>`).join('')}
     </div>
     <div class="flex items-center gap-1 shrink-0 ml-auto">
-      <button type="button" class="btn btn-primary" data-on:click="@post('/actions/save')" title="Save this skein to its file - the only thing that ever writes to disk (⌘S)">
-        <div class="icon icon-save" aria-hidden="true"></div><span class="hidden lg:inline">Save</span>
+      <button type="button" class="btn btn-primary${dirty ? ' btn-soft' : ''}" data-on:click="@post('/actions/save')" title="Save this skein to its file - the only thing that ever writes to disk (⌘S)">
+        <div class="icon icon-save" aria-hidden="true"></div><span class="hidden lg:inline">${dirty ? '● ' : ''}Save</span>
       </button>
       <button type="button" class="btn btn-primary" data-on:click="@post('/actions/replay-all')" title="Re-run every command on every path in the tree against a fresh process (⌥⇧R)">
         <div class="icon icon-play" aria-hidden="true"></div><span class="hidden lg:inline">Replay All</span>
       </button>
       <button type="button" class="btn btn-primary" data-on:click="$knotId = ${spineLeafId}; @post('/actions/bless-changes')" title="Bless every changed knot visible in the transcript (the active spine) (⌥⇧B)">
         <div class="icon icon-bless" aria-hidden="true"></div><span class="hidden lg:inline">Bless Transcript</span>
-      </button>
+      </button>${
+        standalone
+          ? `
+      <button type="button" class="btn btn-warning" data-on:click="@post('/actions/quit')" title="Stop the skein server and close (prompts to save first if there are unsaved changes)">
+        <div class="icon icon-error" aria-hidden="true"></div><span class="hidden lg:inline">Quit</span>
+      </button>`
+          : ''
+      }
     </div>
   </div>
 </nav>`;
@@ -681,7 +698,7 @@ export function renderPage(
       : '<div id="skein-app" class="p-4">No skein session running.</div>';
 
   return `<!doctype html>
-<html lang="en" data-theme="${theme}">
+<html lang="en" data-theme="${theme}"${info?.standalone ? ' data-standalone="true"' : ''}>
 <head>
 <meta charset="UTF-8" />
 <title>Dialog Skein</title>

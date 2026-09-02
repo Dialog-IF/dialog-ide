@@ -11,14 +11,14 @@ describe('renderKnotMenu', () => {
   });
 
   describe('Trace item', () => {
-    it('posts to trace-knot with the knot id for a non-root knot', () => {
+    it('posts to trace-knot with the knot id for a non-root knot (after opening the standalone trace tab)', () => {
       const html = renderKnotMenu(3, true, true, '/actions/open-transcript-menu');
-      expect(html).toContain(`data-on:click="$knotId = 3; @post('/actions/trace-knot')"`);
+      expect(html).toContain(`data-on:click="sk.maybeOpenTrace(); $knotId = 3; @post('/actions/trace-knot')"`);
     });
 
     it("posts to trace-startup for the root knot - there's no parent to replay to, so root's own Trace action traces startup instead", () => {
       const html = renderKnotMenu(0, true, true, '/actions/open-transcript-menu');
-      expect(html).toContain(`data-on:click="@post('/actions/trace-startup')"`);
+      expect(html).toContain(`data-on:click="sk.maybeOpenTrace(); @post('/actions/trace-startup')"`);
       expect(html).not.toContain('trace-knot');
     });
 

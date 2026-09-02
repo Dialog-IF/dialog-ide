@@ -173,6 +173,35 @@ describe('renderNavbar', () => {
     const html = renderNavbar(INFO, tree);
     expect(html).not.toContain('aria-pressed="true"');
   });
+
+  it('omits the Quit button and dirty markers unless standalone (the extension case)', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1);
+    const plain = renderNavbar(INFO, tree);
+    expect(plain).not.toContain("@post('/actions/quit')");
+    expect(plain).toContain('data-dirty="false"');
+
+    // A dirty flag alone does nothing without standalone.
+    const dirtyOnly = renderNavbar({ ...INFO, dirty: true }, tree);
+    expect(dirtyOnly).not.toContain("@post('/actions/quit')");
+    expect(dirtyOnly).toContain('data-dirty="false"');
+    expect(dirtyOnly).not.toContain('● Save');
+  });
+
+  it('adds the Quit button in standalone mode', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1);
+    const html = renderNavbar({ ...INFO, standalone: true }, tree);
+    expect(html).toContain("@post('/actions/quit')");
+    expect(html).toContain('>Quit<');
+    expect(html).toContain('data-dirty="false"');
+    expect(html).not.toContain('● Save');
+  });
+
+  it('marks the navbar and Save button dirty in standalone mode when there are unsaved changes', () => {
+    const tree = SkeinTree.newTree('dgdebug', 1);
+    const html = renderNavbar({ ...INFO, standalone: true, dirty: true }, tree);
+    expect(html).toContain('data-dirty="true"');
+    expect(html).toContain('● Save');
+  });
 });
 
 describe('renderNavbar search box', () => {
@@ -841,6 +870,18 @@ describe('renderPage', () => {
     const tree = SkeinTree.newTree('dgdebug', 1).addChild(0, 'look', { text: 'a', inputType: 'line' }).setActiveKnotId(1);
     const html = renderPage(INFO, tree, 1);
     expect(html).toContain('<details class="dropdown dropdown-right font-sans" open style="anchor-name: --knot-menu-graph-1">');
+  });
+
+  describe('standalone', () => {
+    it('adds data-standalone to <html> only when info.standalone is set', () => {
+      const plain = renderPage(INFO, SkeinTree.newTree('dgdebug', 1));
+      expect(plain).toContain('<html lang="en" data-theme="light">');
+      expect(plain).not.toContain('data-standalone');
+
+      const standalone = renderPage({ ...INFO, standalone: true }, SkeinTree.newTree('dgdebug', 1));
+      expect(standalone).toContain('<html lang="en" data-theme="light" data-standalone="true">');
+      expect(standalone).toContain("@post('/actions/quit')");
+    });
   });
 
   describe('theme', () => {
