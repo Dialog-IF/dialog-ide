@@ -1,5 +1,7 @@
 # Changelog
 
+## 0.6.1 - Unreleased
+
 ## 0.6.0 - 2 Sep 2026
 
 - Add `dgbuild bundle [export-name]` - builds the web page (`out/web/` + zip) for a `dialog.json` export configuration headlessly, so a GitHub Action can publish a release
