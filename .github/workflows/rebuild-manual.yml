@@ -1,9 +1,10 @@
 name: Rebuild Manual
 
 # The Dialog manual (Dialog-IF/manual) pulls this repo's docs/ directory in as an Antora content
-# source, so every push to main can leave the published manual stale. This fires a
+# source, so a merge to main that touches docs/ can leave the published manual stale. This fires a
 # repository_dispatch at that repo to rebuild and redeploy it. release.yml fires the same event
-# after a tagged release; this covers the far more common plain merge to main.
+# after a tagged release; this covers the far more common plain merge to main. Scoped to docs/ -
+# a code-only merge produces an identical site, so there's nothing to rebuild.
 #
 # Needs a MANUAL_REBUILD_TOKEN repository secret - a token with Contents: read and write on
 # dialog-if/manual (classic PAT: repo scope). See that repo's README, "Triggering a rebuild from
@@ -12,6 +13,7 @@ name: Rebuild Manual
 on:
   push:
     branches: [main]
+    paths: ['docs/**']
   workflow_dispatch:
 
 permissions:
