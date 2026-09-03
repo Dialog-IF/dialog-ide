@@ -1,0 +1,34 @@
+name: Rebuild Manual
+
+# The Dialog manual (Dialog-IF/manual) pulls this repo's docs/ directory in as an Antora content
+# source, so every push to main can leave the published manual stale. This fires a
+# repository_dispatch at that repo to rebuild and redeploy it. release.yml fires the same event
+# after a tagged release; this covers the far more common plain merge to main.
+#
+# Needs a MANUAL_REBUILD_TOKEN repository secret - a token with Contents: read and write on
+# dialog-if/manual (classic PAT: repo scope). See that repo's README, "Triggering a rebuild from
+# another repository".
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Coalesce a burst of merges into a single rebuild rather than one per push.
+concurrency:
+  group: rebuild-manual
+  cancel-in-progress: true
+
+jobs:
+  rebuild-manual:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger manual rebuild
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          token: ${{ secrets.MANUAL_REBUILD_TOKEN }}
+          repository: dialog-if/manual
+          event-type: rebuild-manual
